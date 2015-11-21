@@ -1,0 +1,43 @@
+The Habanero AutoGrader for parallel programs
+
+===== Dependencies =====
+
+ - npm
+ - nodejs
+ - postgres
+
+===== npm installation instructions =====
+
+ 1. sudo apt-get install npm
+
+===== nodejs installation instructions =====
+
+ 1. curl -sL https://deb.nodesource.com/setup_4.x | sudo -E bash -
+ 2. sudo apt-get install -y nodejs
+
+If that doesn't work, take a look at https://nodejs.org/en/download/package-manager/.
+
+===== postgres installation instructions =====
+
+ 1. apt-get install postgresql
+ 2. apt-get install postgresql-contrib
+ 3. sudo -u postgres psql postgres
+    a. \password postgres
+    b. Set the postgres user's password (e.g. "foobar")
+    c. Ctrl+D to exit
+ 4. Create the autograder database:
+    a. sudo -u postgres createdb autograder
+ 5. To restart server:
+    a. sudo /etc/init.d/postgresql restart
+ 6. To login to the autograder database:
+    a. sudo -u postgres psql --username=postgres --dbname=autograder
+    b. \l to list all databases (this should show autograder)
+    c. \dt to list all tables in the current database (should be empty now)
+ 7. sudo -u postgres psql --username=postgres --dbname=autograder --file=setup.sql
+
+===== AutoGrader installation instructions =====
+
+1. git clone https://max-grossman@bitbucket.org/max-grossman/habanero-autograder.git
+2. cd habanero-autograder
+3. npm install
+4. node app.js

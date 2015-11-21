@@ -1,0 +1,45 @@
+<nav class="navbar navbar-default">
+  <div class="container-fluid">
+    <!-- Brand and toggle get grouped for better mobile display -->
+    <div class="navbar-header">
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      <a class="navbar-brand" href="#">Habanero AutoGrader</a>
+    </div>
+
+    <!-- Collect the nav links, forms, and other content for toggling -->
+    <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
+      <ul class="nav navbar-nav">
+        <li><a href="/overview">Overview</a></li>
+      </ul>
+      <ul class="nav navbar-nav navbar-right">
+        <li><a href="/login">Login</a></li>
+        <li><a href="/logout">Logout</a></li>
+      </ul>
+    </div><!-- /.navbar-collapse -->
+  </div><!-- /.container-fluid -->
+</nav>
+
+<div style="display:none" class="alert alert-success" role="alert" id="alert-success"></div>
+<div style="display:none" class="alert alert-danger" role="alert" id="alert-error"></div>
+
+<script type="text/javascript">
+function hide_success() { $('#alert-success').css('display', 'none'); }
+function hide_error() { $('#alert-error').css('display', 'none'); }
+
+function show_success(msg) {
+  hide_error();
+  $('#alert-success').css('display', 'block');
+  $('#alert-success').html('<center>' + msg + '</center>');
+}
+
+function show_error(msg) {
+  hide_success();
+  $('#alert-error').css('display', 'block');
+  $('#alert-error').html('<center>' + msg + '</center>');
+}
+</script>
