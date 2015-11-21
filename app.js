@@ -39,8 +39,6 @@ app.post('/login', function(req, res, next) {
 
   console.log('login: username=' + username + ' password=' + password);
 
-  var passwordHash = bcrypt.hashSync(password);
-
   // Check that user exists
   pgclient(function(client, done) {
         var query = client.query("SELECT * FROM users WHERE user_name=($1)", [username]);

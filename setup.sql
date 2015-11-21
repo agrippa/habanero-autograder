@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS users
 (
  user_id BIGSERIAL PRIMARY KEY,
- user_name TEXT NOT NULL,
+ user_name TEXT NOT NULL UNIQUE,
  password_hash TEXT NOT NULL,
  is_admin BOOLEAN NOT NULL
 );
@@ -15,3 +15,16 @@ WHERE
     NOT EXISTS (
             SELECT user_name FROM users WHERE user_name = 'admin'
             );
+
+CREATE TABLE IF NOT EXISTS assignments
+(
+ assignment_id BIGSERIAL PRIMARY KEY,
+ name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS runs
+(
+ run_id BIGSERIAL PRIMARY KEY,
+ user_id BIGSERIAL,
+ assignment_id BIGSERIAL
+);
