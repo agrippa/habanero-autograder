@@ -20,6 +20,9 @@ if [[ $EXISTS == 0 ]]; then
     sudo -u postgres psql --tuples-only --username=postgres \
         --dbname=autograder --command="$SQL_CMD"
 
+    mkdir -p submissions/$NETID
+    mkdir -p logs/$NETID
+
     echo $NETID $PW >> passwords
     echo $NETID $PW
 else
