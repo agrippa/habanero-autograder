@@ -1,0 +1,15 @@
+{
+  "name": "HabaneroAutograder",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Habanero Auto-Grader",
+  "license": "MIT",
+  "repository": "https://bitbucket.org/max-grossman/habanero-autograder",
+  "main": "main.js",
+  "dependencies": {
+    "express": "^4.13.3"
+  },
+  "scripts": {
+    "start": "node main.js"
+  }
+}
