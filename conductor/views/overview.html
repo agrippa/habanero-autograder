@@ -38,6 +38,31 @@
                 show_error('Internal failure');
               },
             });
+
+          $.ajax({
+              url: '/runs',
+              type: 'GET',
+              dataType: "json",
+              success: function(data) {
+                if (data.status === 'Success') {
+                  var runs = data.runs;
+                  for (var i = 0; i < runs.length; i++) {
+                    var curr = runs[i];
+                    $('#past-runs tr:last').after('<tr><td><center><a href=/run/' + curr.run_id + '>' +
+                        curr.run_id + '</a></center></td><td><center>' +
+                        curr.assignment_name + '</center></td><td><center>' +
+                        curr.status + '</td></center></tr>');
+                  }
+                } else {
+                  show_error(data.msg);
+                }
+              },
+              failure: function() {
+                show_error('Internal failure');
+              },
+            });
+
+
       });
     </script>
   </head>
@@ -59,7 +84,7 @@
             </ul>
           </div>
 
-          <form action="submit_run" method="post" enctype="multipart/form-data">
+          <form action="/submit_run" method="post" enctype="multipart/form-data">
             <input name="zip" type="file">
             <input name="assignment" type="hidden" value="" id="assignment_id">
             <input value="Run" name="submit" type="submit" class="btn btn-primary" style="float:right">
@@ -68,15 +93,6 @@
       </div>
     </div>
 
-
-          <!--form action="submit_run" method="post" enctype="multipart/form-data">
-          <input id="input-1" type="file" name="zip" style="float:left"></input>
-          <input value="Run" name="submit" type="submit" class="btn btn-primary" style="float:right"></input>
-          </form>
-        </div>
-      </div>
-    </div-->
-
     <div class="row">
       <div class="col-md-8 col-md-offset-2">
       <hr/>
@@ -84,7 +100,7 @@
       <hr/>
       <table id="past-runs" style="width:100%" border="1">
       <!-- TODO -->
-      <tr><td bgcolor="#AAAAAA"><center><b>Run ID</b></center></td><td bgcolor="#AAAAAA"><center><b>Visibility</b></center></td></tr>
+      <tr><td bgcolor="#AAAAAA"><center><b>Run ID</b></center></td><td bgcolor="#AAAAAA"><center><b>Assignment</b></center></td><td bgcolor="#AAAAAA"><center><b>Status</b></center></td></tr>
       </table>
       </div>
     </div>

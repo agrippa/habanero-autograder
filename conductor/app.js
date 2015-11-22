@@ -98,6 +98,7 @@ app.post('/login', function(req, res, next) {
                 // Check that password matches
                 if (bcrypt.compareSync(password, result.rows[0].password_hash)) {
                   req.session.username = username;
+                  req.session.user_id = result.rows[0].user_id;
                   req.session.is_admin = result.rows[0].is_admin;
 
                   res.send(JSON.stringify({ status: 'Success',
@@ -119,6 +120,7 @@ app.get('/logout', function(req, res, next) {
   console.log('logout: username=' + req.session.username);
 
   req.session.username = null;
+  req.session.user_id = null;
   req.session.is_admin = false;
 
   res.render('login.html');
@@ -322,7 +324,7 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                                         var body = Buffer.concat(bodyChunks);
                                         var result = JSON.parse(body);
                                         if (result.status === 'Success') {
-                                            return res.render('overview.html');
+                                            return res.redirect('/overview');
                                         } else {
                                             return res.render('overview.html',
                                                 { err_msg: 'Viola error: ' + result.msg });
@@ -368,15 +370,55 @@ app.get('/runs', function(req, res, next) {
           done();
           return res.send(JSON.stringify({ status: 'Failure', msg: err }));
         } else {
-          var query = client.query("SELECT * FROM runs WHERE user_id=($1)", [user_id]);
+          var query = client.query(
+              "SELECT * FROM runs WHERE user_id=($1) ORDER BY run_id DESC",
+              [user_id]);
           register_query_helpers(query, res, done, req.session.username);
           query.on('end', function(result) {
-            done();
-            return res.send(JSON.stringify({ status: 'Success', runs: result.rows }));
+            var runs = result.rows;
+
+            var query = client.query("SELECT * FROM assignments");
+            register_query_helpers(query, res, done, req.session.username);
+            query.on('end', function(result) {
+                done();
+                var assignment_mapping = {};
+                for (var i = 0; i < result.rows.length; i++) {
+                    assignment_mapping[result.rows[i].assignment_id] = result.rows[i].name;
+                }
+                var translated_runs = [];
+                for (var i = 0; i < runs.length; i++) {
+                    var name = assignment_mapping[runs[i].assignment_id];
+                    translated_runs.push({run_id: runs[i].run_id,
+                                          assignment_name: name,
+                                          status: runs[i].status });
+                }
+                return res.send(JSON.stringify({ status: 'Success', runs: translated_runs }));
+            });
           });
         }
       });
   });
+});
+
+app.get('/run/:run_id', function(req, res, next) {
+    var run_id = req.params.run_id;
+    pgclient(function(client, done) {
+        var query = client.query("SELECT user_id FROM runs WHERE run_id=($1)",
+            [run_id]);
+        register_query_helpers(query, res, done, req.session.username);
+        query.on('end', function(result) {
+            if (result.rows.length == 0) {
+                return res.render('overview.html', { err_msg: 'Unknown run' });
+            } else {
+                var user_id = result.rows[0].user_id;
+                if (user_id != req.session.user_id) {
+                    return res.send(401);
+                } else {
+                    return res.render('run.html', { run_id: run_id });
+                }
+            }
+        });
+    });
 });
 
 var port = process.env.PORT || 8000

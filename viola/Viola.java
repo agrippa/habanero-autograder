@@ -173,6 +173,10 @@ public class Viola {
         public void run() {
             log("Running local tests for user=%s assignment=%s run=%d\n",
                     user, assignment_name, run_id);
+            try {
+                Thread.sleep(30000);
+            } catch (InterruptedException ie) {
+            }
             notifyConductor();
             log("Finished local tests for user=%s assignment=%s run=%d\n", user,
                     assignment_name, run_id);
