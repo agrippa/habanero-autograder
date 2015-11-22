@@ -463,7 +463,15 @@ app.get('/run/:run_id', function(req, res, next) {
                 if (user_id != req.session.user_id) {
                     return res.send(401);
                 } else {
-                    return res.render('run.html', { run_id: run_id });
+                    var run_dir = __dirname + '/submissions/' +
+                        req.session.username + '/' + run_id;
+                    var log_files = {};
+                    fs.readdirSync(run_dir).forEach(function(file) {
+                      if (file.indexOf('.txt', file.length - '.txt'.length) !== -1) {
+                          log_files[file] = fs.readFileSync(run_dir + '/' + file);
+                      }
+                    });
+                    return res.render('run.html', { run_id: run_id, log_files: log_files });
                 }
             }
         });

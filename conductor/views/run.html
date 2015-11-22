@@ -16,6 +16,21 @@
       </div>
     </div>
 
+    <% for (filename in log_files) { %>
+    <div class="row">
+      <div class="col-md-8 col-md-offset-2">
+        <hr/>
+        <h4>File: <%= filename %></h4>
+        <div class="col-md-offset-1" style="border:1px solid black; padding:10px;">
+          <font face="consolas">
+            <p style="white-space: pre-wrap"><%= log_files[filename] %></p>
+          </font>
+        </div>
+        <hr/>
+      </div>
+    </div>
+    <% } %>
+
     <% include footer.html %>
   </body>
 </html>
