@@ -49,7 +49,7 @@
                   for (var i = 0; i < runs.length; i++) {
                     var curr = runs[i];
                     var status = curr.status;
-                    var status_color = status === 'FINISHED' ? 'green' : 'orange';
+                    var status_color = status === 'FINISHED' ? 'green' : (status === 'FAILED' ? 'red' : 'orange');
                     $('#past-runs tr:last').after('<tr><td><center><a href=/run/' + curr.run_id + '>' +
                         curr.run_id + '</a></center></td><td><center>' +
                         curr.assignment_name + '</center></td><td><center><font color="' + status_color + '">' +

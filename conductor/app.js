@@ -9,6 +9,8 @@ var ejs = require('ejs');
 var fs = require('fs-extra');
 var svn = require('svn-spawn');
 var crypto = require('crypto');
+var ssh = require('ssh2');
+var scp = require('scp2')
 
 var permissionDenied = 'Permission denied. But you should shoot me an e-mail at jmaxg3@gmail.com. If you like playing around with systems, we have interesting research for you in the Habanero group.';
 
@@ -68,7 +70,32 @@ function register_query_helpers(query, res, done, username) {
             res.send(JSON.stringify({ status: 'Failure',
                     msg: 'Internal error (' + err + ')', user: username }));
     });
+}
 
+// Assume this is called after 'ready' event is triggered.
+function run_ssh(conn, lbl, cmd, cb) {
+    conn.exec(cmd, function(err, stream) {
+        if (err) {
+            conn.end();
+            console.log('[' + lbl + '] err=' + err);
+            return res.send(JSON.stringify({status: 'Failure', msg: lbl}));
+        }
+        var acc_stdout = '';
+        var acc_stderr = '';
+        stream.on('close', function(code, signal) {
+            if (code != 0) {
+                conn.end();
+                console.log('[' + lbl + '] code=' + code + ' signal=' + signal);
+                return res.send(JSON.stringify({status: 'Failure', msg: lbl}));
+            } else {
+                return cb(conn, acc_stdout, acc_stderr);
+            }
+        }).on('data', function(data) {
+            acc_stdout = acc_stdout + data;
+        }).stderr.on('data', function(data) {
+            acc_stderr = acc_stderr + data;
+        });
+    });
 }
 
 var app = express();
@@ -301,7 +328,7 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
 
                   var query = client.query("INSERT INTO runs (user_id, " +
                       "assignment_id, done_token, status) VALUES " +
-                      "($1,$2,$3,'RUNNING') RETURNING run_id",
+                      "($1,$2,$3,'RUNNING CORRECTNESS') RETURNING run_id",
                       [user_id, assignment_id, done_token]);
                   register_query_helpers(query, res, done, req.session.username);
                   query.on('end', function(result) {
@@ -312,7 +339,7 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                         assignment_name + '/' + run_id;
 
                     var mkdir_msg = '"mkdir ' + req.session.username + ' ' + assignment_name + ' ' + run_id + '"';
-                    svn_client.cmd(['mkdir', '--message', mkdir_msg, dst_dir], function(err, data) {
+                    svn_client.cmd(['mkdir', '--parents', '--message', mkdir_msg, dst_dir], function(err, data) {
                       // Special-case an error message from the Habanero repo that we can safely ignore
                       if (err && err.message.trim().search("200 OK") === -1) {
                         return res.render('overview.html', { err_msg:
@@ -404,7 +431,7 @@ app.post('/local_run_finished', function(req, res, next) {
                 var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
 
                 var query = client.query(
-                    "UPDATE runs SET status='FINISHED' WHERE run_id=($1)", [run_id]);
+                    "UPDATE runs SET status='RUNNING PERF' WHERE run_id=($1)", [run_id]);
                 register_query_helpers(query, res, done, req.session.username);
                 query.on('end', function(result) {
                     done();
@@ -414,7 +441,65 @@ app.post('/local_run_finished', function(req, res, next) {
                         return res.send(JSON.stringify({status: 'Failure',
                           msg: 'Failed updating repo, ' + err}));
                       } else {
-                        return res.send(JSON.stringify({ status: 'Success' }));
+
+                        fs.appendFileSync(run_dir + '/bass.slurm', "#!/bin/bash\n");
+                        fs.appendFileSync(run_dir + '/bass.slurm', "\n");
+                        fs.appendFileSync(run_dir + '/bass.slurm', "#SBATCH --job-name=habanero-autograder-" + run_id + "\n");
+                        fs.appendFileSync(run_dir + '/bass.slurm', "#SBATCH --cpus-per-task=8\n");
+                        fs.appendFileSync(run_dir + '/bass.slurm', "#SBATCH --exclusive\n");
+                        fs.appendFileSync(run_dir + '/bass.slurm', "#SBATCH --nodes=1\n");
+                        fs.appendFileSync(run_dir + '/bass.slurm', "#SBATCH --time=00:10:00\n");
+                        fs.appendFileSync(run_dir + '/bass.slurm', "#SBATCH --partition=interactive\n");
+                        fs.appendFileSync(run_dir + '/bass.slurm', "#SBATCH --output=/home/" + CLUSTER_USER + "/autograder/" + run_id + "/stdout.txt\n");
+                        fs.appendFileSync(run_dir + '/bass.slurm', "#SBATCH --error=/home/" + CLUSTER_USER + "/autograder/" + run_id + "/stderr.txt\n");
+                        fs.appendFileSync(run_dir + '/bass.slurm', "\n");
+                        fs.appendFileSync(run_dir + '/bass.slurm', "echo Job $SLURM_JOBID\n");
+
+                        // Launch on the cluster
+                        var conn = new ssh.Client();
+                        var MKDIR_CMD = 'mkdir -p ~/autograder/' + run_id;
+                        var SCP_DST = CLUSTER_USER + ':' + CLUSTER_PASSWORD +
+                            '@' + CLUSTER_HOSTNAME + ':autograder/' + run_id + '/bass.slurm';
+                        conn.on('ready', function() {
+                            run_ssh(conn, 'creating autograder dir', MKDIR_CMD,
+                                function(conn, stdout, stderr) {
+                                     scp.scp(run_dir + '/bass.slurm', SCP_DST, function(err) {
+                                        if (err) {
+                                            console.log('scp err=' + err);
+                                            return res.send(JSON.stringify({status: 'Failure',
+                                                    msg: 'Failed scp-ing bass.slurm'}));
+                                        }
+                                        run_ssh(conn, 'sbatch',
+                                            'sbatch ~/autograder/' + run_id + '/bass.slurm',
+                                            function(conn, stdout, stderr) {
+                                                conn.end();
+                                                // stdout == Submitted batch job 474297
+                                                if (stdout.search('Submitted batch job ') !== 0) {
+                                                    return res.send(
+                                                        JSON.stringify({
+                                                            status: 'Failure',
+                                                            msg: 'Failed submitting batch job'}));
+                                                }
+                                                var tokens = stdout.trim().split(' ');
+                                                var job_id = tokens[tokens.length - 1];
+                                                pgclient(function(client, done) {
+                                                    var query = client.query('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [job_id, run_id]);
+                                                    register_query_helpers(query, res, done, req.session.username);
+                                                    query.on('end', function(result) {
+                                                        done();
+                                                        return res.send(
+                                                            JSON.stringify({ status: 'Success' }));
+                                                    });
+                                                });
+                                            });
+                                     });
+                                });
+                        }).connect({
+                            host: CLUSTER_HOSTNAME,
+                            port: 22,
+                            username: CLUSTER_USER,
+                            password: CLUSTER_PASSWORD
+                        });
                       }
                     });
                 });
@@ -486,6 +571,7 @@ app.get('/run/:run_id', function(req, res, next) {
                           log_files[file] = fs.readFileSync(run_dir + '/' + file);
                       }
                     });
+
                     return res.render('run.html', { run_id: run_id, log_files: log_files });
                 }
             }
@@ -496,6 +582,78 @@ app.get('/run/:run_id', function(req, res, next) {
 app.get('/', function(req, res, next) {
   return res.redirect('overview');
 });
+
+function check_cluster_helper(perf_runs, i, conn, client, done) {
+    if (i >= perf_runs.length) {
+        done();
+        setTimeout(check_cluster, 30000);
+    } else {
+        var run = perf_runs[i];
+        console.log('check_cluster_helper: ' + JSON.stringify(run));
+        var SACCT = "sacct --noheader -j " + run.job_id + " -u jmg3 " +
+            "--format=JobName,State | grep hab | awk '{ print $2 }'";
+        run_ssh(conn, 'checking job status', SACCT, function(conn, stdout, stderr) {
+            stdout = stdout.trim();
+            var query = null;
+            if (stdout === 'FAILED') {
+                console.log('check_cluster_helper: marking ' + run.run_id + ' FAILED');
+                query = client.query(
+                    "UPDATE runs SET status='FAILED' WHERE run_id=($1)",
+                    [run.run_id]);
+            } else if (stdout === 'COMPLETED') {
+                console.log('check_cluster_helper: marking ' + run.run_id + ' FINISHED');
+                query = client.query(
+                    "UPDATE runs SET status='FINISHED' WHERE run_id=($1)",
+                    [run.run_id]);
+            }
+
+            if (query) {
+                query.on('row', function(row, result) { result.addRow(row); });
+                query.on('error', function(err, result) {
+                        console.log('Error updating running perf tests: ' + err);
+                        done();
+                        setTimeout(check_cluster, 30000);
+                });
+                query.on('end', function(result) {
+                    check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                });
+            } else {
+                check_cluster_helper(perf_runs, i + 1, conn, client, done);
+            }
+        })
+                
+    }
+}
+
+// Cluster functionality
+function check_cluster() {
+    console.log('check_cluster fired');
+
+    pgclient(function(client, done) {
+        var query = client.query("SELECT * FROM runs WHERE status='RUNNING PERF'");
+        query.on('row', function(row, result) { result.addRow(row); });
+        query.on('error', function(err, result) {
+                done();
+                console.log('Error looking up running perf tests: ' + err);
+                setTimeout(check_cluster, 30000);
+        });
+        query.on('end', function(result) {
+
+            var perf_runs = result.rows;
+            var conn = new ssh.Client();
+            conn.on('ready', function() {
+                check_cluster_helper(perf_runs, 0, conn, client, done);
+            }).connect({
+                host: CLUSTER_HOSTNAME,
+                port: 22,
+                username: CLUSTER_USER,
+                password: CLUSTER_PASSWORD
+            });
+        });
+    });
+}
+
+setTimeout(check_cluster, 0);
 
 var port = process.env.PORT || 8000
 

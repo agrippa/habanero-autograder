@@ -29,5 +29,6 @@ CREATE TABLE IF NOT EXISTS runs
  user_id BIGSERIAL,
  assignment_id BIGSERIAL,
  done_token TEXT NOT NULL UNIQUE,
- status TEXT NOT NULL
+ status TEXT NOT NULL,
+ job_id TEXT
 );
