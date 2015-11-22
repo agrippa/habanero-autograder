@@ -9,8 +9,17 @@ var ejs = require('ejs');
 
 var permissionDenied = 'Permission denied. But you should shoot me an e-mail at jmaxg3@gmail.com. If you like playing around with systems, we have interesting research for you in the Habanero group.';
 
+var POSTGRES_USERNAME = process.env.PGSQL_USER || 'postgres';
+var POSTGRES_PASSWORD = process.env.PGSQL_PASSWORD || 'foobar';
+var POSTGRES_USER_TOKEN = null;
+if (POSTGRES_PASSWORD.length == 0) {
+  POSTGRES_USER_TOKEN = POSTGRES_USERNAME;
+} else {
+  POSTGRES_USER_TOKEN = POSTGRES_USERNAME + ":" + POSTGRES_PASSWORD;
+}
+
 // TODO load this from JSON file
-var conString = "postgres://postgres:foobar@localhost/autograder";
+var conString = "postgres://" + POSTGRES_USER_TOKEN + "@localhost/autograder";
 
 function pgclient(cb) {
   pg.connect(conString, function(err, client, done) {
