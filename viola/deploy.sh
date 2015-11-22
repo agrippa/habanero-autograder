@@ -9,4 +9,4 @@ done
 
 echo $JARS
 
-java -classpath $JARS Viola 8080
+java -classpath $JARS Viola 8080 localhost 8000

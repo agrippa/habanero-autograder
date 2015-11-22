@@ -42,6 +42,12 @@ var VIOLA_PORT = parseInt(process.env.VIOLA_PORT || '8080');
 
 console.log('Connecting to Viola at ' + VIOLA_HOST + ':' + VIOLA_PORT);
 
+var CLUSTER_HOSTNAME = process.env.CLUSTER_HOSTNAME || 'stic.rice.edu';
+var CLUSTER_USER = process.env.CLUSTER_USER || 'jmg3';
+var CLUSTER_PASSWORD = process.env.CLUSTER_PASSWORD || '';
+
+console.log('Connecting to remote cluster at ' + CLUSTER_HOSTNAME + ' as ' + CLUSTER_USER);
+
 // TODO load this from JSON file
 var conString = "postgres://" + POSTGRES_USER_TOKEN + "@localhost/autograder";
 
@@ -371,9 +377,9 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
     });
 });
 
-app.post('/run_finished', function(req, res, next) {
+app.post('/local_run_finished', function(req, res, next) {
     var done_token = req.body.done_token;
-    console.log('run_finished: done_token=' + done_token);
+    console.log('local_run_finished: done_token=' + done_token);
 
     pgclient(function(client, done) {
         // Can only be one match here because of SQL schema constraints

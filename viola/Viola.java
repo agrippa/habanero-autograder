@@ -49,6 +49,9 @@ public class Viola {
         SVNClientManager.newInstance(SVNWCUtil.createDefaultOptions(true),
                 svnUser, svnPassword);
 
+    private static String conductorHost = null;
+    private static int conductorPort = 0;
+
     public static void log(String format, Object... args) {
         StackTraceElement[] stack = Thread.currentThread().getStackTrace();
         StackTraceElement callee = stack[2];
@@ -58,11 +61,13 @@ public class Viola {
     }
 
     public static void main(String[] args) throws IOException {
-        if (args.length != 1) {
-            System.err.println("usage: java Viola port");
+        if (args.length != 3) {
+            System.err.println("usage: java Viola viola-port conductor-host conductor-port");
             System.exit(1);
         }
         int port = Integer.parseInt(args[0]);
+        conductorHost = args[1];
+        conductorPort = Integer.parseInt(args[2]);
 
         svnRepo = System.getenv("SVN_REPO");
         if (svnRepo == null) {
@@ -161,7 +166,7 @@ public class Viola {
                 byte[] postData = urlParameters.getBytes(StandardCharsets.UTF_8);
                 int postDataLength = postData.length;
                 // TODO make configurable
-                String request = "http://localhost:8000/run_finished";
+                String request = "http://" + conductorHost + ":" + conductorPort + "/local_run_finished";
                 URL url = new URL(request);
                 HttpURLConnection conn = (HttpURLConnection)url.openConnection();
                 conn.setDoOutput(true);
