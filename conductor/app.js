@@ -487,6 +487,10 @@ app.get('/run/:run_id', function(req, res, next) {
     });
 });
 
+app.get('/', function(req, res, next) {
+  return res.redirect('overview');
+});
+
 var port = process.env.PORT || 8000
 
 var oneDay = 86400000;
