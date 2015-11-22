@@ -371,13 +371,42 @@ app.post('/run_finished', function(req, res, next) {
 
     pgclient(function(client, done) {
         // Can only be one match here because of SQL schema constraints
-        var query = client.query(
-            "UPDATE runs SET status='FINISHED' WHERE done_token=($1)",
-            [done_token]);
-        register_query_helpers(query, res, done, req.session.username);
+        var query = client.query("SELECT * FROM runs WHERE done_token=($1)", [done_token]);
+        register_query_helpers(query, res, done, 'unknown');
         query.on('end', function(result) {
-            done();
-            return res.send(JSON.stringify({ status: 'Success' }));
+          if (result.rows.length != 1) {
+            return res.send(JSON.stringify({status: 'Failure', msg: 'Unexpected # of rows, ' + result.rows.length}));
+          } else {
+            var run_id = result.rows[0].run_id;
+            var user_id = result.rows[0].user_id;
+
+            var query = client.query("SELECT * FROM users WHERE user_id=($1)", [user_id]);
+            register_query_helpers(query, res, done, 'unknown');
+            query.on('end', function(result) {
+              if (result.rows.length != 1) {
+                return res.send(JSON.stringify({status: 'Failure', msg: 'Invalid user ID'}));
+              } else {
+                var username = result.rows[0].user_name;
+                var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
+
+                var query = client.query(
+                    "UPDATE runs SET status='FINISHED' WHERE run_id=($1)", [run_id]);
+                register_query_helpers(query, res, done, req.session.username);
+                query.on('end', function(result) {
+                    done();
+
+                    svn_client.cmd(['up', '--accept', 'theirs-full', run_dir], function(err, data) {
+                      if (err) {
+                        return res.send(JSON.stringify({status: 'Failure',
+                          msg: 'Failed updating repo, ' + err}));
+                      } else {
+                        return res.send(JSON.stringify({ status: 'Success' }));
+                      }
+                    });
+                });
+              }
+            });
+          }
         });
     });
 });
