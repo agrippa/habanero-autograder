@@ -48,10 +48,12 @@
                   var runs = data.runs;
                   for (var i = 0; i < runs.length; i++) {
                     var curr = runs[i];
+                    var status = curr.status;
+                    var status_color = status === 'FINISHED' ? 'green' : 'orange';
                     $('#past-runs tr:last').after('<tr><td><center><a href=/run/' + curr.run_id + '>' +
                         curr.run_id + '</a></center></td><td><center>' +
-                        curr.assignment_name + '</center></td><td><center>' +
-                        curr.status + '</td></center></tr>');
+                        curr.assignment_name + '</center></td><td><center><font color="' + status_color + '">' +
+                        curr.status + '</font></td></center></tr>');
                   }
                 } else {
                   show_error(data.msg);

@@ -23,10 +23,31 @@ import java.net.HttpURLConnection;
 import java.io.DataOutputStream;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.io.PrintWriter;
+
+import org.tmatesoft.svn.core.wc.SVNClientManager;
+import org.tmatesoft.svn.core.wc.SVNUpdateClient;
+import org.tmatesoft.svn.core.SVNURL;
+import org.tmatesoft.svn.core.wc.SVNRevision;
+import org.tmatesoft.svn.core.SVNException;
+import org.tmatesoft.svn.core.SVNDepth;
+import org.tmatesoft.svn.core.wc.SVNWCUtil;
+import org.tmatesoft.svn.core.auth.ISVNAuthenticationManager;
+import org.tmatesoft.svn.core.wc.ISVNOptions;
 
 public class Viola {
     // Executor for actually running the local tests
     private static final ThreadPoolExecutor exec = new ThreadPoolExecutor(2, 4, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>());
+
+    private static String svnRepo = null;
+    private static final String svnUser =
+        System.getenv("SVN_USER") == null ? "jmg3" : System.getenv("SVN_USER");
+    private static final String svnPassword =
+        System.getenv("SVN_PASSWORD") == null ? "" :
+        System.getenv("SVN_PASSWORD");
+    private final static SVNClientManager ourClientManager =
+        SVNClientManager.newInstance(SVNWCUtil.createDefaultOptions(true),
+                svnUser, svnPassword);
 
     public static void log(String format, Object... args) {
         StackTraceElement[] stack = Thread.currentThread().getStackTrace();
@@ -42,6 +63,11 @@ public class Viola {
             System.exit(1);
         }
         int port = Integer.parseInt(args[0]);
+
+        svnRepo = System.getenv("SVN_REPO");
+        if (svnRepo == null) {
+            svnRepo = "https://svn.rice.edu/r/parsoft/projects/AutoGrader/student-runs";
+        }
 
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/run", new RunHandler());
@@ -173,10 +199,75 @@ public class Viola {
         public void run() {
             log("Running local tests for user=%s assignment=%s run=%d\n",
                     user, assignment_name, run_id);
+
+            // Test code
+            // try {
+            //     Thread.sleep(30000);
+            // } catch (InterruptedException ie) {
+            // }
+
             try {
-                Thread.sleep(30000);
-            } catch (InterruptedException ie) {
+                final File temp = File.createTempFile("temp", Long.toString(System.nanoTime()));
+                if(!(temp.delete())) {
+                    throw new IOException("Could not delete temp file: " +
+                            temp.getAbsolutePath());
+                }
+
+                /*
+                 * Check out the student code from SVN. This should check out a
+                 * single directory with a single ZIP file inside.
+                 */
+                SVNUpdateClient updateClient = ourClientManager.getUpdateClient();
+                updateClient.setIgnoreExternals(false);
+                updateClient.doCheckout(SVNURL.parseURIDecoded(svnRepo + "/" +
+                            user + "/" + assignment_name + "/" + run_id),
+                        temp, SVNRevision.HEAD, SVNRevision.HEAD, SVNDepth.INFINITY, false);
+
+                log("Checking out to %s\n", temp.getAbsolutePath());
+
+                // Test code. Fill in some dummy text files for now
+                PrintWriter writer = new PrintWriter(
+                        temp.getAbsolutePath() + "/correct.txt", "UTF-8");
+                writer.println("Local logs 1");
+                writer.println("Local logs 2");
+                writer.close();
+
+                // Add the generated files to the repo
+                ourClientManager.getWCClient().doAdd(
+                        new File(temp.getAbsolutePath(), "correct.txt"), false,
+                        false, false, SVNDepth.INFINITY, false, false);
+
+                // Commit the added files to the repo
+                File[] wc = new File[1];
+                wc[0] = new File(temp.getAbsolutePath());
+                final String commitMessage =
+                    user + " " + assignment_name + " " + run_id + " local-runs";
+                try {
+                    ourClientManager.getCommitClient().doCommit(wc, false,
+                            commitMessage, false, true);
+                } catch (SVNException svn) {
+                    /*
+                     * For now (while the Habanero repo is still misconfigured)
+                     * we ignore commit failures.
+                     */
+                    svn.printStackTrace();
+                }
+
+                /*
+                 * Clean up the test directory. This assumes that no directories
+                 * are created in the process of testing.
+                 */
+                for (String filename : temp.list()) {
+                    File curr = new File(temp.getAbsolutePath(), filename);
+                    curr.delete();
+                }
+                temp.delete();
+            } catch (IOException io) {
+                io.printStackTrace();
+            } catch (SVNException svn) {
+                svn.printStackTrace();
             }
+
             notifyConductor();
             log("Finished local tests for user=%s assignment=%s run=%d\n", user,
                     assignment_name, run_id);
