@@ -212,9 +212,28 @@ app.post('/set_assignment_visible', function(req, res, next) {
   }
 });
 
+function get_user_id_for_name(username, client, done, res, cb) {
+  var query = client.query("SELECT * FROM users WHERE user_name=($1)",
+      [username]);
+  register_query_helpers(query, res, done, username);
+  query.on('end', function(result) {
+    if (result.rowCount == 0) {
+      return cb(0, 'User ' + username + ' does not seem to exist');
+    } else if (result.rowCount > 1) {
+      return cb(0, 'There appear to be duplicate users ' + username);
+    } else {
+      // Got the user ID, time to get the assignment ID
+      var user_id = result.rows[0].user_id;
+
+      return cb(user_id, null);
+    }
+  });
+}
+
 app.post('/submit_run', upload.single('zip'), function(req, res, next) {
     var assignment_name = req.body.assignment;
-    console.log('submit_run: username=' + req.session.username + ' assignment="' + assignment_name + '"');
+    console.log('submit_run: username=' + req.session.username +
+      ' assignment="' + assignment_name + '"');
 
     if (assignment_name.length == 0) {
       return res.render('overview.html', { err_msg: 'Please select an assignment' });
@@ -225,20 +244,11 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
     }
 
     pgclient(function(client, done) {
-      var query = client.query("SELECT * FROM users WHERE user_name=($1)",
-        [req.session.username]);
-      register_query_helpers(query, res, done, req.session.username);
-      query.on('end', function(result) {
-        if (result.rowCount == 0) {
-          return res.render('overview.html',
-            { err_msg: 'User ' + req.session.username + ' does not seem to exist' });
-        } else if (result.rowCount > 1) {
-          return res.render('overview.html',
-            { err_msg: 'There appear to be duplicate users ' + req.session.username });
-        } else {
-          // Got the user ID, time to get the assignment ID
-          var user_id = result.rows[0].user_id;
-
+      get_user_id_for_name(req.session.username, client, done, res,
+        function(user_id, err) {
+          if (err) {
+            return res.render('overview.html', { err_msg: err });
+          }
           var query = client.query("SELECT * FROM assignments WHERE name=($1)",
             [assignment_name]);
           register_query_helpers(query, res, done, req.session.username);
@@ -268,9 +278,27 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
               });
             }
           });
+        });
+    });
+});
+
+app.get('/runs', function(req, res, next) {
+  pgclient(function(client, done) {
+    get_user_id_for_name(req.session.username, client, done, res,
+      function(user_id, err) {
+        if (err) {
+          done();
+          return res.send(JSON.stringify({ status: 'Failure', msg: err }));
+        } else {
+          var query = client.query("SELECT * FROM runs WHERE user_id=($1)", [user_id]);
+          register_query_helpers(query, res, done, req.session.username);
+          query.on('end', function(result) {
+            done();
+            return res.send(JSON.stringify({ status: 'Success', runs: result.rows }));
+          });
         }
       });
-    });
+  });
 });
 
 var port = process.env.PORT || 8000
