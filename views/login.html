@@ -25,7 +25,7 @@
             failure: function() {
               show_error('Internal failure');
             },
-          })
+          });
       }
 
       $(function() {
@@ -43,17 +43,15 @@
 
     <div class="row">
       <div class="col-md-4 col-md-offset-4">
+      <div class="form-group">
       <form role="form">
-      <div class="form-group">
-        <input type="text" class="form-control" placeholder="NetID" id="username"></input>
-      </div>
-      <div class="form-group">
-        <input type="password" class="form-control" placeholder="Password" id="pw"></input>
+        <input type="text" class="form-control" placeholder="NetID" id="username" autocomplete="on"></input>
+        <input type="password" class="form-control" placeholder="Password" id="pw" autocomplete="on"></input>
+      </form>
       </div>
       <div class="form-group">
         <button type="button" class="btn btn-default" onclick="login()">Login</button>
       </div>
-      </form>
       </div>
     </div>
 

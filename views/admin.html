@@ -1,0 +1,119 @@
+<html>
+  <head>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
+    <script src="http://code.jquery.com/jquery-2.1.4.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
+
+    <script type="text/javascript">
+      function create_assignment() {
+          var name = $('#name').val();
+
+          $.ajax({
+            url: '/assignment',
+            type: 'POST',
+            data: { assignment_name: name },
+            ContentType: 'application/json; charset=utf-8',
+            dataType: 'json',
+            success: function(data) {
+              if (data.status === 'Success') {
+                window.location.replace(data.redirect);
+              } else {
+                show_error(data.msg);
+              }
+            },
+            failure: function() {
+              show_error('Internal failure');
+            },
+          });
+      }
+
+      function set_assignment_visible(assignment_id, set_visible) {
+          $.ajax({
+             url: '/set_assignment_visible',
+            type: 'POST',
+            data: { assignment_id: assignment_id, set_visible: set_visible },
+            ContentType: 'application/json; charset=utf-8',
+            dataType: 'json',
+            success: function(data) {
+              if (data.status === 'Success') {
+                window.location.replace(data.redirect);
+              } else {
+                show_error(data.msg);
+              }
+            },
+            failure: function() {
+              show_error('Internal failure');
+            },
+          });
+      }
+
+      $(function() {
+        $('#name').keydown(function(e) {
+              if (e.keyCode === 13) {
+                login();
+              }
+            });
+
+        $.ajax({
+            url: '/assignments',
+            type: 'GET',
+            data: { get_not_visible: true },
+            ContentType: 'application/json; charset=utf-8',
+            dataType: 'json',
+            success: function(data) {
+              if (data.status === 'Success') {
+                var assignments = data.assignments;
+                for (var i = 0; i < assignments.length; i++) {
+                    var curr = assignments[i];
+                    var lbl = curr.visible ? 'Disable' : 'Enable';
+                    var button_html = '<button type="button" class="btn btn-default" onclick="set_assignment_visible(' + curr.assignment_id + ', ' + !curr.visible + ');">' + lbl + '</button>';
+
+                    $('#existing-assignments tr:last').after('<tr><td><center>' +
+                        curr.name + '</center></td><td><center>' + button_html +
+                        '</center></td></tr>');
+                }
+                $('#assignment-count').text(assignments.length + " assignment(s)");
+              } else {
+                show_error(data.msg);
+              }
+            },
+            failure: function() {
+              show_error('Internal failure');
+            },
+          });
+
+      });
+    </script>
+  </head>
+
+  <body>
+    <% include header.html %>
+
+    <div class="row">
+      <div class="col-md-8 col-md-offset-2">
+        <h2>Add An Assignment</h2>
+        <div class="col-md-4 col-md-offset-4">
+          <form role="form">
+          <div class="form-group">
+            <input type="text" class="form-control" placeholder="Assignment Name" id="name"></input>
+          </div>
+          <div class="form-group">
+            <button type="button" class="btn btn-default" onclick="create_assignment()">Create</button>
+          </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="col-md-8 col-md-offset-2">
+        <hr></hr>
+        <h2>Existing Assignments</h2>
+        <h4 id="assignment-count"></h4>
+        <table id="existing-assignments" style="width:100%" border="1">
+        <tr><td bgcolor="#AAAAAA"><center><b>Name</b></center></td><td bgcolor="#AAAAAA"><center><b>Visibility</b></center></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <% include footer.html %>
+  </body>
+</html>
