@@ -48,6 +48,7 @@ var conString = "postgres://" + POSTGRES_USER_TOKEN + "@localhost/autograder";
 function pgclient(cb) {
   pg.connect(conString, function(err, client, done) {
           if (err) {
+            done();
             return console.error('error fetching client from pool', err);
           }
           cb(client, done);
@@ -217,6 +218,7 @@ app.post('/set_assignment_visible', function(req, res, next) {
         register_query_helpers(query, res, done, req.session.username);
         query.on('end', function(result) {
             if (result.rowCount == 0) {
+                done();
                 return res.send(JSON.stringify({ status: 'Failure',
                         msg: 'Invalid assignment ID, does not exist' }));
             } else {
@@ -225,6 +227,7 @@ app.post('/set_assignment_visible', function(req, res, next) {
                     [set_visible, assignment_id]);
                 register_query_helpers(query, res, done, req.session.username);
                 query.on('end', function(result) {
+                    done();
                     return res.send(JSON.stringify({ status: 'Success',
                             redirect: '/admin' }));
                 });
@@ -270,6 +273,7 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
       get_user_id_for_name(req.session.username, client, done, res,
         function(user_id, err) {
           if (err) {
+            done();
             return res.render('overview.html', { err_msg: err });
           }
           var query = client.query("SELECT * FROM assignments WHERE name=($1)",
@@ -277,9 +281,11 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
           register_query_helpers(query, res, done, req.session.username);
           query.on('end', function(result) {
             if (result.rowCount == 0) {
+              done();
               return res.render('overview.html',
                 { err_msg: 'Assignment ' + assignment_name + ' does not seem to exist' });
             } else if (result.rowCount > 1) {
+              done();
               return res.render('overview.html',
                 { err_msg: 'There appear to be duplicate assignments ' + assignment_name });
             } else {
@@ -375,6 +381,7 @@ app.post('/run_finished', function(req, res, next) {
         register_query_helpers(query, res, done, 'unknown');
         query.on('end', function(result) {
           if (result.rows.length != 1) {
+            done();
             return res.send(JSON.stringify({status: 'Failure', msg: 'Unexpected # of rows, ' + result.rows.length}));
           } else {
             var run_id = result.rows[0].run_id;
@@ -384,6 +391,7 @@ app.post('/run_finished', function(req, res, next) {
             register_query_helpers(query, res, done, 'unknown');
             query.on('end', function(result) {
               if (result.rows.length != 1) {
+                done();
                 return res.send(JSON.stringify({status: 'Failure', msg: 'Invalid user ID'}));
               } else {
                 var username = result.rows[0].user_name;
@@ -456,6 +464,7 @@ app.get('/run/:run_id', function(req, res, next) {
             [run_id]);
         register_query_helpers(query, res, done, req.session.username);
         query.on('end', function(result) {
+            done();
             if (result.rows.length == 0) {
                 return res.render('overview.html', { err_msg: 'Unknown run' });
             } else {
