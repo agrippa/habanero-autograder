@@ -37,15 +37,21 @@ If that doesn't work, take a look at https://nodejs.org/en/download/package-mana
     c. \dt to list all tables in the current database (should be empty now)
  7. sudo -u postgres psql --username=postgres --dbname=autograder --file=setup.sql
 
-===== AutoGrader installation instructions =====
+===== AutoGrader Conductor installation instructions =====
 
  1. git clone https://max-grossman@bitbucket.org/max-grossman/habanero-autograder.git
- 2. cd habanero-autograder
+ 2. cd habanero-autograder/conductor
  3. ./setup.sh
  4. npm install
  5. node app.js
 
-===== Configurable environment variables =====
+===== AutoGrader Viola installation instructions =====
+
+ 1. cd habanero-autograder/viola
+ 2. javac Viola.java
+ 3. java Viola 8080
+
+===== Conductor configurable environment variables =====
 
  1. PGSQL_USER
  2. PGSQL_PASSWORD
@@ -53,3 +59,5 @@ If that doesn't work, take a look at https://nodejs.org/en/download/package-mana
  4. SVN_PASSWORD
  5. SVN_REPO
  6. PORT
+ 7. VIOLA_HOST
+ 8. VIOLA_PORT

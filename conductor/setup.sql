@@ -27,5 +27,7 @@ CREATE TABLE IF NOT EXISTS runs
 (
  run_id BIGSERIAL PRIMARY KEY,
  user_id BIGSERIAL,
- assignment_id BIGSERIAL
+ assignment_id BIGSERIAL,
+ done_token TEXT NOT NULL UNIQUE,
+ status TEXT NOT NULL
 );

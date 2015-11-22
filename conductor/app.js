@@ -8,6 +8,7 @@ var multer = require('multer');
 var ejs = require('ejs');
 var fs = require('fs-extra');
 var svn = require('svn-spawn');
+var crypto = require('crypto');
 
 var permissionDenied = 'Permission denied. But you should shoot me an e-mail at jmaxg3@gmail.com. If you like playing around with systems, we have interesting research for you in the Habanero group.';
 
@@ -35,6 +36,11 @@ var svn_client = new svn({
         username: SVN_USERNAME,
         password: SVN_PASSWORD
     });
+
+var VIOLA_HOST = process.env.VIOLA_HOST || 'localhost';
+var VIOLA_PORT = parseInt(process.env.VIOLA_PORT || '8080');
+
+console.log('Connecting to Viola at ' + VIOLA_HOST + ':' + VIOLA_PORT);
 
 // TODO load this from JSON file
 var conString = "postgres://" + POSTGRES_USER_TOKEN + "@localhost/autograder";
@@ -276,34 +282,80 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                 { err_msg: 'There appear to be duplicate assignments ' + assignment_name });
             } else {
               var assignment_id = result.rows[0].assignment_id;
+              crypto.randomBytes(48, function(ex, buf) {
+                  var done_token = buf.toString('hex');
 
-              var query = client.query(
-                "INSERT INTO runs (user_id, assignment_id) VALUES ($1,$2) RETURNING run_id",
-                [user_id, assignment_id]);
-              register_query_helpers(query, res, done, req.session.username);
-              query.on('end', function(result) {
-                done();
-                var run_id = result.rows[0].run_id;
-                var run_dir = __dirname + '/submissions/' + req.session.username + '/' + run_id;
+                  var query = client.query("INSERT INTO runs (user_id, " +
+                      "assignment_id, done_token, status) VALUES " +
+                      "($1,$2,$3,'RUNNING') RETURNING run_id",
+                      [user_id, assignment_id, done_token]);
+                  register_query_helpers(query, res, done, req.session.username);
+                  query.on('end', function(result) {
+                    done();
+                    var run_id = result.rows[0].run_id;
+                    var run_dir = __dirname + '/submissions/' + req.session.username + '/' + run_id;
 
-                fs.ensureDirSync(run_dir);
-                fs.renameSync(req.file.path, run_dir + '/' + req.file.originalname);
+                    fs.ensureDirSync(run_dir);
+                    fs.renameSync(req.file.path, run_dir + '/' + req.file.originalname);
 
-                var commit_msg = req.session.username + ' ' + assignment_name + ' ' + run_id;
-                var dst = SVN_REPO + '/' + req.session.username + '/' +
-                    assignment_name + '/' + run_id + '/' + req.file.originalname;
-                svn_client.cmd(['import', '--message', commit_msg,
-                    run_dir + '/' + req.file.originalname, dst], function(err, data) {
-                        if (err) {
-                            return res.render('overview.html', { err_msg:
-                                'An error occurred backing up your submission (' + err + ')' });
-                        } else {
-                            return res.render('overview.html');
-                        }
-                    });
+                    var commit_msg = req.session.username + ' ' + assignment_name + ' ' + run_id;
+                    var dst = SVN_REPO + '/' + req.session.username + '/' +
+                        assignment_name + '/' + run_id + '/' + req.file.originalname;
+                    svn_client.cmd(['import', '--message', commit_msg,
+                        run_dir + '/' + req.file.originalname, dst], function(err, data) {
+                            // Special-case an error message from the Habanero repo that we can safely ignore
+                            if (err && err.message.trim() !== 'svn: E130003: The MERGE response contains invalid XML (200 OK)') {
+                                return res.render('overview.html', { err_msg:
+                                    'An error occurred backing up your submission' });
+                            } else {
+                                var viola_params = 'done_token=' + done_token +
+                                    '&user=' + req.session.username +
+                                    '&assignment=' + assignment_name + '&run=' +
+                                    run_id;
+                                var viola_options = { host: VIOLA_HOST,
+                                    port: VIOLA_PORT, path: '/run?' + viola_params };
+                                http.get(viola_options, function(viola_res) {
+                                    var bodyChunks = [];
+                                    viola_res.on('data', function(chunk) {
+                                        bodyChunks.push(chunk);
+                                    }).on('end', function() {
+                                        var body = Buffer.concat(bodyChunks);
+                                        var result = JSON.parse(body);
+                                        if (result.status === 'Success') {
+                                            return res.render('overview.html');
+                                        } else {
+                                            return res.render('overview.html',
+                                                { err_msg: 'Viola error: ' + result.msg });
+                                        }
+                                    });
+                                }).on('error', function(err) {
+                                    console.log('VIOLA err="' + err + '"');
+                                    return res.render('overview.html',
+                                        { err_msg: 'An error occurred launching the local tests' });
+                                });
+                            }
+                        });
+                  });
               });
             }
           });
+        });
+    });
+});
+
+app.post('/run_finished', function(req, res, next) {
+    var done_token = req.body.done_token;
+    console.log('run_finished: done_token=' + done_token);
+
+    pgclient(function(client, done) {
+        // Can only be one match here because of SQL schema constraints
+        var query = client.query(
+            "UPDATE runs SET status='FINISHED' WHERE done_token=($1)",
+            [done_token]);
+        register_query_helpers(query, res, done, req.session.username);
+        query.on('end', function(result) {
+            done();
+            return res.send(JSON.stringify({ status: 'Success' }));
         });
     });
 });
