@@ -296,48 +296,67 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                     done();
                     var run_id = result.rows[0].run_id;
                     var run_dir = __dirname + '/submissions/' + req.session.username + '/' + run_id;
+                    var dst_dir = SVN_REPO + '/' + req.session.username + '/' +
+                        assignment_name + '/' + run_id;
 
-                    fs.ensureDirSync(run_dir);
-                    fs.renameSync(req.file.path, run_dir + '/' + req.file.originalname);
-
-                    var commit_msg = req.session.username + ' ' + assignment_name + ' ' + run_id;
-                    var dst = SVN_REPO + '/' + req.session.username + '/' +
-                        assignment_name + '/' + run_id + '/' + req.file.originalname;
-                    svn_client.cmd(['import', '--message', commit_msg,
-                        run_dir + '/' + req.file.originalname, dst], function(err, data) {
-                            // Special-case an error message from the Habanero repo that we can safely ignore
-                            //
-                            if (err && err.message.trim().search("200 OK") === -1) {
+                    var mkdir_msg = '"mkdir ' + req.session.username + ' ' + assignment_name + ' ' + run_id + '"';
+                    svn_client.cmd(['mkdir', '--message', mkdir_msg, dst_dir], function(err, data) {
+                      // Special-case an error message from the Habanero repo that we can safely ignore
+                      if (err && err.message.trim().search("200 OK") === -1) {
+                        return res.render('overview.html', { err_msg:
+                          'An error occurred backing up your submission' });
+                      } else {
+                        svn_client.cmd(['checkout', dst_dir, run_dir], function(err, data) {
+                          if (err && err.message.trim().search("200 OK") === -1) {
+                            return res.render('overview.html', { err_msg:
+                              'An error occurred backing up your submission' });
+                          } else {
+                            // Move submitted file into newly created local SVN working copy
+                            fs.renameSync(req.file.path, run_dir + '/' + req.file.originalname);
+                            svn_client.cmd(['add', run_dir + '/' + req.file.originalname], function(err, data) {
+                              if (err && err.message.trim().search("200 OK") === -1) {
                                 return res.render('overview.html', { err_msg:
-                                    'An error occurred backing up your submission' });
-                            } else {
-                                var viola_params = 'done_token=' + done_token +
-                                    '&user=' + req.session.username +
-                                    '&assignment=' + assignment_name + '&run=' +
-                                    run_id;
-                                var viola_options = { host: VIOLA_HOST,
-                                    port: VIOLA_PORT, path: '/run?' + viola_params };
-                                http.get(viola_options, function(viola_res) {
-                                    var bodyChunks = [];
-                                    viola_res.on('data', function(chunk) {
-                                        bodyChunks.push(chunk);
-                                    }).on('end', function() {
-                                        var body = Buffer.concat(bodyChunks);
-                                        var result = JSON.parse(body);
-                                        if (result.status === 'Success') {
-                                            return res.redirect('/overview');
-                                        } else {
-                                            return res.render('overview.html',
-                                                { err_msg: 'Viola error: ' + result.msg });
-                                        }
+                                  'An error occurred backing up your submission' });
+                              } else {
+                                var commit_msg = '"add ' + req.session.username + ' ' + assignment_name + ' ' + run_id + '"';
+                                svn_client.cmd(['commit', '--message', commit_msg, run_dir], function(err, data) {
+                                  if (err && err.message.trim().search("200 OK") === -1) {
+                                    return res.render('overview.html', { err_msg:
+                                      'An error occurred backing up your submission' });
+                                  } else {
+                                    var viola_params = 'done_token=' + done_token +
+                                        '&user=' + req.session.username +
+                                        '&assignment=' + assignment_name + '&run=' +
+                                        run_id;
+                                    var viola_options = { host: VIOLA_HOST,
+                                        port: VIOLA_PORT, path: '/run?' + viola_params };
+                                    http.get(viola_options, function(viola_res) {
+                                        var bodyChunks = [];
+                                        viola_res.on('data', function(chunk) {
+                                            bodyChunks.push(chunk);
+                                        }).on('end', function() {
+                                            var body = Buffer.concat(bodyChunks);
+                                            var result = JSON.parse(body);
+                                            if (result.status === 'Success') {
+                                                return res.redirect('/overview');
+                                            } else {
+                                                return res.render('overview.html',
+                                                    { err_msg: 'Viola error: ' + result.msg });
+                                            }
+                                        });
+                                    }).on('error', function(err) {
+                                        console.log('VIOLA err="' + err + '"');
+                                        return res.render('overview.html',
+                                            { err_msg: 'An error occurred launching the local tests' });
                                     });
-                                }).on('error', function(err) {
-                                    console.log('VIOLA err="' + err + '"');
-                                    return res.render('overview.html',
-                                        { err_msg: 'An error occurred launching the local tests' });
+                                  }
                                 });
-                            }
+                              }
+                            });
+                          }
                         });
+                      }
+                    });
                   });
               });
             }
