@@ -4,10 +4,13 @@ var session = require('express-session');
 var bodyParser = require('body-parser');
 var bcrypt = require('bcrypt-nodejs');
 var pg = require('pg');
-
+var multer = require('multer');
 var ejs = require('ejs');
+var fs = require('fs-extra');
 
 var permissionDenied = 'Permission denied. But you should shoot me an e-mail at jmaxg3@gmail.com. If you like playing around with systems, we have interesting research for you in the Habanero group.';
+
+var upload = multer({ dest: 'uploads/' });
 
 var POSTGRES_USERNAME = process.env.PGSQL_USER || 'postgres';
 var POSTGRES_PASSWORD = process.env.PGSQL_PASSWORD || 'foobar';
@@ -153,7 +156,7 @@ app.post('/assignment', function(req, res, next) {
  */
 app.get('/assignments', function(req, res, next) {
   var get_not_visible = false;
-  if (req.query.get_not_visible && req.session.is_admin) {
+  if (req.session.is_admin && req.query.get_not_visible && req.query.get_not_visible === 'true') {
     get_not_visible = true;
   }
   console.log('assignments: username=' + req.session.username +
@@ -209,14 +212,65 @@ app.post('/set_assignment_visible', function(req, res, next) {
   }
 });
 
-app.post('/submit_run', function(req, res, next) {
-    console.log('submit_run: ' + req.session.username);
-    //TODO
-    console.log(req);
-    console.log(req.file);
-    console.log(req.files);
+app.post('/submit_run', upload.single('zip'), function(req, res, next) {
+    var assignment_name = req.body.assignment;
+    console.log('submit_run: username=' + req.session.username + ' assignment="' + assignment_name + '"');
 
-    return res.send(JSON.stringify({ status: 'Success', redirect: '/overview' }));
+    if (assignment_name.length == 0) {
+      return res.render('overview.html', { err_msg: 'Please select an assignment' });
+    }
+
+    if (!req.file) {
+      return res.render('overview.html', { err_msg: 'Please provide a ZIP file of your assignment' });
+    }
+
+    pgclient(function(client, done) {
+      var query = client.query("SELECT * FROM users WHERE user_name=($1)",
+        [req.session.username]);
+      register_query_helpers(query, res, done, req.session.username);
+      query.on('end', function(result) {
+        if (result.rowCount == 0) {
+          return res.render('overview.html',
+            { err_msg: 'User ' + req.session.username + ' does not seem to exist' });
+        } else if (result.rowCount > 1) {
+          return res.render('overview.html',
+            { err_msg: 'There appear to be duplicate users ' + req.session.username });
+        } else {
+          // Got the user ID, time to get the assignment ID
+          var user_id = result.rows[0].user_id;
+
+          var query = client.query("SELECT * FROM assignments WHERE name=($1)",
+            [assignment_name]);
+          register_query_helpers(query, res, done, req.session.username);
+          query.on('end', function(result) {
+            if (result.rowCount == 0) {
+              return res.render('overview.html',
+                { err_msg: 'Assignment ' + assignment_name + ' does not seem to exist' });
+            } else if (result.rowCount > 1) {
+              return res.render('overview.html',
+                { err_msg: 'There appear to be duplicate assignments ' + assignment_name });
+            } else {
+              var assignment_id = result.rows[0].assignment_id;
+
+              var query = client.query(
+                "INSERT INTO runs (user_id, assignment_id) VALUES ($1,$2) RETURNING run_id",
+                [user_id, assignment_id]);
+              register_query_helpers(query, res, done, req.session.username);
+              query.on('end', function(result) {
+                done();
+                var run_id = result.rows[0].run_id;
+                var run_dir = __dirname + '/submissions/' + req.session.username + '/' + run_id;
+
+                fs.ensureDirSync(run_dir);
+                fs.renameSync(req.file.path, run_dir + '/' + req.file.originalname);
+
+                return res.render('overview.html');
+              });
+            }
+          });
+        }
+      });
+    });
 });
 
 var port = process.env.PORT || 8000

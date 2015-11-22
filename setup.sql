@@ -19,7 +19,7 @@ WHERE
 CREATE TABLE IF NOT EXISTS assignments
 (
  assignment_id BIGSERIAL PRIMARY KEY,
- name TEXT NOT NULL,
+ name TEXT NOT NULL UNIQUE,
  visible BOOLEAN NOT NULL
 );
 

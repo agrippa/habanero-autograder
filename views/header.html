@@ -45,4 +45,8 @@ function show_error(msg) {
   $('#alert-error').css('display', 'block');
   $('#alert-error').html('<center>' + msg + '</center>');
 }
+
+<% if (locals.err_msg) { %>
+  $(function() { show_error("<%= locals.err_msg %>"); });
+<% } %>
 </script>
