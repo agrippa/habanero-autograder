@@ -6,6 +6,7 @@ The Habanero AutoGrader for parallel programs
  - nodejs
  - postgres
  - bash
+ - svn
 
 ===== npm installation instructions =====
 
@@ -43,3 +44,12 @@ If that doesn't work, take a look at https://nodejs.org/en/download/package-mana
  3. ./setup.sh
  4. npm install
  5. node app.js
+
+===== Configurable environment variables =====
+
+ 1. PGSQL_USER
+ 2. PGSQL_PASSWORD
+ 3. SVN_USER
+ 4. SVN_PASSWORD
+ 5. SVN_REPO
+ 6. PORT

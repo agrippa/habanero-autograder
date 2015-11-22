@@ -7,6 +7,7 @@ var pg = require('pg');
 var multer = require('multer');
 var ejs = require('ejs');
 var fs = require('fs-extra');
+var svn = require('svn-spawn');
 
 var permissionDenied = 'Permission denied. But you should shoot me an e-mail at jmaxg3@gmail.com. If you like playing around with systems, we have interesting research for you in the Habanero group.';
 
@@ -20,6 +21,20 @@ if (POSTGRES_PASSWORD.length == 0) {
 } else {
   POSTGRES_USER_TOKEN = POSTGRES_USERNAME + ":" + POSTGRES_PASSWORD;
 }
+
+console.log('Connecting to local PGSQL instance with user ' + POSTGRES_USERNAME);
+
+var SVN_USERNAME = process.env.SVN_USER || 'jmg3';
+var SVN_PASSWORD = process.env.SVN_PASSWORD || '';
+var SVN_REPO = process.env.SVN_REPO ||
+    'https://svn.rice.edu/r/parsoft/projects/AutoGrader/student-runs';
+
+console.log('Connecting to SVN repo ' + SVN_REPO + ' as user ' + SVN_USERNAME);
+
+var svn_client = new svn({
+        username: SVN_USERNAME,
+        password: SVN_PASSWORD
+    });
 
 // TODO load this from JSON file
 var conString = "postgres://" + POSTGRES_USER_TOKEN + "@localhost/autograder";
@@ -274,7 +289,18 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                 fs.ensureDirSync(run_dir);
                 fs.renameSync(req.file.path, run_dir + '/' + req.file.originalname);
 
-                return res.render('overview.html');
+                var commit_msg = req.session.username + ' ' + assignment_name + ' ' + run_id;
+                var dst = SVN_REPO + '/' + req.session.username + '/' +
+                    assignment_name + '/' + run_id + '/' + req.file.originalname;
+                svn_client.cmd(['import', '--message', commit_msg,
+                    run_dir + '/' + req.file.originalname, dst], function(err, data) {
+                        if (err) {
+                            return res.render('overview.html', { err_msg:
+                                'An error occurred backing up your submission (' + err + ')' });
+                        } else {
+                            return res.render('overview.html');
+                        }
+                    });
               });
             }
           });
