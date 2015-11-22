@@ -306,7 +306,8 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                     svn_client.cmd(['import', '--message', commit_msg,
                         run_dir + '/' + req.file.originalname, dst], function(err, data) {
                             // Special-case an error message from the Habanero repo that we can safely ignore
-                            if (err && err.message.trim() !== 'svn: E130003: The MERGE response contains invalid XML (200 OK)') {
+                            //
+                            if (err && err.message.trim().search("200 OK") === -1) {
                                 return res.render('overview.html', { err_msg:
                                     'An error occurred backing up your submission' });
                             } else {

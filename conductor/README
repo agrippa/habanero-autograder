@@ -35,7 +35,9 @@ If that doesn't work, take a look at https://nodejs.org/en/download/package-mana
     a. sudo -u postgres psql --username=postgres --dbname=autograder
     b. \l to list all databases (this should show autograder)
     c. \dt to list all tables in the current database (should be empty now)
- 7. sudo -u postgres psql --username=postgres --dbname=autograder --file=setup.sql
+ 7. Configure the database, the command to use varies from platform to platform, e.g.:
+    a. sudo -u postgres psql --username=postgres --dbname=autograder --file=setup.sql
+    b. /Applications/Postgres.app/Contents/Versions/9.4/bin/psql --username=jmg3 --dbname=autograder --file=setup.sql
 
 ===== AutoGrader Conductor installation instructions =====
 
