@@ -200,6 +200,16 @@ app.post('/set_assignment_visible', function(req, res, next) {
   }
 });
 
+app.post('/submit_run', function(req, res, next) {
+    console.log('submit_run: ' + req.session.username);
+    //TODO
+    console.log(req);
+    console.log(req.file);
+    console.log(req.files);
+
+    return res.send(JSON.stringify({ status: 'Success', redirect: '/overview' }));
+});
+
 var port = process.env.PORT || 8000
 
 var oneDay = 86400000;
