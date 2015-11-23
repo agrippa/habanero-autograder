@@ -479,7 +479,7 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                                     var viola_params = 'done_token=' + done_token +
                                         '&user=' + req.session.username +
                                         '&assignment=' + assignment_name + '&run=' +
-                                        run_id;
+                                        run_id + '&assignment_id=' + assignment_id;
                                     var viola_options = { host: VIOLA_HOST,
                                         port: VIOLA_PORT, path: '/run?' + viola_params };
                                     http.get(viola_options, function(viola_res) {
@@ -574,6 +574,8 @@ app.post('/local_run_finished', function(req, res, next) {
                         var MKDIR_CMD = 'mkdir -p ~/autograder/' + run_id;
                         var SCP_DST = CLUSTER_USER + ':' + CLUSTER_PASSWORD +
                             '@' + CLUSTER_HOSTNAME + ':autograder/' + run_id + '/bass.slurm';
+                        console.log('local_run_finished: Connecting to ' +
+                            CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
                         conn.on('ready', function() {
                             run_ssh(conn, 'creating autograder dir', MKDIR_CMD,
                                 function(err, conn, stdout, stderr) {

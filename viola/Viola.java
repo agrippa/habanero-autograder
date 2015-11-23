@@ -95,6 +95,8 @@ public class Viola {
                 err_msg = "Missing assignment name";
             } else if (!parms.containsKey("run")) {
                 err_msg = "Missing run ID";
+            } else if (!parms.containsKey("assignment_id")) {
+                err_msg = "Missing assignment ID";
             }
 
             if (err_msg != null) {
@@ -106,11 +108,12 @@ public class Viola {
                 final String user = parms.get("user");
                 final String assignment_name = parms.get("assignment");
                 final int run_id = Integer.parseInt(parms.get("run"));
-                log("starting tests for user=%s assignment=%s run=%d\n", user,
-                        assignment_name, run_id);
+                final int assignment_id = Integer.parseInt(parms.get("assignment_id"));
+                log("starting tests for user=%s assignment=%s run=%d assignment_id=%d\n", user,
+                        assignment_name, run_id, assignment_id);
 
                 final LocalTestRunner runnable = new LocalTestRunner(done_token,
-                        user, assignment_name, run_id);
+                        user, assignment_name, run_id, assignment_id);
                 exec.execute(runnable);
                 writeResponse(t, "{ \"status\": \"Success\" }");
             }
@@ -147,13 +150,15 @@ public class Viola {
         private final String user;
         private final String assignment_name;
         private final int run_id;
+        private final int assignment_id;
 
         public LocalTestRunner(String done_token, String user,
-                String assignment_name, int run_id) {
+                String assignment_name, int run_id, int assignment_id) {
             this.done_token = done_token;
             this.user = user;
             this.assignment_name = assignment_name;
             this.run_id = run_id;
+            this.assignment_id = assignment_id;
         }
 
         /*
@@ -200,22 +205,44 @@ public class Viola {
             }
         }
 
+        private void delete_dir(File dir) {
+            for (String filename : dir.list()) {
+                File curr = new File(dir.getAbsolutePath(), filename);
+                curr.delete();
+            }
+            dir.delete();
+        }
+
+        private void merge_dirs(File dst, File src) {
+            for (String filename : src.list()) {
+              File curr = new File(src.getAbsolutePath(), filename);
+              File target = new File(dst.getAbsolutePath(), filename);
+              if (curr.isDirectory()) {
+                if (!target.exists()) {
+                  target.mkdir();
+                }
+                merge_dirs(target, curr);
+              } else {
+                curr.renameTo(target);
+              }
+            }
+        }
+
         @Override
         public void run() {
             log("Running local tests for user=%s assignment=%s run=%d\n",
                     user, assignment_name, run_id);
 
-            // Test code
-            // try {
-            //     Thread.sleep(30000);
-            // } catch (InterruptedException ie) {
-            // }
-
             try {
-                final File temp = File.createTempFile("temp", Long.toString(System.nanoTime()));
-                if(!(temp.delete())) {
+                final File code_dir = File.createTempFile("temp", Long.toString(System.nanoTime()));
+                if(!(code_dir.delete())) {
                     throw new IOException("Could not delete temp file: " +
-                            temp.getAbsolutePath());
+                            code_dir.getAbsolutePath());
+                }
+                final File instructor_dir = File.createTempFile("temp", Long.toString(System.nanoTime()));
+                if(!(instructor_dir.delete())) {
+                    throw new IOException("Could not delete temp file: " +
+                            instructor_dir.getAbsolutePath());
                 }
 
                 /*
@@ -224,27 +251,40 @@ public class Viola {
                  */
                 SVNUpdateClient updateClient = ourClientManager.getUpdateClient();
                 updateClient.setIgnoreExternals(false);
+
+                log("Checking student code out to %s\n", code_dir.getAbsolutePath());
                 updateClient.doCheckout(SVNURL.parseURIDecoded(svnRepo + "/" +
                             user + "/" + assignment_name + "/" + run_id),
-                        temp, SVNRevision.HEAD, SVNRevision.HEAD, SVNDepth.INFINITY, false);
+                        code_dir, SVNRevision.HEAD, SVNRevision.HEAD, SVNDepth.INFINITY, false);
 
-                log("Checking out to %s\n", temp.getAbsolutePath());
+                log("Checking instructor code out to %s\n", instructor_dir.getAbsolutePath());
+                updateClient.doCheckout(SVNURL.parseURIDecoded(svnRepo +
+                      "/assignments/" + assignment_id), instructor_dir,
+                    SVNRevision.HEAD, SVNRevision.HEAD, SVNDepth.INFINITY,
+                    false);
+
+                log("Merging directories\n");
+                merge_dirs(code_dir, instructor_dir);
 
                 // Test code. Fill in some dummy text files for now
                 PrintWriter writer = new PrintWriter(
-                        temp.getAbsolutePath() + "/correct.txt", "UTF-8");
+                        code_dir.getAbsolutePath() + "/correct.txt", "UTF-8");
                 writer.println("Local logs 1");
                 writer.println("Local logs 2");
                 writer.close();
 
+                log("Filled dummy log file\n");
+
                 // Add the generated files to the repo
                 ourClientManager.getWCClient().doAdd(
-                        new File(temp.getAbsolutePath(), "correct.txt"), false,
+                        new File(code_dir.getAbsolutePath(), "correct.txt"), false,
                         false, false, SVNDepth.INFINITY, false, false);
+
+                log("Added log file to repo\n");
 
                 // Commit the added files to the repo
                 File[] wc = new File[1];
-                wc[0] = new File(temp.getAbsolutePath());
+                wc[0] = new File(code_dir.getAbsolutePath());
                 final String commitMessage =
                     user + " " + assignment_name + " " + run_id + " local-runs";
                 try {
@@ -258,15 +298,16 @@ public class Viola {
                     svn.printStackTrace();
                 }
 
+                log("Committed log file to repo\n");
+
                 /*
                  * Clean up the test directory. This assumes that no directories
                  * are created in the process of testing.
                  */
-                for (String filename : temp.list()) {
-                    File curr = new File(temp.getAbsolutePath(), filename);
-                    curr.delete();
-                }
-                temp.delete();
+                delete_dir(code_dir);
+                delete_dir(instructor_dir);
+
+                log("Done with local testing\n");
             } catch (IOException io) {
                 io.printStackTrace();
             } catch (SVNException svn) {
