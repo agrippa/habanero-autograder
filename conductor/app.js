@@ -186,6 +186,10 @@ app.get('/admin', function(req, res, next) {
   }
 });
 
+function is_actual_svn_err(err) {
+  return (err && err.message.trim().search("200 OK") === -1);
+}
+
 // Create a new assignment with a given name, not visible to students
 var assignment_file_fields = [
                               { name: 'zip', maxCount: 1},
@@ -221,11 +225,45 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
               var assignment_id = result.rows[0].assignment_id;
 
               var assignment_dir = __dirname + '/instructor-tests/' + assignment_id;
-              fs.mkdirSync(assignment_dir);
-              fs.renameSync(req.files.zip.path, assignment_dir + '/instructor.zip');
-              fs.renameSync(req.files.pom.path, assignment_dir + '/pom.xml');
 
-              return res.redirect('/admin');
+              var dst_dir = SVN_REPO + '/assignments/' + assignment_id;
+              var mkdir_msg = 'create assignment ' + assignment_id;
+              svn_client.cmd(['mkdir', '--parents', '--message', mkdir_msg, dst_dir],
+                function(err, data) {
+                  if (is_actual_svn_err(err)) {
+                    return res.render('admin.html',
+                      {err_msg: 'Error creating assignment directory'});
+                  } else {
+                    svn_client.cmd(['checkout', dst_dir, assignment_dir], function(err, data) {
+                      if (is_actual_svn_err(err)) {
+                        return res.render('admin.html',
+                          {err_msg: 'Error checking out assignment directory'});
+                      } else {
+                        fs.renameSync(req.files.zip[0].path, assignment_dir + '/instructor.zip');
+                        fs.renameSync(req.files.pom[0].path, assignment_dir + '/pom.xml');
+                        svn_client.cmd(['add',
+                          assignment_dir + '/instructor.zip',
+                          assignment_dir + '/pom.xml'], function(err, data) {
+                            if (is_actual_svn_err(err)) {
+                              return res.render('admin.html',
+                                {err_msg: 'Error adding files to assignment repo'});
+                            } else {
+                              var commit_msg = 'initial commit for assignment ' + assignment_id;
+                              svn_client.cmd(['commit', '--message', commit_msg, assignment_dir],
+                                function(err, data) {
+                                  if (is_actual_svn_err(err)) {
+                                    return res.render('admin.html',
+                                      {err_msg: 'Error committing files to assignment repo'});
+                                  } else {
+                                    return res.redirect('/admin');
+                                  }
+                                });
+                            }
+                        });
+                      }
+                    });
+                  }
+                });
           });
     });
   }
@@ -253,7 +291,15 @@ function handle_reupload(req, res, missing_msg, target_filename) {
         } else {
           var assignment_dir = __dirname + '/instructor-tests/' + assignment_id;
           fs.renameSync(req.file.path, assignment_dir + '/' + target_filename);
-          return res.redirect('/admin');
+          var commit_msg = 'reupload ' + target_filename + ' for assignment' + assignment_id;
+          svn_client.cmd(['commit', '--message', commit_msg, assignment_dir],
+            function(err, data) {
+              if (is_actual_svn_err(err)) {
+                return res.render('admin.html', {err_msg: 'Error updating file in the repo'});
+              } else {
+                return res.redirect('/admin');
+              }
+            });
         }
       });
     });
@@ -269,7 +315,6 @@ app.post('/upload_pom/:assignment_id', upload.single('pom'), function(req, res, 
   console.log('upload_zip: is_admin=' + req.session.is_admin);
   return handle_reupload(req, res, 'Please provide a pom.xml', 'pom.xml');
 });
-
 
 /*
  * Get all assignments, with an optional flag to also view not visible
@@ -409,25 +454,25 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                     var mkdir_msg = '"mkdir ' + req.session.username + ' ' + assignment_name + ' ' + run_id + '"';
                     svn_client.cmd(['mkdir', '--parents', '--message', mkdir_msg, dst_dir], function(err, data) {
                       // Special-case an error message from the Habanero repo that we can safely ignore
-                      if (err && err.message.trim().search("200 OK") === -1) {
+                      if (is_actual_svn_err(err)) {
                         return res.render('overview.html', { err_msg:
                           'An error occurred backing up your submission' });
                       } else {
                         svn_client.cmd(['checkout', dst_dir, run_dir], function(err, data) {
-                          if (err && err.message.trim().search("200 OK") === -1) {
+                          if (is_actual_svn_err(err)) {
                             return res.render('overview.html', { err_msg:
                               'An error occurred backing up your submission' });
                           } else {
                             // Move submitted file into newly created local SVN working copy
                             fs.renameSync(req.file.path, run_dir + '/' + req.file.originalname);
                             svn_client.cmd(['add', run_dir + '/' + req.file.originalname], function(err, data) {
-                              if (err && err.message.trim().search("200 OK") === -1) {
+                              if (is_actual_svn_err(err)) {
                                 return res.render('overview.html', { err_msg:
                                   'An error occurred backing up your submission' });
                               } else {
                                 var commit_msg = '"add ' + req.session.username + ' ' + assignment_name + ' ' + run_id + '"';
                                 svn_client.cmd(['commit', '--message', commit_msg, run_dir], function(err, data) {
-                                  if (err && err.message.trim().search("200 OK") === -1) {
+                                  if (is_actual_svn_err(err)) {
                                     return res.render('overview.html', { err_msg:
                                       'An error occurred backing up your submission' });
                                   } else {
