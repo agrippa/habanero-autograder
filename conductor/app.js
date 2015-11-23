@@ -78,7 +78,7 @@ function run_ssh(conn, lbl, cmd, cb) {
         if (err) {
             conn.end();
             console.log('[' + lbl + '] err=' + err);
-            return res.send(JSON.stringify({status: 'Failure', msg: lbl}));
+            return cb(lbl, null, null, null);
         }
         var acc_stdout = '';
         var acc_stderr = '';
@@ -86,9 +86,9 @@ function run_ssh(conn, lbl, cmd, cb) {
             if (code != 0) {
                 conn.end();
                 console.log('[' + lbl + '] code=' + code + ' signal=' + signal);
-                return res.send(JSON.stringify({status: 'Failure', msg: lbl}));
+                return cb(lbl, null, null, null);
             } else {
-                return cb(conn, acc_stdout, acc_stderr);
+                return cb(null, conn, acc_stdout, acc_stderr);
             }
         }).on('data', function(data) {
             acc_stdout = acc_stdout + data;
@@ -271,6 +271,10 @@ app.post('/set_assignment_visible', function(req, res, next) {
   }
 });
 
+function get_user_name_for_id(user_id, client, done, res, cb) {
+  var query = client.query("SELECT * FROM users WHERE user_id=($1)", [user_id]);
+}
+
 function get_user_id_for_name(username, client, done, res, cb) {
   var query = client.query("SELECT * FROM users WHERE user_name=($1)",
       [username]);
@@ -328,7 +332,7 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
 
                   var query = client.query("INSERT INTO runs (user_id, " +
                       "assignment_id, done_token, status) VALUES " +
-                      "($1,$2,$3,'RUNNING CORRECTNESS') RETURNING run_id",
+                      "($1,$2,$3,'TESTING CORRECTNESS') RETURNING run_id",
                       [user_id, assignment_id, done_token]);
                   register_query_helpers(query, res, done, req.session.username);
                   query.on('end', function(result) {
@@ -415,7 +419,8 @@ app.post('/local_run_finished', function(req, res, next) {
         query.on('end', function(result) {
           if (result.rows.length != 1) {
             done();
-            return res.send(JSON.stringify({status: 'Failure', msg: 'Unexpected # of rows, ' + result.rows.length}));
+            return res.send(JSON.stringify({status: 'Failure',
+                msg: 'Unexpected # of rows, ' + result.rows.length}));
           } else {
             var run_id = result.rows[0].run_id;
             var user_id = result.rows[0].user_id;
@@ -431,7 +436,7 @@ app.post('/local_run_finished', function(req, res, next) {
                 var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
 
                 var query = client.query(
-                    "UPDATE runs SET status='RUNNING PERF' WHERE run_id=($1)", [run_id]);
+                    "UPDATE runs SET status='TESTING PERFORMANCE' WHERE run_id=($1)", [run_id]);
                 register_query_helpers(query, res, done, req.session.username);
                 query.on('end', function(result) {
                     done();
@@ -462,7 +467,11 @@ app.post('/local_run_finished', function(req, res, next) {
                             '@' + CLUSTER_HOSTNAME + ':autograder/' + run_id + '/bass.slurm';
                         conn.on('ready', function() {
                             run_ssh(conn, 'creating autograder dir', MKDIR_CMD,
-                                function(conn, stdout, stderr) {
+                                function(err, conn, stdout, stderr) {
+                                     if (err) {
+                                       return res.send(JSON.stringify({status: 'Failure',
+                                         msg: 'Failed creating autograder dir'}));
+                                     }
                                      scp.scp(run_dir + '/bass.slurm', SCP_DST, function(err) {
                                         if (err) {
                                             console.log('scp err=' + err);
@@ -471,7 +480,11 @@ app.post('/local_run_finished', function(req, res, next) {
                                         }
                                         run_ssh(conn, 'sbatch',
                                             'sbatch ~/autograder/' + run_id + '/bass.slurm',
-                                            function(conn, stdout, stderr) {
+                                            function(err, conn, stdout, stderr) {
+                                                if (err) {
+                                                  return res.send(JSON.stringify({status: 'Failure',
+                                                    msg: 'Failed submitting job'}));
+                                                }
                                                 conn.end();
                                                 // stdout == Submitted batch job 474297
                                                 if (stdout.search('Submitted batch job ') !== 0) {
@@ -586,13 +599,20 @@ app.get('/', function(req, res, next) {
 function check_cluster_helper(perf_runs, i, conn, client, done) {
     if (i >= perf_runs.length) {
         done();
+        conn.end();
         setTimeout(check_cluster, 30000);
     } else {
         var run = perf_runs[i];
         console.log('check_cluster_helper: ' + JSON.stringify(run));
         var SACCT = "sacct --noheader -j " + run.job_id + " -u jmg3 " +
             "--format=JobName,State | grep hab | awk '{ print $2 }'";
-        run_ssh(conn, 'checking job status', SACCT, function(conn, stdout, stderr) {
+        run_ssh(conn, 'checking job status', SACCT, function(err, conn, stdout, stderr) {
+            if (err) {
+              done();
+              conn.end();
+              setTimeout(check_cluster, 30000);
+              return;
+            }
             stdout = stdout.trim();
             var query = null;
             if (stdout === 'FAILED') {
@@ -612,10 +632,68 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                 query.on('error', function(err, result) {
                         console.log('Error updating running perf tests: ' + err);
                         done();
+                        conn.end();
                         setTimeout(check_cluster, 30000);
                 });
                 query.on('end', function(result) {
-                    check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                  var query = client.query(
+                    'SELECT * FROM users WHERE user_id=($1)', [run.user_id]);
+                  query.on('row', function(row, result) { result.addRow(row); });
+                  query.on('error', function(err, result) {
+                          console.log('Error finding user name: ' + err);
+                          done();
+                          conn.end();
+                          setTimeout(check_cluster, 30000);
+                  });
+                  query.on('end', function(result) {
+                    if (result.rows.length != 1) {
+                      console.log('Missing user, user_id=' + run.user_id);
+                      done();
+                      conn.end();
+                      setTimeout(check_cluster, 30000);
+                    } else {
+                      var username = result.rows[0].user_name;
+                      var REMOTE_FOLDER = CLUSTER_USER + ':' + CLUSTER_PASSWORD +
+                          '@' + CLUSTER_HOSTNAME + ':autograder/' + run.run_id;
+                      var REMOTE_STDOUT = REMOTE_FOLDER + '/stdout.txt';
+                      var REMOTE_STDERR = REMOTE_FOLDER + '/stderr.txt';
+                      var LOCAL_STDOUT = __dirname + '/submissions/' +
+                        username + '/' + run.run_id + '/cluster-stdout.txt';
+                      var LOCAL_STDERR = __dirname + '/submissions/' +
+                        username + '/' + run.run_id + '/cluster-stderr.txt';
+
+                      scp.scp(REMOTE_STDOUT, LOCAL_STDOUT, function(err) {
+                        if (err) {
+                          console.log('scp err=' + err);
+                          done();
+                          conn.end();
+                          setTimeout(check_cluster, 30000);
+                        } else {
+                          scp.scp(REMOTE_STDERR, LOCAL_STDERR, function(err) {
+                            if (err) {
+                              console.log('scp err=' + err);
+                              done();
+                              conn.end();
+                              setTimeout(check_cluster, 30000);
+                            } else {
+                              run_ssh(conn, 'cleaning up job dir',
+                                'rm -r autograder/' + run.run_id,
+                                function(err, conn, stdout, stderr) {
+                                  if (err) {
+                                    done();
+                                    conn.end();
+                                    setTimeout(check_cluster, 30000);
+                                  } else {
+                                    check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                                  }
+                                });
+                            }
+                          });
+                        }
+                      });
+                    }
+                  });
+
                 });
             } else {
                 check_cluster_helper(perf_runs, i + 1, conn, client, done);
@@ -630,7 +708,7 @@ function check_cluster() {
     console.log('check_cluster fired');
 
     pgclient(function(client, done) {
-        var query = client.query("SELECT * FROM runs WHERE status='RUNNING PERF'");
+        var query = client.query("SELECT * FROM runs WHERE status='TESTING PERFORMANCE'");
         query.on('row', function(row, result) { result.addRow(row); });
         query.on('error', function(err, result) {
                 done();
