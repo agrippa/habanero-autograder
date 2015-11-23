@@ -11,6 +11,7 @@ var svn = require('svn-spawn');
 var crypto = require('crypto');
 var ssh = require('ssh2');
 var scp = require('scp2')
+var child_process = require('child_process');
 
 var permissionDenied = 'Permission denied. But you should shoot me an e-mail at jmaxg3@gmail.com. If you like playing around with systems, we have interesting research for you in the Habanero group.';
 
@@ -47,8 +48,19 @@ console.log('Connecting to Viola at ' + VIOLA_HOST + ':' + VIOLA_PORT);
 var CLUSTER_HOSTNAME = process.env.CLUSTER_HOSTNAME || 'stic.rice.edu';
 var CLUSTER_USER = process.env.CLUSTER_USER || 'jmg3';
 var CLUSTER_PASSWORD = process.env.CLUSTER_PASSWORD || '';
+/*
+ * We support cluster types of 'slurm' and 'local'. However, 'local' clusters are
+ * purely for testing locally and should never be used in production, as they
+ * block on every performance test.
+ */
+var CLUSTER_TYPE = process.env.CLUSTER_TYPE || 'slurm';
+if (CLUSTER_TYPE !== 'slurm' && CLUSTER_TYPE !== 'local') {
+  throw 'Unsupported cluster type ' + CLUSTER_TYPE;
+}
+var CHECK_CLUSTER_PERIOD = 30000;
 
-console.log('Connecting to remote cluster at ' + CLUSTER_HOSTNAME + ' as ' + CLUSTER_USER);
+console.log('Connecting to remote cluster at ' + CLUSTER_HOSTNAME +
+  ' of type ' + CLUSTER_TYPE + ' as ' + CLUSTER_USER);
 
 // TODO load this from JSON file
 var conString = "postgres://" + POSTGRES_USER_TOKEN + "@localhost/autograder";
@@ -72,30 +84,135 @@ function register_query_helpers(query, res, done, username) {
     });
 }
 
-// Assume this is called after 'ready' event is triggered.
-function run_ssh(conn, lbl, cmd, cb) {
-    conn.exec(cmd, function(err, stream) {
-        if (err) {
-            conn.end();
-            console.log('[' + lbl + '] err=' + err);
-            return cb(lbl, null, null, null);
-        }
-        var acc_stdout = '';
-        var acc_stderr = '';
-        stream.on('close', function(code, signal) {
-            if (code != 0) {
-                conn.end();
-                console.log('[' + lbl + '] code=' + code + ' signal=' + signal);
-                return cb(lbl, null, null, null);
-            } else {
-                return cb(null, conn, acc_stdout, acc_stderr);
-            }
-        }).on('data', function(data) {
-            acc_stdout = acc_stdout + data;
-        }).stderr.on('data', function(data) {
-            acc_stderr = acc_stderr + data;
-        });
+function connect_to_cluster(cb) {
+  if (CLUSTER_TYPE === 'slurm') {
+    var conn = new ssh.Client();
+    conn.on('ready', function() {
+      cb(conn);
+    }).connect({
+        host: CLUSTER_HOSTNAME,
+        port: 22,
+        username: CLUSTER_USER,
+        password: CLUSTER_PASSWORD
     });
+  } else {
+    // local
+    cb('localhost');
+  }
+}
+
+function disconnect_from_cluster(conn) {
+  if (CLUSTER_TYPE === 'slurm') {
+    conn.end();
+  }
+}
+
+// Assume this is called after 'ready' event is triggered.
+function run_cluster_cmd(conn, lbl, cluster_cmd, cb) {
+    if (CLUSTER_TYPE === 'slurm') {
+        conn.exec(cluster_cmd, function(err, stream) {
+            if (err) {
+                disconnect_from_cluster(conn);
+                console.log('[' + lbl + '] err=' + err);
+                return cb(lbl, null, null, null);
+            }
+            var acc_stdout = '';
+            var acc_stderr = '';
+            stream.on('close', function(code, signal) {
+                if (code != 0) {
+                    disconnect_from_cluster(conn);
+                    console.log('[' + lbl + '] code=' + code + ' signal=' + signal);
+                    return cb(lbl, null, null, null);
+                } else {
+                    return cb(null, conn, acc_stdout, acc_stderr);
+                }
+            }).on('data', function(data) {
+                acc_stdout = acc_stdout + data;
+            }).stderr.on('data', function(data) {
+                acc_stderr = acc_stderr + data;
+            });
+        });
+    } else {
+      var split = cluster_cmd.split(' ');
+      var run = child_process.spawn(split[0], split.splice(1));
+
+      var acc_stdout = '';
+      var acc_stderr = '';
+      run.stdout.on('data', function(data) { acc_stdout = acc_stdout + data; });
+      run.stderr.on('data', function(data) { acc_stderr = acc_stderr + data; });
+      run.on('close', function(code) {
+        if (code != 0) {
+          console.log('[' + lbl + '] code=' + code + ', cluster_cmd=' + cluster_cmd);
+          return cb(lbl, null, null, null);
+        } else {
+          return cb(null, conn, acc_stdout, acc_stderr);
+        }
+      });
+    }
+}
+
+function cluster_scp(src_file, dst_file, is_upload, cb) {
+  if (is_upload) {
+    if (dst_file.trim().search('/') === 0) {
+      throw 'All remote directories should be relative, but got ' + dst_file;
+    }
+  } else {
+    if (src_file.trim().search('/') === 0) {
+      throw 'All remote directories should be relative, but got ' + src_file;
+    }
+  }
+
+  if (CLUSTER_TYPE === 'slurm') {
+      var dst = null;
+      var src = null;
+      if (is_upload) {
+        dst = CLUSTER_USER + ':' + CLUSTER_PASSWORD + '@' + CLUSTER_HOSTNAME + ':' + dst_file;
+        src = src_file;
+      } else {
+        dst = dst_file;
+        src = CLUSTER_USER + ':' + CLUSTER_PASSWORD + '@' + CLUSTER_HOSTNAME + ':' + src_file;
+      }
+      scp.scp(src, dst, cb);
+  } else {
+      if (is_upload) {
+        dst_file = process.env.HOME + '/' + dst_file;
+      } else {
+        src_file = process.env.HOME + '/' + src_file;
+      }
+      var src_contents = fs.readFileSync(src_file);
+      fs.writeFileSync(dst_file, src_contents);
+      cb(null);
+  }
+}
+
+function create_cluster_dir(dirname, conn, cb) {
+  if (dirname.trim().search('/') === 0) {
+    throw 'Remote directory names should be relative to $HOME, got ' + dirname;
+  }
+
+  var MKDIR_CMD = null;
+  if (CLUSTER_TYPE === 'slurm') {
+    MKDIR_CMD = 'mkdir -p ' + dirname;
+  } else {
+    MKDIR_CMD = 'mkdir -p ' + process.env.HOME + '/' + dirname;
+  }
+
+  run_cluster_cmd(conn, 'creating dir', MKDIR_CMD, cb);
+}
+
+function delete_cluster_dir(dirname, conn, cb) {
+  if (dirname.trim().search('/') === 0) {
+    throw 'Remote directory names should be relative to $HOME, got ' + dirname;
+  }
+
+  var RMDIR_CMD = null;
+  if (CLUSTER_TYPE === 'slurm') {
+    RMDIR_CMD = 'rm -r ' + dirname;
+  } else {
+    RMDIR_CMD = 'rm -r ' + process.env.HOME + '/' + dirname;
+  }
+
+  run_cluster_cmd(conn, 'removing dir', RMDIR_CMD, cb);
 }
 
 var app = express();
@@ -569,45 +686,67 @@ app.post('/local_run_finished', function(req, res, next) {
                         fs.appendFileSync(run_dir + '/bass.slurm', "\n");
                         fs.appendFileSync(run_dir + '/bass.slurm', "echo Job $SLURM_JOBID\n");
 
-                        // Launch on the cluster
-                        var conn = new ssh.Client();
-                        var MKDIR_CMD = 'mkdir -p ~/autograder/' + run_id;
-                        var SCP_DST = CLUSTER_USER + ':' + CLUSTER_PASSWORD +
-                            '@' + CLUSTER_HOSTNAME + ':autograder/' + run_id + '/bass.slurm';
                         console.log('local_run_finished: Connecting to ' +
                             CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
-                        conn.on('ready', function() {
-                            run_ssh(conn, 'creating autograder dir', MKDIR_CMD,
+                        // Launch on the cluster
+                        connect_to_cluster(function(conn) {
+                            create_cluster_dir('autograder/' + run_id, conn,
                                 function(err, conn, stdout, stderr) {
                                      if (err) {
                                        return res.send(JSON.stringify({status: 'Failure',
                                          msg: 'Failed creating autograder dir'}));
                                      }
-                                     scp.scp(run_dir + '/bass.slurm', SCP_DST, function(err) {
+                                     cluster_scp(run_dir + '/bass.slurm',
+                                       'autograder/' + run_id + '/bass.slurm', true, function(err) {
                                         if (err) {
                                             console.log('scp err=' + err);
                                             return res.send(JSON.stringify({status: 'Failure',
                                                     msg: 'Failed scp-ing bass.slurm'}));
                                         }
-                                        run_ssh(conn, 'sbatch',
-                                            'sbatch ~/autograder/' + run_id + '/bass.slurm',
-                                            function(err, conn, stdout, stderr) {
+
+                                        if (CLUSTER_TYPE === 'slurm') {
+                                            run_cluster_cmd(conn, 'sbatch',
+                                                'sbatch ~/autograder/' + run_id + '/bass.slurm',
+                                                function(err, conn, stdout, stderr) {
+                                                    if (err) {
+                                                      return res.send(JSON.stringify({status: 'Failure',
+                                                        msg: 'Failed submitting job'}));
+                                                    }
+                                                    disconnect_from_cluster(conn);
+                                                    // stdout == Submitted batch job 474297
+                                                    if (stdout.search('Submitted batch job ') !== 0) {
+                                                        return res.send(
+                                                            JSON.stringify({
+                                                                status: 'Failure',
+                                                                msg: 'Failed submitting batch job'}));
+                                                    }
+                                                    var tokens = stdout.trim().split(' ');
+                                                    var job_id = tokens[tokens.length - 1];
+                                                    pgclient(function(client, done) {
+                                                        var query = client.query('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [job_id, run_id]);
+                                                        register_query_helpers(query, res, done, req.session.username);
+                                                        query.on('end', function(result) {
+                                                            done();
+                                                            return res.send(
+                                                                JSON.stringify({ status: 'Success' }));
+                                                        });
+                                                    });
+                                                });
+                                        } else {
+                                          // local cluster
+                                          var run_cmd = '/bin/bash ' + process.env.HOME + '/autograder/' + run_id + '/bass.slurm';
+                                          run_cluster_cmd(conn, 'local perf run', run_cmd,
+                                              function(err, conn, stdout, stderr) {
                                                 if (err) {
                                                   return res.send(JSON.stringify({status: 'Failure',
-                                                    msg: 'Failed submitting job'}));
+                                                    msg: 'Failed running on local cluster'}));
                                                 }
-                                                conn.end();
-                                                // stdout == Submitted batch job 474297
-                                                if (stdout.search('Submitted batch job ') !== 0) {
-                                                    return res.send(
-                                                        JSON.stringify({
-                                                            status: 'Failure',
-                                                            msg: 'Failed submitting batch job'}));
-                                                }
-                                                var tokens = stdout.trim().split(' ');
-                                                var job_id = tokens[tokens.length - 1];
+
+                                                fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stdout.txt', stdout);
+                                                fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stderr.txt', stderr);
+
                                                 pgclient(function(client, done) {
-                                                    var query = client.query('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [job_id, run_id]);
+                                                    var query = client.query('UPDATE runs SET job_id=($1) WHERE run_id=($2)', ['LOCAL', run_id]);
                                                     register_query_helpers(query, res, done, req.session.username);
                                                     query.on('end', function(result) {
                                                         done();
@@ -615,14 +754,10 @@ app.post('/local_run_finished', function(req, res, next) {
                                                             JSON.stringify({ status: 'Success' }));
                                                     });
                                                 });
-                                            });
+                                              });
+                                        }
                                      });
                                 });
-                        }).connect({
-                            host: CLUSTER_HOSTNAME,
-                            port: 22,
-                            username: CLUSTER_USER,
-                            password: CLUSTER_PASSWORD
                         });
                       }
                     });
@@ -707,131 +842,148 @@ app.get('/', function(req, res, next) {
   return res.redirect('overview');
 });
 
+function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
+    query.on('row', function(row, result) { result.addRow(row); });
+    query.on('error', function(err, result) {
+            console.log('Error updating running perf tests: ' + err);
+            done();
+            disconnect_from_cluster(conn);
+            setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+    });
+    query.on('end', function(result) {
+      var query = client.query(
+        'SELECT * FROM users WHERE user_id=($1)', [run.user_id]);
+      query.on('row', function(row, result) { result.addRow(row); });
+      query.on('error', function(err, result) {
+              console.log('Error finding user name: ' + err);
+              done();
+              disconnect_from_cluster(conn);
+              setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+      });
+      query.on('end', function(result) {
+        if (result.rows.length != 1) {
+          console.log('Missing user, user_id=' + run.user_id);
+          done();
+          disconnect_from_cluster(conn);
+          setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+        } else {
+          var username = result.rows[0].user_name;
+          var REMOTE_FOLDER = CLUSTER_USER + ':' + CLUSTER_PASSWORD +
+              '@' + CLUSTER_HOSTNAME + ':autograder/' + run.run_id;
+          var REMOTE_STDOUT = REMOTE_FOLDER + '/stdout.txt';
+          var REMOTE_STDERR = REMOTE_FOLDER + '/stderr.txt';
+          var LOCAL_FOLDER = __dirname + '/submissions/' +
+            username + '/' + run.run_id;
+          var LOCAL_STDOUT = LOCAL_FOLDER + '/cluster-stdout.txt';
+          var LOCAL_STDERR = LOCAL_FOLDER + '/cluster-stderr.txt';
+          var LOCAL_SLURM = LOCAL_FOLDER + '/bass.slurm';
+
+          cluster_scp('autograder/' + run.run_id + '/stdout.txt', LOCAL_STDOUT, false, function(err) {
+            if (err) {
+              console.log('scp err=' + err);
+              done();
+              disconnect_from_cluster(conn);
+              setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+            } else {
+              cluster_scp('autograder/' + run.run_id + '/stderr.txt', LOCAL_STDERR, false, function(err) {
+                if (err) {
+                  console.log('scp err=' + err);
+                  done();
+                  disconnect_from_cluster(conn);
+                  setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+                } else {
+                  delete_cluster_dir('autograder/' + run.run_id, conn,
+                    function(err, conn, stdout, stderr) {
+                      if (err) {
+                        done();
+                        disconnect_from_cluster(conn);
+                        setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+                      } else {
+                        svn_client.cmd(
+                          ['add', LOCAL_STDOUT, LOCAL_STDERR, LOCAL_SLURM],
+                          function(err, data) {
+                            if (err) {
+                              console.log('Error adding local files: ' + err);
+                              done();
+                              disconnect_from_cluster(conn);
+                              setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+                            } else {
+                              svn_client.cmd(['commit', '--message', 'add local files', LOCAL_FOLDER], function(err, data) {
+                                if (err) {
+                                  console.log('Error committing local files: ' + err);
+                                  done();
+                                  disconnect_from_cluster(conn);
+                                  setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+                                } else {
+                                  check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                                }
+                              });
+                            }
+                          });
+                      }
+                    });
+                }
+              });
+            }
+          });
+        }
+      });
+
+    });
+
+}
+
 function check_cluster_helper(perf_runs, i, conn, client, done) {
     if (i >= perf_runs.length) {
         done();
-        conn.end();
-        setTimeout(check_cluster, 30000);
+        disconnect_from_cluster(conn);
+        setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
     } else {
         var run = perf_runs[i];
         console.log('check_cluster_helper: ' + JSON.stringify(run));
-        var SACCT = "sacct --noheader -j " + run.job_id + " -u jmg3 " +
-            "--format=JobName,State | grep hab | awk '{ print $2 }'";
-        run_ssh(conn, 'checking job status', SACCT, function(err, conn, stdout, stderr) {
-            if (err) {
-              done();
-              conn.end();
-              setTimeout(check_cluster, 30000);
-              return;
-            }
-            stdout = stdout.trim();
-            var query = null;
-            if (stdout === 'FAILED') {
-                console.log('check_cluster_helper: marking ' + run.run_id + ' FAILED');
-                query = client.query(
-                    "UPDATE runs SET status='FAILED' WHERE run_id=($1)",
-                    [run.run_id]);
-            } else if (stdout === 'COMPLETED') {
+
+        if (CLUSTER_TYPE === 'slurm') {
+            var SACCT = "sacct --noheader -j " + run.job_id + " -u jmg3 " +
+                "--format=JobName,State | grep hab | awk '{ print $2 }'";
+            run_cluster_cmd(conn, 'checking job status', SACCT, function(err, conn, stdout, stderr) {
+                if (err) {
+                  done();
+                  disconnect_from_cluster(conn);
+                  setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+                  return;
+                }
+                stdout = stdout.trim();
+                var query = null;
+                if (stdout === 'FAILED') {
+                    console.log('check_cluster_helper: marking ' + run.run_id + ' FAILED');
+                    query = client.query(
+                        "UPDATE runs SET status='FAILED' WHERE run_id=($1)",
+                        [run.run_id]);
+                } else if (stdout === 'COMPLETED') {
+                    console.log('check_cluster_helper: marking ' + run.run_id + ' FINISHED');
+                    query = client.query(
+                        "UPDATE runs SET status='FINISHED' WHERE run_id=($1)",
+                        [run.run_id]);
+                }
+
+                if (query) {
+                  finish_perf_tests(query, run, conn, done, client, perf_runs, i);
+                } else {
+                  check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                }
+            });
+        } else {
+            if (run.job_id !== 'LOCAL') {
+                console.log('Unexpected job_id "' + run.job_id + '" for local cluster');
+                check_cluster_helper(perf_runs, i + 1, conn, client, done);
+            } else {
                 console.log('check_cluster_helper: marking ' + run.run_id + ' FINISHED');
-                query = client.query(
+                var query = client.query(
                     "UPDATE runs SET status='FINISHED' WHERE run_id=($1)",
                     [run.run_id]);
+                finish_perf_tests(query, run, conn, done, client, perf_runs, i);
             }
-
-            if (query) {
-                query.on('row', function(row, result) { result.addRow(row); });
-                query.on('error', function(err, result) {
-                        console.log('Error updating running perf tests: ' + err);
-                        done();
-                        conn.end();
-                        setTimeout(check_cluster, 30000);
-                });
-                query.on('end', function(result) {
-                  var query = client.query(
-                    'SELECT * FROM users WHERE user_id=($1)', [run.user_id]);
-                  query.on('row', function(row, result) { result.addRow(row); });
-                  query.on('error', function(err, result) {
-                          console.log('Error finding user name: ' + err);
-                          done();
-                          conn.end();
-                          setTimeout(check_cluster, 30000);
-                  });
-                  query.on('end', function(result) {
-                    if (result.rows.length != 1) {
-                      console.log('Missing user, user_id=' + run.user_id);
-                      done();
-                      conn.end();
-                      setTimeout(check_cluster, 30000);
-                    } else {
-                      var username = result.rows[0].user_name;
-                      var REMOTE_FOLDER = CLUSTER_USER + ':' + CLUSTER_PASSWORD +
-                          '@' + CLUSTER_HOSTNAME + ':autograder/' + run.run_id;
-                      var REMOTE_STDOUT = REMOTE_FOLDER + '/stdout.txt';
-                      var REMOTE_STDERR = REMOTE_FOLDER + '/stderr.txt';
-                      var LOCAL_FOLDER = __dirname + '/submissions/' +
-                        username + '/' + run.run_id;
-                      var LOCAL_STDOUT = LOCAL_FOLDER + '/cluster-stdout.txt';
-                      var LOCAL_STDERR = LOCAL_FOLDER + '/cluster-stderr.txt';
-                      var LOCAL_SLURM = LOCAL_FOLDER + '/bass.slurm';
-
-                      scp.scp(REMOTE_STDOUT, LOCAL_STDOUT, function(err) {
-                        if (err) {
-                          console.log('scp err=' + err);
-                          done();
-                          conn.end();
-                          setTimeout(check_cluster, 30000);
-                        } else {
-                          scp.scp(REMOTE_STDERR, LOCAL_STDERR, function(err) {
-                            if (err) {
-                              console.log('scp err=' + err);
-                              done();
-                              conn.end();
-                              setTimeout(check_cluster, 30000);
-                            } else {
-                              run_ssh(conn, 'cleaning up job dir',
-                                'rm -r autograder/' + run.run_id,
-                                function(err, conn, stdout, stderr) {
-                                  if (err) {
-                                    done();
-                                    conn.end();
-                                    setTimeout(check_cluster, 30000);
-                                  } else {
-                                    svn_client.cmd(
-                                      ['add', LOCAL_STDOUT, LOCAL_STDERR, LOCAL_SLURM],
-                                      function(err, data) {
-                                        if (err) {
-                                          console.log('Error adding local files: ' + err);
-                                          done();
-                                          conn.end();
-                                          setTimeout(check_cluster, 30000);
-                                        } else {
-                                          svn_client.cmd(['commit', '--message', 'add local files', LOCAL_FOLDER], function(err, data) {
-                                            if (err) {
-                                              console.log('Error committing local files: ' + err);
-                                              done();
-                                              conn.end();
-                                              setTimeout(check_cluster, 30000);
-                                            } else {
-                                              check_cluster_helper(perf_runs, i + 1, conn, client, done);
-                                            }
-                                          });
-                                        }
-                                      });
-                                  }
-                                });
-                            }
-                          });
-                        }
-                      });
-                    }
-                  });
-
-                });
-            } else {
-                check_cluster_helper(perf_runs, i + 1, conn, client, done);
-            }
-        })
-                
+        }
     }
 }
 
@@ -845,19 +997,13 @@ function check_cluster() {
         query.on('error', function(err, result) {
                 done();
                 console.log('Error looking up running perf tests: ' + err);
-                setTimeout(check_cluster, 30000);
+                setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
         });
         query.on('end', function(result) {
 
             var perf_runs = result.rows;
-            var conn = new ssh.Client();
-            conn.on('ready', function() {
+            connect_to_cluster(function(conn) {
                 check_cluster_helper(perf_runs, 0, conn, client, done);
-            }).connect({
-                host: CLUSTER_HOSTNAME,
-                port: 22,
-                username: CLUSTER_USER,
-                password: CLUSTER_PASSWORD
             });
         });
     });
