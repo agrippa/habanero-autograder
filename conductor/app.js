@@ -187,25 +187,89 @@ app.get('/admin', function(req, res, next) {
 });
 
 // Create a new assignment with a given name, not visible to students
-app.post('/assignment', function(req, res, next) {
+var assignment_file_fields = [
+                              { name: 'zip', maxCount: 1},
+                              { name: 'pom', maxCount: 1}
+                             ]
+app.post('/assignment', upload.fields(assignment_file_fields), function(req, res, next) {
   console.log('assignment: is_admin=' + req.session.is_admin);
   if (!req.session.is_admin) {
-    res.send(JSON.stringify({ status: 'Failure', msg: permissionDenied }));
+    return res.send(JSON.stringify({ status: 'Failure', msg: permissionDenied }));
   } else {
     var assignment_name = req.body.assignment_name;
+    if (assignment_name.length == 0) {
+      return res.render('admin.html',
+        {err_msg: 'Please provide a non-empty assignment name'});
+    }
+
+    if (!req.files.zip) {
+      return res.render('admin.html',
+        {err_msg: 'Please provide test files for the assignment'});
+    }
+    if (!req.files.pom) {
+      return res.render('admin.html',
+        {err_msg: 'Please provide a pom for the assignment'});
+    }
 
     pgclient(function(client, done) {
           var query = client.query(
-              "INSERT INTO assignments (name, visible) VALUES ($1,false)",
+              "INSERT INTO assignments (name, visible) VALUES ($1,false) RETURNING assignment_id",
               [assignment_name]);
           register_query_helpers(query, res, done, req.session.username);
           query.on('end', function(result) {
               done();
-              res.send(JSON.stringify({ status: 'Success', redirect: '/admin' }));
+              var assignment_id = result.rows[0].assignment_id;
+
+              var assignment_dir = __dirname + '/instructor-tests/' + assignment_id;
+              fs.mkdirSync(assignment_dir);
+              fs.renameSync(req.files.zip.path, assignment_dir + '/instructor.zip');
+              fs.renameSync(req.files.pom.path, assignment_dir + '/pom.xml');
+
+              return res.redirect('/admin');
           });
     });
   }
 });
+
+function handle_reupload(req, res, missing_msg, target_filename) {
+  if (!req.session.is_admin) {
+    return res.send(JSON.stringify({ status: 'Failure', msg: permissionDenied }));
+  } else {
+    var assignment_id = req.params.assignment_id;
+
+    if (!req.file) {
+      return res.render('admin.html', {err_msg: missing_msg});
+    }
+
+    pgclient(function(client, done) {
+      var query = client.query(
+        "SELECT * FROM assignments WHERE assignment_id=($1)", [assignment_id]);
+      register_query_helpers(query, res, done, req.session.username);
+      query.on('end', function(result) {
+        done();
+        if (result.rows.length != 1) {
+          return res.render('admin.html',
+            {err_msg: 'That assignment doesn\'t seem to exist'});
+        } else {
+          var assignment_dir = __dirname + '/instructor-tests/' + assignment_id;
+          fs.renameSync(req.file.path, assignment_dir + '/' + target_filename);
+          return res.redirect('/admin');
+        }
+      });
+    });
+  }
+}
+
+app.post('/upload_zip/:assignment_id', upload.single('zip'), function(req, res, next) {
+  console.log('upload_zip: is_admin=' + req.session.is_admin);
+  return handle_reupload(req, res, 'Please provide a ZIP', 'instructor.zip');
+});
+
+app.post('/upload_pom/:assignment_id', upload.single('pom'), function(req, res, next) {
+  console.log('upload_zip: is_admin=' + req.session.is_admin);
+  return handle_reupload(req, res, 'Please provide a pom.xml', 'pom.xml');
+});
+
 
 /*
  * Get all assignments, with an optional flag to also view not visible

@@ -13,18 +13,18 @@ set -e
 mkdir -p submissions
 mkdir -p submissions/admin
 
-# Set up directory for storing student run logs
-# Structure is:
+# A directory for storing instructor-provided testing files.
+# The structure of the instructor-tests directory is:
 #
-#   logs
-#   |-| netid
-#   |--| runid
-#   |---| local
-#   |----| unit.log
-#   |----| checkstyle.log
-#   |----| findbugs.log
-#   |---| remote
-#   |----| perf.log
+# instructor-tests
+# |-| assignment-id-0
+# |--| pom.xml
+# |--| instructor.zip
+# |-| assignment-id-1
+# ...
 #
-mkdir -p logs
-mkdir -p logs/admin
+# Inside instructor.zip should be the file/folder hierarchy that is to be merged
+# with the student code. There should be no conflicting files, so files should
+# be carefully named. Any pom.xml uploaded with the student submission will be
+# replaced with the provided one.
+mkdir -p instructor-tests
