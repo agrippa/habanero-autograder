@@ -218,10 +218,12 @@ public class Viola {
               File curr = new File(src.getAbsolutePath(), filename);
               File target = new File(dst.getAbsolutePath(), filename);
               if (curr.isDirectory()) {
-                if (!target.exists()) {
-                  target.mkdir();
+                if (!curr.getName().equals(".svn")) {
+                  if (!target.exists()) {
+                    target.mkdir();
+                  }
+                  merge_dirs(target, curr);
                 }
-                merge_dirs(target, curr);
               } else {
                 curr.renameTo(target);
               }
