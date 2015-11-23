@@ -657,10 +657,11 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                           '@' + CLUSTER_HOSTNAME + ':autograder/' + run.run_id;
                       var REMOTE_STDOUT = REMOTE_FOLDER + '/stdout.txt';
                       var REMOTE_STDERR = REMOTE_FOLDER + '/stderr.txt';
-                      var LOCAL_STDOUT = __dirname + '/submissions/' +
-                        username + '/' + run.run_id + '/cluster-stdout.txt';
-                      var LOCAL_STDERR = __dirname + '/submissions/' +
-                        username + '/' + run.run_id + '/cluster-stderr.txt';
+                      var LOCAL_FOLDER = __dirname + '/submissions/' +
+                        username + '/' + run.run_id;
+                      var LOCAL_STDOUT = LOCAL_FOLDER + '/cluster-stdout.txt';
+                      var LOCAL_STDERR = LOCAL_FOLDER + '/cluster-stderr.txt';
+                      var LOCAL_SLURM = LOCAL_FOLDER + '/bass.slurm';
 
                       scp.scp(REMOTE_STDOUT, LOCAL_STDOUT, function(err) {
                         if (err) {
@@ -684,7 +685,27 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                                     conn.end();
                                     setTimeout(check_cluster, 30000);
                                   } else {
-                                    check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                                    svn_client.cmd(
+                                      ['add', LOCAL_STDOUT, LOCAL_STDERR, LOCAL_SLURM],
+                                      function(err, data) {
+                                        if (err) {
+                                          console.log('Error adding local files: ' + err);
+                                          done();
+                                          conn.end();
+                                          setTimeout(check_cluster, 30000);
+                                        } else {
+                                          svn_client.cmd(['commit', '--message', 'add local files', LOCAL_FOLDER], function(err, data) {
+                                            if (err) {
+                                              console.log('Error committing local files: ' + err);
+                                              done();
+                                              conn.end();
+                                              setTimeout(check_cluster, 30000);
+                                            } else {
+                                              check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                                            }
+                                          });
+                                        }
+                                      });
                                   }
                                 });
                             }
