@@ -376,8 +376,10 @@ public class Viola {
                  * Clean up the test directory. This assumes that no directories
                  * are created in the process of testing.
                  */
-                // delete_dir(code_dir);
-                // delete_dir(instructor_dir);
+                delete_dir(code_dir);
+                delete_dir(instructor_dir);
+                delete_dir(extract_code_dir);
+                delete_dir(extract_instructor_dir);
 
                 log("Done with local testing\n");
             } catch (IOException io) {
