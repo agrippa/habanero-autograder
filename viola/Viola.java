@@ -226,7 +226,14 @@ public class Viola {
                   merge_dirs(target, curr);
                 }
               } else {
-                curr.renameTo(target);
+                if (!curr.getName().endsWith("PerformanceTest.java")) {
+                  /*
+                   * Don't copy over any JUnit tests except the correctness
+                   * ones. If something doesn't look like a test file that JUnit
+                   * will run, copy it over anyway.
+                   */
+                  curr.renameTo(target);
+                }
               }
             }
         }
@@ -315,7 +322,7 @@ public class Viola {
                     instructor_directories[0]);
 
                 merge_dirs(unzipped_code_dir, unzipped_instructor_dir);
-                final File pom = new File(instructor_dir, "pom.xml");
+                final File pom = new File(instructor_dir, "correctness_pom.xml");
                 pom.renameTo(new File(unzipped_code_dir, "pom.xml"));
 
                 String[] cmd = new String[]{"mvn", "clean", "compile", "test"};

@@ -2,7 +2,7 @@ package edu.rice.comp322;
 
 import junit.framework.*;
 
-public class InstructorTest extends TestCase {
+public class InstructorCorrectnessTest extends TestCase {
   private final AutoGraderExample example = new AutoGraderExample();
 
   public void testAdd() {
