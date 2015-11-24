@@ -2,6 +2,7 @@ import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.FilenameFilter;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 
@@ -230,22 +231,25 @@ public class Viola {
             }
         }
 
+        private File getTempDirectory() throws IOException {
+            final File code_dir = File.createTempFile("temp", Long.toString(System.nanoTime()));
+            if(!(code_dir.delete())) {
+                throw new IOException("Could not delete temp file: " +
+                        code_dir.getAbsolutePath());
+            }
+            return code_dir;
+        }
+
         @Override
         public void run() {
             log("Running local tests for user=%s assignment=%s run=%d\n",
                     user, assignment_name, run_id);
 
             try {
-                final File code_dir = File.createTempFile("temp", Long.toString(System.nanoTime()));
-                if(!(code_dir.delete())) {
-                    throw new IOException("Could not delete temp file: " +
-                            code_dir.getAbsolutePath());
-                }
-                final File instructor_dir = File.createTempFile("temp", Long.toString(System.nanoTime()));
-                if(!(instructor_dir.delete())) {
-                    throw new IOException("Could not delete temp file: " +
-                            instructor_dir.getAbsolutePath());
-                }
+                final File code_dir = getTempDirectory();
+                final File instructor_dir = getTempDirectory();
+                final File extract_code_dir = getTempDirectory();
+                final File extract_instructor_dir = getTempDirectory();
 
                 /*
                  * Check out the student code from SVN. This should check out a
@@ -265,17 +269,76 @@ public class Viola {
                     SVNRevision.HEAD, SVNRevision.HEAD, SVNDepth.INFINITY,
                     false);
 
-                log("Merging directories\n");
-                merge_dirs(code_dir, instructor_dir);
+                extract_code_dir.mkdir();
+                extract_instructor_dir.mkdir();
 
-                // Test code. Fill in some dummy text files for now
+                log("Target code directory = " + extract_code_dir.getAbsolutePath() + "\n");
+                log("Target instructor directory = " + extract_instructor_dir.getAbsolutePath() + "\n");
+
+                String[] unzip_code = new String[]{"unzip", code_dir.getAbsolutePath() + "/student.zip", "-d",
+                  extract_code_dir.getAbsolutePath()};
+                String[] unzip_instructor = new String[]{"unzip", instructor_dir.getAbsolutePath() + "/instructor.zip",
+                  "-d", extract_instructor_dir.getAbsolutePath()};
+
+                final Process unzip_code_process = Runtime.getRuntime().exec(unzip_code);
+                final int unzip_code_exit = unzip_code_process.waitFor();
+                if (unzip_code_exit != 0) {
+                    throw new TestRunnerException("Error unzipping code");
+                }
+                final Process unzip_instructor_process = Runtime.getRuntime().exec(unzip_instructor);
+                final int unzip_instructor_exit = unzip_instructor_process.waitFor();
+                if (unzip_instructor_exit != 0) {
+                    throw new TestRunnerException("Error unzipping instructor");
+                }
+
+                // Find all subdirectories, should only be 1
+                FilenameFilter dirsOnly = new FilenameFilter() {
+                  @Override
+                  public boolean accept(File current, String name) {
+                    return new File(current, name).isDirectory();
+                  }
+                };
+                String[] code_directories = extract_code_dir.list(dirsOnly);
+                String[] instructor_directories = extract_instructor_dir.list(dirsOnly);
+
+                if (code_directories.length != 1) {
+                  throw new TestRunnerException("Unexpected number of code directories (" +
+                      code_directories.length + ")");
+                }
+                if (instructor_directories.length != 1) {
+                  throw new TestRunnerException("Unexpected number of instructor directories (" +
+                      instructor_directories.length + ")");
+                }
+
+                final File unzipped_code_dir = new File(extract_code_dir, code_directories[0]);
+                final File unzipped_instructor_dir = new File(extract_instructor_dir,
+                    instructor_directories[0]);
+
+                merge_dirs(unzipped_code_dir, unzipped_instructor_dir);
+                final File pom = new File(instructor_dir, "pom.xml");
+                pom.renameTo(new File(unzipped_code_dir, "pom.xml"));
+
+                String[] cmd = new String[]{"mvn", "clean", "compile", "test"};
+                Process p = Runtime.getRuntime().exec(cmd, new String[0], unzipped_code_dir);
+                BufferedReader stdInput = new BufferedReader(new InputStreamReader(p.getInputStream()));
+                BufferedReader stdError = new BufferedReader(new InputStreamReader(p.getErrorStream()));
+
+                String s = null;
                 PrintWriter writer = new PrintWriter(
                         code_dir.getAbsolutePath() + "/correct.txt", "UTF-8");
-                writer.println("Local logs 1");
-                writer.println("Local logs 2");
+                writer.println("======= STDOUT =======");
+                while ((s = stdInput.readLine()) != null) {
+                    writer.println(s);
+                }
+
+                writer.println("\n======= STDERR =======");
+                while ((s = stdError.readLine()) != null) {
+                    writer.println(s);
+                }
+
                 writer.close();
 
-                log("Filled dummy log file\n");
+                log("Filled log file\n");
 
                 // Add the generated files to the repo
                 ourClientManager.getWCClient().doAdd(
@@ -306,19 +369,27 @@ public class Viola {
                  * Clean up the test directory. This assumes that no directories
                  * are created in the process of testing.
                  */
-                delete_dir(code_dir);
-                delete_dir(instructor_dir);
+                // delete_dir(code_dir);
+                // delete_dir(instructor_dir);
 
                 log("Done with local testing\n");
             } catch (IOException io) {
                 io.printStackTrace();
+            } catch (InterruptedException ie) {
+                ie.printStackTrace();
             } catch (SVNException svn) {
                 svn.printStackTrace();
+            } catch (TestRunnerException tr) {
+                tr.printStackTrace();
             }
 
             notifyConductor();
             log("Finished local tests for user=%s assignment=%s run=%d\n", user,
                     assignment_name, run_id);
         }
+    }
+
+    static class TestRunnerException extends Exception {
+        public TestRunnerException(String msg) { super(msg); }
     }
 }

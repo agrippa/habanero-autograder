@@ -7,6 +7,7 @@ The Habanero AutoGrader for parallel programs
  - postgres
  - bash
  - svn
+ - mvn
 
 ===== npm installation instructions =====
 

@@ -581,8 +581,8 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                               'An error occurred backing up your submission' });
                           } else {
                             // Move submitted file into newly created local SVN working copy
-                            fs.renameSync(req.file.path, run_dir + '/' + req.file.originalname);
-                            svn_client.cmd(['add', run_dir + '/' + req.file.originalname], function(err, data) {
+                            fs.renameSync(req.file.path, run_dir + '/student.zip');
+                            svn_client.cmd(['add', run_dir + '/student.zip'], function(err, data) {
                               if (is_actual_svn_err(err)) {
                                 return res.render('overview.html', { err_msg:
                                   'An error occurred backing up your submission' });

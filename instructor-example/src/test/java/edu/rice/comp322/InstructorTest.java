@@ -1,8 +1,8 @@
-package edu.rice.comp322.AutoGraderExample;
+package edu.rice.comp322;
 
 import junit.framework.*;
 
-public class InstructorTests extends TestCase {
+public class InstructorTest extends TestCase {
   private final AutoGraderExample example = new AutoGraderExample();
 
   public void testAdd() {
