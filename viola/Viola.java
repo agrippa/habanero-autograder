@@ -5,6 +5,8 @@ import java.io.IOException;
 import java.io.FilenameFilter;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.util.LinkedList;
+import java.util.List;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -49,6 +51,9 @@ public class Viola {
     private final static SVNClientManager ourClientManager =
         SVNClientManager.newInstance(SVNWCUtil.createDefaultOptions(true),
                 svnUser, svnPassword);
+
+    private final static String[] checkstyleOptions = new String[] {
+      "AvoidStarImport", "ConstantName", "EmptyBlock"};
 
     private static String conductorHost = null;
     private static int conductorPort = 0;
@@ -247,6 +252,62 @@ public class Viola {
             return code_dir;
         }
 
+        class ProcessResults {
+          public final String stdout;
+          public final String stderr;
+          public final int code;
+
+          public ProcessResults(String stdout, String stderr, int code) {
+            this.stdout = stdout;
+            this.stderr = stderr;
+            this.code = code;
+          }
+        }
+
+        private void findAllJavaFilesHelper(File currDir, List<String> acc) {
+          File[] files = currDir.listFiles();
+          for (File f : files) {
+            if (f.isFile()) {
+              if (f.getName().endsWith(".java")) {
+                acc.add(f.getAbsolutePath());
+              }
+            } else {
+              // Directory
+              findAllJavaFilesHelper(f, acc);
+            }
+          }
+        }
+
+        private List<String> findAllJavaFiles(File dir) {
+          List<String> acc = new LinkedList<String>();
+          findAllJavaFilesHelper(dir, acc);
+          return acc;
+        }
+
+        private ProcessResults runInProcess(String[] cmd, File working_dir)
+            throws IOException, InterruptedException {
+          Process p = Runtime.getRuntime().exec(cmd, new String[0], working_dir);
+          BufferedReader stdInput = new BufferedReader(
+              new InputStreamReader(p.getInputStream()));
+          BufferedReader stdError = new BufferedReader(
+              new InputStreamReader(p.getErrorStream()));
+
+          String s = null;
+          final StringBuilder stdout = new StringBuilder();
+          while ((s = stdInput.readLine()) != null) {
+            stdout.append(s + "\n");
+          }
+
+          final StringBuilder stderr = new StringBuilder();
+          while ((s = stdError.readLine()) != null) {
+            stderr.append(s + "\n");
+          }
+
+          int exitCode = p.waitFor();
+
+          return new ProcessResults(stdout.toString(), stderr.toString(), exitCode);
+        }
+
         @Override
         public void run() {
             log("Running local tests for user=%s assignment=%s run=%d\n",
@@ -321,35 +382,86 @@ public class Viola {
                 final File unzipped_instructor_dir = new File(extract_instructor_dir,
                     instructor_directories[0]);
 
+                /*
+                 * Run checkstyle
+                 */
+                final File checkstyle_config = File.createTempFile("temp",
+                    ".xml");
+                log("Checkstyle config file = " + checkstyle_config.getAbsolutePath() + "\n");
+                PrintWriter writer = new PrintWriter(
+                    checkstyle_config.getAbsolutePath(), "UTF-8");
+                writer.println("<?xml version=\"1.0\"?>");
+                writer.println("<!DOCTYPE module PUBLIC \"-//Puppy Crawl//DTD " +
+                    "Check Configuration 1.2//EN\" \"http://www.puppycrawl.com/" +
+                    "dtds/configuration_1_2.dtd\">");
+                writer.println("<module name=\"Checker\">");
+                writer.println("    <module name=\"JavadocPackage\"/>");
+                writer.println("    <module name=\"TreeWalker\">");
+                for (String option : checkstyleOptions) {
+                    writer.println("        <module name=\"" + option + "\"/>");
+                }
+                writer.println("    </module>");
+                writer.println("</module>");
+                writer.close();
+
+                File mainCodeFolder = new File(new File(unzipped_code_dir, "src"), "main");
+                List<String> studentJavaFiles = findAllJavaFiles(mainCodeFolder);
+
+                String[] checkstyle_cmd = new String[3 + studentJavaFiles.size()];
+                checkstyle_cmd[0] = "checkstyle";
+                checkstyle_cmd[1] = "-c";
+                checkstyle_cmd[2] = checkstyle_config.getAbsolutePath();
+                int checkstyle_index = 3;
+                for (String filename : studentJavaFiles) {
+                    checkstyle_cmd[checkstyle_index++] = filename;
+                }
+
+                ProcessResults checkstyle_results = runInProcess(checkstyle_cmd,
+                    unzipped_code_dir);
+                writer = new PrintWriter(
+                    code_dir.getAbsolutePath() + "/checkstyle.txt", "UTF-8");
+                writer.println(checkstyle_results.stdout);
+                writer.close();
+
+                /*
+                 * Run FindBugs
+                 */
+                String[] findbugs_cmd = new String[]{"findbugs", "-textui", "-low", mainCodeFolder.getAbsolutePath()};
+                ProcessResults findbugs_results = runInProcess(findbugs_cmd, unzipped_code_dir);
+                writer = new PrintWriter(
+                    code_dir.getAbsolutePath() + "/findbugs.txt", "UTF-8");
+                writer.println(findbugs_results.stdout);
+                writer.close();
+
                 merge_dirs(unzipped_code_dir, unzipped_instructor_dir);
                 final File pom = new File(instructor_dir, "correctness_pom.xml");
                 pom.renameTo(new File(unzipped_code_dir, "pom.xml"));
 
                 String[] cmd = new String[]{"mvn", "clean", "compile", "test"};
-                Process p = Runtime.getRuntime().exec(cmd, new String[0], unzipped_code_dir);
-                BufferedReader stdInput = new BufferedReader(new InputStreamReader(p.getInputStream()));
-                BufferedReader stdError = new BufferedReader(new InputStreamReader(p.getErrorStream()));
+                ProcessResults mvn_results = runInProcess(cmd, unzipped_code_dir);
+                if (mvn_results.code != 0) {
+                  throw new TestRunnerException("Error running correctness tests");
+                }
 
-                String s = null;
-                PrintWriter writer = new PrintWriter(
+                writer = new PrintWriter(
                         code_dir.getAbsolutePath() + "/correct.txt", "UTF-8");
                 writer.println("======= STDOUT =======");
-                while ((s = stdInput.readLine()) != null) {
-                    writer.println(s);
-                }
-
+                writer.println(mvn_results.stdout);
                 writer.println("\n======= STDERR =======");
-                while ((s = stdError.readLine()) != null) {
-                    writer.println(s);
-                }
-
+                writer.println(mvn_results.stderr);
                 writer.close();
 
-                log("Filled log file\n");
+                log("Filled correctness log file\n");
 
                 // Add the generated files to the repo
                 ourClientManager.getWCClient().doAdd(
                         new File(code_dir.getAbsolutePath(), "correct.txt"), false,
+                        false, false, SVNDepth.INFINITY, false, false);
+                ourClientManager.getWCClient().doAdd(
+                        new File(code_dir.getAbsolutePath(), "checkstyle.txt"), false,
+                        false, false, SVNDepth.INFINITY, false, false);
+                ourClientManager.getWCClient().doAdd(
+                        new File(code_dir.getAbsolutePath(), "findbugs.txt"), false,
                         false, false, SVNDepth.INFINITY, false, false);
 
                 log("Added log file to repo\n");

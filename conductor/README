@@ -8,6 +8,8 @@ The Habanero AutoGrader for parallel programs
  - bash
  - svn
  - mvn
+ - checkstyle
+ - FindBugs
 
 ===== npm installation instructions =====
 

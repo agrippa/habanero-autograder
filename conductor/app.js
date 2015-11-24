@@ -677,46 +677,46 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     "#SBATCH --output=" + home_dir + "/autograder/" + run_id + "/stdout.txt\n" +
     "#SBATCH --error=" + home_dir + "/autograder/" + run_id + "/stderr.txt\n" +
     "\n" +
-    "export BASS_WORK_DIR=" + home_dir + "/autograder/" + run_id + "\n";
+    "export CELLO_WORK_DIR=" + home_dir + "/autograder/" + run_id + "\n";
   if (CLUSTER_TYPE === 'slurm') {
     slurmFileContents += "echo Job $SLURM_JOBID\n";
   } else {
     slurmFileContents += "echo Local job\n";
   }
-  slurmFileContents += "echo BASS_WORK_DIR=$BASS_WORK_DIR\n";
+  slurmFileContents += "echo CELLO_WORK_DIR=$CELLO_WORK_DIR\n";
   slurmFileContents += "svn checkout " + SVN_REPO + "/" + username + "/" +
-    assignment_name + "/" + run_id + " $BASS_WORK_DIR/submission > /dev/null\n";
+    assignment_name + "/" + run_id + " $CELLO_WORK_DIR/submission > /dev/null\n";
   slurmFileContents += "svn checkout " + SVN_REPO + "/assignments/" +
-    assignment_id + " $BASS_WORK_DIR/assignment > /dev/null\n";
+    assignment_id + " $CELLO_WORK_DIR/assignment > /dev/null\n";
 
-  slurmFileContents += 'mkdir $BASS_WORK_DIR/submission/student\n';
-  slurmFileContents += 'unzip -qq $BASS_WORK_DIR/submission/student.zip -d $BASS_WORK_DIR/submission/student/\n';
-  slurmFileContents += 'NSTUDENT_FILES=$(ls -l $BASS_WORK_DIR/submission/student/ | grep -v total | wc -l)\n';
+  slurmFileContents += 'mkdir $CELLO_WORK_DIR/submission/student\n';
+  slurmFileContents += 'unzip -qq $CELLO_WORK_DIR/submission/student.zip -d $CELLO_WORK_DIR/submission/student/\n';
+  slurmFileContents += 'NSTUDENT_FILES=$(ls -l $CELLO_WORK_DIR/submission/student/ | grep -v total | wc -l)\n';
   slurmFileContents += 'NSTUDENT_FILES=${NSTUDENT_FILES//[[:blank:]]/}\n';
   slurmFileContents += 'if [[ $NSTUDENT_FILES != 1 ]]; then\n';
   slurmFileContents += '    echo "Unexpected number of student files: $NSTUDENT_FILES"\n';
   slurmFileContents += '    exit 1\n';
   slurmFileContents += 'fi\n';
-  slurmFileContents += 'STUDENT_DIR=$(ls $BASS_WORK_DIR/submission/student/)\n';
+  slurmFileContents += 'STUDENT_DIR=$(ls $CELLO_WORK_DIR/submission/student/)\n';
 
-  slurmFileContents += 'mkdir $BASS_WORK_DIR/assignment/instructor\n';
-  slurmFileContents += 'unzip -qq $BASS_WORK_DIR/assignment/instructor.zip -d $BASS_WORK_DIR/assignment/instructor/\n';
-  slurmFileContents += 'NINSTRUCTOR_FILES=$(ls -l $BASS_WORK_DIR/assignment/instructor/ | grep -v total | wc -l);\n';
+  slurmFileContents += 'mkdir $CELLO_WORK_DIR/assignment/instructor\n';
+  slurmFileContents += 'unzip -qq $CELLO_WORK_DIR/assignment/instructor.zip -d $CELLO_WORK_DIR/assignment/instructor/\n';
+  slurmFileContents += 'NINSTRUCTOR_FILES=$(ls -l $CELLO_WORK_DIR/assignment/instructor/ | grep -v total | wc -l);\n';
   slurmFileContents += 'NINSTRUCTOR_FILES=${NINSTRUCTOR_FILES//[[:blank:]]/}\n';
   slurmFileContents += 'if [[ $NINSTRUCTOR_FILES != 1 ]]; then\n';
   slurmFileContents += '    echo "Unexpected number of instructor files: $NINSTRUCTOR_FILES"\n';
   slurmFileContents += '    exit 1\n';
   slurmFileContents += 'fi\n';
-  slurmFileContents += 'INSTRUCTOR_DIR=$(ls $BASS_WORK_DIR/assignment/instructor/)\n';
+  slurmFileContents += 'INSTRUCTOR_DIR=$(ls $CELLO_WORK_DIR/assignment/instructor/)\n';
 
-  slurmFileContents += 'cp -r $BASS_WORK_DIR/assignment/instructor/$INSTRUCTOR_DIR/* $BASS_WORK_DIR/submission/student/$STUDENT_DIR/\n';
-  slurmFileContents += 'cp $BASS_WORK_DIR/assignment/performance_pom.xml $BASS_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml\n';
+  slurmFileContents += 'cp -r $CELLO_WORK_DIR/assignment/instructor/$INSTRUCTOR_DIR/* $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/\n';
+  slurmFileContents += 'cp $CELLO_WORK_DIR/assignment/performance_pom.xml $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml\n';
 
-  slurmFileContents += 'for F in $(find $BASS_WORK_DIR/submission/student/$STUDENT_DIR/ -name "*CorrectnessTest.java"); do\n';
+  slurmFileContents += 'for F in $(find $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/ -name "*CorrectnessTest.java"); do\n';
   slurmFileContents += '    rm $F\n';
   slurmFileContents += 'done\n';
 
-  slurmFileContents += 'mvn -f $BASS_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml clean compile test &> $BASS_WORK_DIR/performance.txt\n';
+  slurmFileContents += 'mvn -f $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml clean compile test &> $CELLO_WORK_DIR/performance.txt\n';
 
   return slurmFileContents;
 }
@@ -775,7 +775,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                    return res.send(JSON.stringify({status: 'Failure',
                                      msg: 'Failed getting HOME'}));
                                 }
-                                fs.appendFileSync(run_dir + '/bass.slurm',
+                                fs.appendFileSync(run_dir + '/cello.slurm',
                                   get_slurm_file_contents(run_id, home_dir,
                                     username, assignment_id, assignment_name));
 
@@ -785,17 +785,17 @@ app.post('/local_run_finished', function(req, res, next) {
                                            return res.send(JSON.stringify({status: 'Failure',
                                              msg: 'Failed creating autograder dir'}));
                                          }
-                                         cluster_scp(run_dir + '/bass.slurm',
-                                           'autograder/' + run_id + '/bass.slurm', true, function(err) {
+                                         cluster_scp(run_dir + '/cello.slurm',
+                                           'autograder/' + run_id + '/cello.slurm', true, function(err) {
                                             if (err) {
                                                 console.log('scp err=' + err);
                                                 return res.send(JSON.stringify({status: 'Failure',
-                                                        msg: 'Failed scp-ing bass.slurm'}));
+                                                        msg: 'Failed scp-ing cello.slurm'}));
                                             }
 
                                             if (CLUSTER_TYPE === 'slurm') {
                                                 run_cluster_cmd(conn, 'sbatch',
-                                                    'sbatch ~/autograder/' + run_id + '/bass.slurm',
+                                                    'sbatch ~/autograder/' + run_id + '/cello.slurm',
                                                     function(err, conn, stdout, stderr) {
                                                         if (err) {
                                                           return res.send(JSON.stringify({status: 'Failure',
@@ -823,7 +823,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                                     });
                                             } else {
                                               // local cluster
-                                              var run_cmd = '/bin/bash ' + process.env.HOME + '/autograder/' + run_id + '/bass.slurm';
+                                              var run_cmd = '/bin/bash ' + process.env.HOME + '/autograder/' + run_id + '/cello.slurm';
                                               run_cluster_cmd(conn, 'local perf run', run_cmd,
                                                   function(err, conn, stdout, stderr) {
 
@@ -970,7 +970,7 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
           var LOCAL_PERFORMANCE = LOCAL_FOLDER + '/performance.txt';
           var LOCAL_STDOUT = LOCAL_FOLDER + '/cluster-stdout.txt';
           var LOCAL_STDERR = LOCAL_FOLDER + '/cluster-stderr.txt';
-          var LOCAL_SLURM = LOCAL_FOLDER + '/bass.slurm';
+          var LOCAL_SLURM = LOCAL_FOLDER + '/cello.slurm';
 
           cluster_scp('autograder/' + run.run_id + '/stdout.txt', LOCAL_STDOUT, false, function(err) {
             if (err) {
