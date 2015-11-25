@@ -10,6 +10,7 @@ The Habanero AutoGrader for parallel programs
  - mvn
  - checkstyle
  - FindBugs
+ - lightweight-java-profiler: git@github.com:agrippa/lightweight-java-profiler.git
 
 ===== npm installation instructions =====
 

@@ -440,7 +440,9 @@ public class Viola {
                 String[] cmd = new String[]{"mvn", "clean", "compile", "test"};
                 ProcessResults mvn_results = runInProcess(cmd, unzipped_code_dir);
                 if (mvn_results.code != 0) {
-                  throw new TestRunnerException("Error running correctness tests");
+                  throw new TestRunnerException("Error running correctness " +
+                      "tests from dir=" + unzipped_code_dir.getAbsolutePath() +
+                      " with cmd=mvn clean compile test");
                 }
 
                 writer = new PrintWriter(
