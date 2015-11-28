@@ -127,6 +127,58 @@
         </plugins>
       </build>
     </profile>
+
+    <profile>
+      <id>datarace_detection</id>
+      <dependencies>
+        <dependency>
+          <groupId>rr</groupId>
+          <artifactId>runtime</artifactId>
+          <version>0.1.1</version>
+          <scope>runtime</scope>
+        </dependency>
+        <dependency>
+          <groupId>rr</groupId>
+          <artifactId>agent</artifactId>
+          <version>0.1.1</version>
+          <scope>runtime</scope>
+        </dependency>
+      </dependencies>
+
+      <build>
+        <plugins>
+          <plugin>
+            <!-- executes the main program -->
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>exec-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <executable>java</executable>
+              <arguments>
+                <argument>-javaagent:${rr:agent:jar}</argument>
+                <argument>-Xbootclasspath/p:${rr:runtime:jar}</argument>
+                <argument>rr.RRMain</argument>
+                <argument>-toolpath=</argument>
+                <argument>-maxTid=80</argument>
+                <argument>-tool=FT_CHECKER</argument>
+                <argument>-noWarn=+edu.rice.hj.runtime.*</argument>
+                <argument>-classpath=${project.build.outputDirectory}:${habanero-java-lib:habanero-java-lib:jar}</argument>
+                <argument>-maxWarn=20</argument>
+                <argument>-quiet</argument>
+                <argument>edu.rice.comp322.AutoGraderExample</argument>
+              </arguments>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
   </profiles>
 
 </project>

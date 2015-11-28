@@ -719,6 +719,14 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   slurmFileContents += 'mvn -f $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml clean compile test &> $CELLO_WORK_DIR/performance.txt\n';
 
   slurmFileContents += 'mvn -f $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml clean compile exec:exec -Pprofiler &> $CELLO_WORK_DIR/profiler.txt\n';
+  /*
+   * A bug in JDK 8 [1] leads to the FastTrack data race detector crashing. If
+   * this bug is fixed in the future, this line and related lines could be
+   * uncommented to re-enable testing with it.
+   *
+   * [1] http://bugs.java.com/bugdatabase/view_bug.do?bug_id=8022291
+   */
+  // slurmFileContents += 'mvn -f $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml clean compile exec:exec -Pdatarace_detection &> $CELLO_WORK_DIR/datarace.txt\n';
 
   return slurmFileContents;
 }
@@ -908,6 +916,17 @@ app.get('/runs', function(req, res, next) {
   });
 });
 
+var dont_display = ['cluster-stderr.txt', 'cluster-stdout.txt'];
+
+function arr_contains(target, arr) {
+  for (var i = 0; i < arr.length; i++) {
+    if (target === arr[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
 app.get('/run/:run_id', function(req, res, next) {
     var run_id = req.params.run_id;
     pgclient(function(client, done) {
@@ -927,7 +946,7 @@ app.get('/run/:run_id', function(req, res, next) {
                         req.session.username + '/' + run_id;
                     var log_files = {};
                     fs.readdirSync(run_dir).forEach(function(file) {
-                      if (file.indexOf('.txt', file.length - '.txt'.length) !== -1) {
+                      if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 && !arr_contains(file, dont_display)) {
                           log_files[file] = fs.readFileSync(run_dir + '/' + file);
                       }
                     });
@@ -979,12 +998,14 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
           var REMOTE_FOLDER = 'autograder/' + run.run_id;
           var REMOTE_PERFORMANCE = REMOTE_FOLDER + '/performance.txt';
           var REMOTE_PROFILER = REMOTE_FOLDER + '/profiler.txt';
+          // var REMOTE_DATARACE = REMOTE_FOLDER + '/datarace.txt';
           var REMOTE_STDOUT = REMOTE_FOLDER + '/stdout.txt';
           var REMOTE_STDERR = REMOTE_FOLDER + '/stderr.txt';
           var LOCAL_FOLDER = __dirname + '/submissions/' +
             username + '/' + run.run_id;
           var LOCAL_PERFORMANCE = LOCAL_FOLDER + '/performance.txt';
           var LOCAL_PROFILER = LOCAL_FOLDER + '/profiler.txt';
+          // var LOCAL_DATARACE = LOCAL_FOLDER + '/datarace.txt';
           var LOCAL_STDOUT = LOCAL_FOLDER + '/cluster-stdout.txt';
           var LOCAL_STDERR = LOCAL_FOLDER + '/cluster-stderr.txt';
           var LOCAL_SLURM = LOCAL_FOLDER + '/cello.slurm';
@@ -1005,27 +1026,33 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                   if (err) {
                     return abort_and_reset_perf_tests(err, done, conn, 'scp');
                   }
-                  delete_cluster_dir('autograder/' + run.run_id, conn,
-                    function(err, conn, stdout, stderr) {
-                      if (err) {
-                        return abort_and_reset_perf_tests(err, done, conn, 'delete');
-                      }
-                      svn_client.cmd(
-                        ['add', LOCAL_STDOUT, LOCAL_STDERR, LOCAL_SLURM, LOCAL_PERFORMANCE, LOCAL_PROFILER],
-                        function(err, data) {
-                          if (err) {
-                            return abort_and_reset_perf_tests(err, done, conn,
-                              'adding local files');
-                          }
-                          svn_client.cmd(['commit', '--message', 'add local files', LOCAL_FOLDER], function(err, data) {
+                  // cluster_scp(REMOTE_DATARACE, LOCAL_DATARACE, false, function(err) {
+                  //   if (err) {
+                  //     return abort_and_reset_perf_tests(err, done, conn, 'scp');
+                  //   }
+
+                    delete_cluster_dir('autograder/' + run.run_id, conn,
+                      function(err, conn, stdout, stderr) {
+                        if (err) {
+                          return abort_and_reset_perf_tests(err, done, conn, 'delete');
+                        }
+                        svn_client.cmd(
+                          ['add', LOCAL_STDOUT, LOCAL_STDERR, LOCAL_SLURM, LOCAL_PERFORMANCE, LOCAL_PROFILER /*, LOCAL_DATARACE */ ],
+                          function(err, data) {
                             if (err) {
                               return abort_and_reset_perf_tests(err, done, conn,
-                                'committing local files');
+                                'adding local files');
                             }
-                            check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                            svn_client.cmd(['commit', '--message', 'add local files', LOCAL_FOLDER], function(err, data) {
+                              if (err) {
+                                return abort_and_reset_perf_tests(err, done, conn,
+                                  'committing local files');
+                              }
+                              check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                            });
                           });
-                        });
-                    });
+                      });
+                  // });
                 });
               });
             });
