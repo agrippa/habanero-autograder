@@ -70,7 +70,7 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>2.17</version>
         <configuration>
-          <argLine>-javaagent:${edu.rice:hjlib-cooperative:jar}</argLine>
+          <argLine>-javaagent:${edu.rice:hjlib-cooperative:jar} -Dhj.numWorkers=${env.AUTOGRADER_NUM_WORKERS}</argLine>
           <useSystemClassLoader>true</useSystemClassLoader>
           <testFailureIgnore>true</testFailureIgnore>
         </configuration>
@@ -89,6 +89,7 @@
         <configuration>
           <executable>java</executable>
           <arguments>
+            <argument>-Dhj.numWorkers=${env.AUTOGRADER_NUM_WORKERS}</argument>
             <argument>-javaagent:${edu.rice:hjlib-cooperative:jar}</argument>
             <argument>-classpath</argument>
             <classpath/>
@@ -118,6 +119,7 @@
             <configuration>
               <executable>java</executable>
               <arguments>
+                <argument>-Dhj.numWorkers=${env.AUTOGRADER_NUM_WORKERS}</argument>
                 <argument>-javaagent:${edu.rice:hjlib-cooperative:jar}</argument>
                 <argument>-agentpath:${env.LIGHTWEIGHT_JAVA_PROFILER_HOME}/build-64/liblagent.so</argument>
                 <argument>-classpath</argument>
@@ -165,6 +167,8 @@
             <configuration>
               <executable>java</executable>
               <arguments>
+                <argument>-javaagent:${edu.rice:hjlib-cooperative:jar}</argument>
+                <argument>-Dhj.numWorkers=${env.AUTOGRADER_NUM_WORKERS}</argument>
                 <argument>-javaagent:${rr:agent:jar}</argument>
                 <argument>-Xbootclasspath/p:${rr:runtime:jar}</argument>
                 <argument>rr.RRMain</argument>

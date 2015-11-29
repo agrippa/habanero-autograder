@@ -52,6 +52,10 @@ public class Viola {
         SVNClientManager.newInstance(SVNWCUtil.createDefaultOptions(true),
                 svnUser, svnPassword);
 
+    private static String junit = null;
+    private static String hamcrest = null;
+    private static String hj = null;
+
     private final static String[] checkstyleOptions = new String[] {
       "AvoidStarImport", "ConstantName", "EmptyBlock"};
 
@@ -64,6 +68,14 @@ public class Viola {
         String calleeClassname = callee.getClassName();
         String timestamp = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss").format(new Date());
         System.out.printf(timestamp + " " + calleeClassname + ": " + format, args);
+    }
+
+    private static String getEnvVarOrFail(String varname) {
+      String val = System.getenv(varname);
+      if (val == null) {
+        throw new RuntimeException(varname + " must be set");
+      }
+      return val;
     }
 
     public static void main(String[] args) throws IOException {
@@ -79,6 +91,10 @@ public class Viola {
         if (svnRepo == null) {
             svnRepo = "https://svn.rice.edu/r/parsoft/projects/AutoGrader/student-runs";
         }
+
+        junit = getEnvVarOrFail("JUNIT_JAR");
+        hamcrest = getEnvVarOrFail("HAMCREST_JAR");
+        hj = getEnvVarOrFail("HJ_JAR");
 
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/run", new RunHandler());
@@ -264,23 +280,30 @@ public class Viola {
           }
         }
 
-        private void findAllJavaFilesHelper(File currDir, List<String> acc) {
+        private void findAllJavaFilesHelper(File currDir, List<String> acc,
+            boolean correctnessTestsOnly) {
           File[] files = currDir.listFiles();
           for (File f : files) {
             if (f.isFile()) {
               if (f.getName().endsWith(".java")) {
-                acc.add(f.getAbsolutePath());
+                if (correctnessTestsOnly) {
+                  if (f.getName().endsWith("CorrectnessTest.java")) {
+                    acc.add(f.getAbsolutePath());
+                  }
+                } else {
+                  acc.add(f.getAbsolutePath());
+                }
               }
             } else {
               // Directory
-              findAllJavaFilesHelper(f, acc);
+              findAllJavaFilesHelper(f, acc, correctnessTestsOnly);
             }
           }
         }
 
-        private List<String> findAllJavaFiles(File dir) {
+        private List<String> findAllJavaFiles(File dir, boolean correctnessTestsOnly) {
           List<String> acc = new LinkedList<String>();
-          findAllJavaFilesHelper(dir, acc);
+          findAllJavaFilesHelper(dir, acc, correctnessTestsOnly);
           return acc;
         }
 
@@ -405,7 +428,7 @@ public class Viola {
                 writer.close();
 
                 File mainCodeFolder = new File(new File(unzipped_code_dir, "src"), "main");
-                List<String> studentJavaFiles = findAllJavaFiles(mainCodeFolder);
+                List<String> studentJavaFiles = findAllJavaFiles(mainCodeFolder, false);
 
                 String[] checkstyle_cmd = new String[3 + studentJavaFiles.size()];
                 checkstyle_cmd[0] = "checkstyle";
@@ -426,31 +449,78 @@ public class Viola {
                 /*
                  * Run FindBugs
                  */
-                String[] findbugs_cmd = new String[]{"findbugs", "-textui", "-low", mainCodeFolder.getAbsolutePath()};
+                String[] findbugs_cmd = new String[]{"findbugs", "-textui",
+                  "-low", mainCodeFolder.getAbsolutePath()};
                 ProcessResults findbugs_results = runInProcess(findbugs_cmd, unzipped_code_dir);
                 writer = new PrintWriter(
                     code_dir.getAbsolutePath() + "/findbugs.txt", "UTF-8");
                 writer.println(findbugs_results.stdout);
                 writer.close();
 
+                /*
+                 * Merge the student-provided code with the instructor-provided
+                 * code into a single folder hierarchy.
+                 */
                 merge_dirs(unzipped_code_dir, unzipped_instructor_dir);
                 final File pom = new File(instructor_dir, "correctness_pom.xml");
                 pom.renameTo(new File(unzipped_code_dir, "pom.xml"));
 
-                String[] cmd = new String[]{"mvn", "clean", "compile", "test"};
+                /*
+                 * Compile the full application and testing suite
+                 */
+                String[] cmd = new String[]{"mvn", "clean", "compile", "test-compile"};
                 ProcessResults mvn_results = runInProcess(cmd, unzipped_code_dir);
                 if (mvn_results.code != 0) {
-                  throw new TestRunnerException("Error running correctness " +
+                  throw new TestRunnerException("Error compiling correctness " +
                       "tests from dir=" + unzipped_code_dir.getAbsolutePath() +
-                      " with cmd=mvn clean compile test");
+                      " with cmd=mvn clean compile test-compile");
+                }
+
+                /*
+                 * Find all correctness tests and run them one-by-one, storing
+                 * the results in a string builder.
+                 */
+                final StringBuilder stdout = new StringBuilder();
+                final StringBuilder stderr = new StringBuilder();
+                final List<String> correctnessTests = findAllJavaFiles(unzipped_code_dir, true);
+                for (String test : correctnessTests) {
+                  assert test.startsWith(unzipped_code_dir.getAbsolutePath());
+                  test = test.substring(unzipped_code_dir.getAbsolutePath().length() + 1);
+
+                  final String src_test_java = "src/test/java";
+                  assert test.startsWith(src_test_java);
+                  test = test.substring(src_test_java.length() + 1);
+
+                  final String java_suffix = ".java";
+                  assert test.endsWith(java_suffix);
+                  test = test.substring(0, test.length() - java_suffix.length());
+
+                  final String classname = test.replace('/', '.');
+
+                  final String classpath =
+                      ".:target/classes:target/test-classes:" + junit + ":" +
+                      hamcrest + ":" + hj;
+                  final String[] junit_cmd = new String[]{"java", "-cp",
+                      classpath, "org.junit.runner.JUnitCore", classname};
+                  ProcessResults junit_results = runInProcess(junit_cmd, unzipped_code_dir);
+                  if (junit_results.code != 0) {
+                    throw new TestRunnerException("Error running JUnit tests " +
+                        "for test class " + classname + "\n=====STDERR=====\n" +
+                        junit_results.stderr + "\n=====STDOUT=====\n" +
+                        junit_results.stdout);
+                  }
+
+                  stdout.append("Running " + classname + "\n");
+                  stdout.append(junit_results.stdout);
+                  stderr.append(junit_results.stderr);
                 }
 
                 writer = new PrintWriter(
                         code_dir.getAbsolutePath() + "/correct.txt", "UTF-8");
                 writer.println("======= STDOUT =======");
-                writer.println(mvn_results.stdout);
+                writer.println(stdout.toString());
                 writer.println("\n======= STDERR =======");
-                writer.println(mvn_results.stderr);
+                writer.println(stderr.toString());
                 writer.close();
 
                 log("Filled correctness log file\n");

@@ -9,8 +9,21 @@ The Habanero AutoGrader for parallel programs
  - svn
  - mvn
  - checkstyle
+     | Should be somewhere in PATH on the Viola host.
  - FindBugs
+     | Should be somewhere in PATH on the Viola host.
  - lightweight-java-profiler: git@github.com:agrippa/lightweight-java-profiler.git
+     | Note that lightweight-java-profiler appears to be broken on Mac OS, so
+     | local tests on a Mac laptop will produce useless output).
+     | lightweight-java-profiler should be installed on the remote cluster, and an
+     | environment variable named LIGHTWEIGHT_JAVA_PROFILER_HOME pointed to its
+     | root directory.
+ - JUnit 4.x or higher
+     | Should be installed on the remote compute cluster and the Viola host, with
+     | the environment variable JUNIT_JAR pointed to the main jar file.
+ - Hamcrest-core 1.3
+     | Should be installed on the remote compute cluster and the Viola host,
+     | with the environment variable HAMCREST_JAR pointed to the core jar file.
 
 ===== npm installation instructions =====
 
