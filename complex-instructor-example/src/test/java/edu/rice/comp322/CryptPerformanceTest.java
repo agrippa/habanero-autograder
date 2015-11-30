@@ -7,28 +7,31 @@ import edu.rice.hj.api.SuspendableException;
 
 public class CryptPerformanceTest extends TestCase {
 
-    private void checkCorrectness(int size) throws SuspendableException {
+    private void checkCorrectness(String lbl, int size) throws SuspendableException {
       final Crypt crypt = new Crypt(size);
-      crypt.Do();
-      // crypt.validate returns true on error
-      assertFalse("Test failure for size=" + size, crypt.validate());
+
+      PerfTestUtils.runPerfTest(lbl, () -> crypt.Do(),
+          () -> assertFalse("Test failure for size=" + size, crypt.validate()));
     }
 
     public void testCorrectness1(){
+        final String lbl = PerfTestUtils.getTestLabel();
         launchHabaneroApp(() -> {
-          checkCorrectness(2000000);
+          checkCorrectness(lbl, 2000000);
         });
     }
 
     public void testCorrectness2(){
+        final String lbl = PerfTestUtils.getTestLabel();
         launchHabaneroApp(() -> {
-          checkCorrectness(50000000);
+          checkCorrectness(lbl, 50000000);
         });
     }
 
     public void testCorrectness3(){
+        final String lbl = PerfTestUtils.getTestLabel();
         launchHabaneroApp(() -> {
-          checkCorrectness(80000000);
+          checkCorrectness(lbl, 80000000);
         });
     }
 }
