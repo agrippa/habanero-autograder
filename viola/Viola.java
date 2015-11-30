@@ -55,6 +55,7 @@ public class Viola {
     private static String junit = null;
     private static String hamcrest = null;
     private static String hj = null;
+    private static String asm = null;
 
     private final static String[] checkstyleOptions = new String[] {
       "AvoidStarImport", "ConstantName", "EmptyBlock"};
@@ -95,6 +96,7 @@ public class Viola {
         junit = getEnvVarOrFail("JUNIT_JAR");
         hamcrest = getEnvVarOrFail("HAMCREST_JAR");
         hj = getEnvVarOrFail("HJ_JAR");
+        asm = getEnvVarOrFail("ASM_JAR");
 
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/run", new RunHandler());
@@ -499,8 +501,9 @@ public class Viola {
 
                   final String classpath =
                       ".:target/classes:target/test-classes:" + junit + ":" +
-                      hamcrest + ":" + hj;
-                  final String[] junit_cmd = new String[]{"java", "-cp",
+                      hamcrest + ":" + hj + ":" + asm;
+                  final String[] junit_cmd = new String[]{"java",
+                      "-Dhj.numWorkers=1", "-javaagent:" + hj, "-cp",
                       classpath, "org.junit.runner.JUnitCore", classname};
                   ProcessResults junit_results = runInProcess(junit_cmd, unzipped_code_dir);
                   if (junit_results.code != 0) {
