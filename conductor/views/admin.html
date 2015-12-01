@@ -75,13 +75,8 @@
                         '<input name="zip" type="file">' +
                         '<input value="Upload" name="submit" type="submit">' +
                         '</form>';
-                      var upload_correctness_pom_html =
-                        '<form action="/upload_correctness_pom/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
-                        '<input name="pom" type="file">' +
-                        '<input value="Upload" name="submit" type="submit">' +
-                        '</form>';
-                      var upload_performance_pom_html =
-                        '<form action="/upload_performance_pom/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
+                      var upload_instructor_pom_html =
+                        '<form action="/upload_instructor_pom/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
                         '<input name="pom" type="file">' +
                         '<input value="Upload" name="submit" type="submit">' +
                         '</form>';
@@ -89,8 +84,7 @@
                     $('#existing-assignments tr:last').after('<tr><td><center>' +
                         curr.name + '</center></td><td><center>' + button_html +
                         '</center></td><td>' + upload_zip_html + '</td><td>' +
-                        upload_correctness_pom_html + '</td><td>' +
-                        upload_performance_pom_html + '</td></tr>');
+                        upload_instructor_pom_html + '</td></tr>');
                 }
                 $('#assignment-count').text(assignments.length + " assignment(s)");
               } else {
@@ -116,8 +110,7 @@
           <form action="/assignment" method="post" enctype="multipart/form-data" role="form">
             <input name="assignment_name" type="text" class="form-control" placeholder="Assignment Name" id="name"></input>
             <label>Instructor tests</label><input name="zip" type="file">
-            <label>Correctness pom</label><input name="correctness_pom" type="file">
-            <label>Performance pom</label><input name="performance_pom" type="file">
+            <label>Instructor pom</label><input name="instructor_pom" type="file">
             <input value="Create" name="submit" type="submit" class="btn btn-primary" style="float:right">
           </form>
         </div>
@@ -132,8 +125,7 @@
             <td bgcolor="#AAAAAA"><center><b>Name</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Visibility</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Re-Upload Zip</b></center></td>
-            <td bgcolor="#AAAAAA"><center><b>Re-Upload Correctness POM</b></center></td>
-            <td bgcolor="#AAAAAA"><center><b>Re-Upload Performance POM</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Re-Upload Instructor POM</b></center></td>
           </tr>
         </table>
       </div>

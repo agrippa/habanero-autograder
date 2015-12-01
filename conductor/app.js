@@ -437,8 +437,7 @@ function is_actual_svn_err(err) {
 // Create a new assignment with a given name, not visible to students
 var assignment_file_fields = [
                               { name: 'zip', maxCount: 1},
-                              { name: 'correctness_pom', maxCount: 1},
-                              { name: 'performance_pom', maxCount: 1}
+                              { name: 'instructor_pom', maxCount: 1}
                              ];
 app.post('/assignment', upload.fields(assignment_file_fields), function(req, res, next) {
   console.log('assignment: is_admin=' + req.session.is_admin);
@@ -455,13 +454,9 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
       return res.render('admin.html',
         {err_msg: 'Please provide test files for the assignment'});
     }
-    if (!req.files.correctness_pom) {
+    if (!req.files.instructor_pom) {
       return res.render('admin.html',
-        {err_msg: 'Please provide a correctness pom for the assignment'});
-    }
-    if (!req.files.performance_pom) {
-      return res.render('admin.html',
-        {err_msg: 'Please provide a performance pom for the assignment'});
+        {err_msg: 'Please provide an instructor pom for the assignment'});
     }
 
     pgclient(function(client, done) {
@@ -490,15 +485,12 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
                       } else {
                         fs.renameSync(req.files.zip[0].path,
                           assignment_dir + '/instructor.zip');
-                        fs.renameSync(req.files.correctness_pom[0].path,
-                          assignment_dir + '/correctness_pom.xml');
-                        fs.renameSync(req.files.performance_pom[0].path,
-                          assignment_dir + '/performance_pom.xml');
+                        fs.renameSync(req.files.instructor_pom[0].path,
+                          assignment_dir + '/instructor_pom.xml');
 
                         svn_client.cmd(['add',
                           assignment_dir + '/instructor.zip',
-                          assignment_dir + '/correctness_pom.xml',
-                          assignment_dir + '/performance_pom.xml'], function(err, data) {
+                          assignment_dir + '/instructor_pom.xml'], function(err, data) {
                             if (is_actual_svn_err(err)) {
                               return res.render('admin.html',
                                 {err_msg: 'Error adding files to assignment repo'});
@@ -577,16 +569,10 @@ app.post('/upload_zip/:assignment_id', upload.single('zip'), function(req, res, 
   return handle_reupload(req, res, 'Please provide a ZIP', 'instructor.zip');
 });
 
-app.post('/upload_correctness_pom/:assignment_id', upload.single('pom'), function(req, res, next) {
-  console.log('upload_correctness_pom: is_admin=' + req.session.is_admin);
-  return handle_reupload(req, res, 'Please provide a correctness pom.xml', 'correctness_pom.xml');
+app.post('/upload_instructor_pom/:assignment_id', upload.single('pom'), function(req, res, next) {
+  console.log('upload_instructor_pom: is_admin=' + req.session.is_admin);
+  return handle_reupload(req, res, 'Please provide an instructor pom.xml', 'instructor_pom.xml');
 });
-
-app.post('/upload_performance_pom/:assignment_id', upload.single('pom'), function(req, res, next) {
-  console.log('upload_performance_pom: is_admin=' + req.session.is_admin);
-  return handle_reupload(req, res, 'Please provide a performance pom.xml', 'performance_pom.xml');
-});
-
 
 /*
  * Get all assignments, with an optional flag to also view not visible
@@ -806,10 +792,6 @@ function get_scalability_tests(ncores) {
   return tests;
 }
 
-function construct_mvn_cmd(cmd, ncores) {
-  return 'AUTOGRADER_NUM_WORKERS=' + ncores + ' ' + cmd;
-}
-
 function loop_over_all_perf_tests(cmd) {
   var acc = '';
   acc += 'for F in $(find src/test/java -name "*PerformanceTest.java"); do\n';
@@ -866,7 +848,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   slurmFileContents += 'INSTRUCTOR_DIR=$(ls $CELLO_WORK_DIR/assignment/instructor/)\n';
 
   slurmFileContents += 'cp -r $CELLO_WORK_DIR/assignment/instructor/$INSTRUCTOR_DIR/* $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/\n';
-  slurmFileContents += 'cp $CELLO_WORK_DIR/assignment/performance_pom.xml $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml\n';
+  slurmFileContents += 'cp $CELLO_WORK_DIR/assignment/instructor_pom.xml $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml\n';
 
   slurmFileContents += 'for F in $(find $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/ -name "*CorrectnessTest.java"); do\n';
   slurmFileContents += '    rm $F\n';

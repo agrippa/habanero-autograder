@@ -465,7 +465,7 @@ public class Viola {
                  * code into a single folder hierarchy.
                  */
                 merge_dirs(unzipped_code_dir, unzipped_instructor_dir);
-                final File pom = new File(instructor_dir, "correctness_pom.xml");
+                final File pom = new File(instructor_dir, "instructor_pom.xml");
                 pom.renameTo(new File(unzipped_code_dir, "pom.xml"));
 
                 /*
