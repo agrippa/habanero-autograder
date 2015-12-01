@@ -20,6 +20,8 @@ var upload = multer({ dest: 'uploads/' });
 var KEEP_CLUSTER_DIRS = true;
 var VERBOSE = false;
 
+var LOCAL_JOB_ID = 'LOCAL';
+
 var POSTGRES_USERNAME = process.env.PGSQL_USER || 'postgres';
 var POSTGRES_PASSWORD = process.env.PGSQL_PASSWORD || 'foobar';
 var POSTGRES_USER_TOKEN = null;
@@ -1117,10 +1119,11 @@ app.post('/local_run_finished', function(req, res, next) {
                                                               }
 
                                                               pgclient(function(client, done) {
-                                                                  var query = client.query('UPDATE runs SET job_id=($1) WHERE run_id=($2)', ['LOCAL', run_id]);
+                                                                  var query = client.query('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [LOCAL_JOB_ID, run_id]);
                                                                   register_query_helpers(query, res, done, username);
                                                                   query.on('end', function(result) {
                                                                       done();
+
                                                                       return res.send(
                                                                           JSON.stringify({ status: 'Success' }));
                                                                   });
@@ -1544,7 +1547,7 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                 }
             });
         } else {
-            if (run.job_id !== 'LOCAL') {
+            if (run.job_id !== LOCAL_JOB_ID) {
                 console.log('Unexpected job_id "' + run.job_id + '" for local cluster');
                 check_cluster_helper(perf_runs, i + 1, conn, client, done);
             } else {
