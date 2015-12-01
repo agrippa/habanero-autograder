@@ -465,6 +465,12 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
     }
 
     pgclient(function(client, done) {
+
+          var validated = load_and_validate_rubric(req.files.rubric[0].path);
+          if (!validated.success) {
+              return res.render('admin.html', {err_msg: 'Error in rubric: ' + validated.msg});
+          }
+
           var query = client.query(
               "INSERT INTO assignments (name, visible) VALUES ($1,false) RETURNING assignment_id",
               [assignment_name]);
@@ -526,7 +532,7 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
 
 function handle_reupload(req, res, missing_msg, target_filename) {
   if (!req.session.is_admin) {
-    return res.send(JSON.stringify({ status: 'Failure', msg: permissionDenied }));
+    return res.render('admin.html', {err_msg: permissionDenied});
   } else {
     var assignment_id = req.params.assignment_id;
 
@@ -587,7 +593,13 @@ app.post('/upload_instructor_pom/:assignment_id', upload.single('pom'),
 
 app.post('/upload_rubric/:assignment_id', upload.single('rubric'),
     function(req, res, next) {
-      console.log('upload_rubric is_admin=' + req.session.is_admin);
+      console.log('upload_rubric: is_admin=' + req.session.is_admin);
+
+      var validated = load_and_validate_rubric(req.file.path);
+      if (!validated.success) {
+          return res.render('admin.html', {err_msg: 'Error in rubric: ' + validated.msg});
+      }
+
       return handle_reupload(req, res, 'Please provide a rubric', 'rubric.json');
     });
 
@@ -1183,33 +1195,99 @@ function arr_contains(target, arr) {
   return false;
 }
 
+function failed_rubric_validation(err_msg) {
+  return {success: false, msg: err_msg};
+}
+
+function load_and_validate_rubric(rubric_file) {
+  var rubric = JSON.parse(fs.readFileSync(rubric_file));
+
+  if (!rubric.hasOwnProperty('correctness')) {
+    return failed_rubric_validation('Rubric is missing correctness section');
+  }
+  if (!rubric.hasOwnProperty('performance')) {
+    return failed_rubric_validation('Rubric is missing performance section');
+  }
+  if (!rubric.hasOwnProperty('style')) {
+    return failed_rubric_validation('Rubric is missing style section');
+  }
+
+  for (var c = 0; c < rubric.correctness.length; c++) {
+    if (!rubric.correctness[c].hasOwnProperty('testname')) {
+      return failed_rubric_validation('Correctness test is missing name');
+    }
+    if (!rubric.correctness[c].hasOwnProperty('points_worth') ||
+        rubric.correctness[c].points_worth < 0.0) {
+      return failed_rubric_validation('Correctness test is missing valid points_worth');
+    }
+  }
+
+  for (var p = 0; p < rubric.performance.length; p++) {
+    if (!rubric.performance[p].hasOwnProperty('testname')) {
+      return failed_rubric_validation('Performance test is missing name');
+    }
+    if (!rubric.performance[p].hasOwnProperty('points_worth')) {
+      return failed_rubric_validation('Performance test is missing points_worth');
+    }
+    var points_worth = rubric.performance[p].points_worth;
+    if (!rubric.performance[p].hasOwnProperty('grading')) {
+      return failed_rubric_validation('Performance test is missing speedup grading');
+    }
+
+    for (var g = 0; g < rubric.performance[p].grading.length; g++) {
+      if (!rubric.performance[p].grading[g].hasOwnProperty('bottom_inclusive')) {
+        return failed_rubric_validation('Performance test grading is missing bottom_inclusive');
+      }
+      if (!rubric.performance[p].grading[g].hasOwnProperty('top_exclusive')) {
+        return failed_rubric_validation('Performance test grading is missing top_exclusive');
+      }
+      if (!rubric.performance[p].grading[g].hasOwnProperty('points_off')) {
+        return failed_rubric_validation('Performance test grading is missing points_off');
+      }
+      if (rubric.performance[p].grading[g].points_off > points_worth) {
+        return failed_rubric_validation('Performance test grading is more than points_worth');
+      }
+    }
+  }
+
+  if (!rubric.style.hasOwnProperty('points_per_error')) {
+    return failed_rubric_validation('Style section is missing points_per_error');
+  }
+  if (!rubric.style.hasOwnProperty('max_points_off')) {
+    return failed_rubric_validation('Style section is missing max_points_off');
+  }
+
+  return { success: true, rubric: rubric };
+}
+
+function calculate_score(assignment_id, log_files) {
+}
+
 app.get('/run/:run_id', function(req, res, next) {
     var run_id = req.params.run_id;
     pgclient(function(client, done) {
-        var query = client.query("SELECT user_id FROM runs WHERE run_id=($1)",
+        var query = client.query("SELECT * FROM runs WHERE run_id=($1)",
             [run_id]);
         register_query_helpers(query, res, done, req.session.username);
         query.on('end', function(result) {
             done();
             if (result.rows.length == 0) {
                 return res.render('overview.html', { err_msg: 'Unknown run' });
-            } else {
-                var user_id = result.rows[0].user_id;
-                if (user_id != req.session.user_id) {
-                    return res.send(401);
-                } else {
-                    var run_dir = __dirname + '/submissions/' +
-                        req.session.username + '/' + run_id;
-                    var log_files = {};
-                    fs.readdirSync(run_dir).forEach(function(file) {
-                      if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 && !arr_contains(file, dont_display)) {
-                          log_files[file] = fs.readFileSync(run_dir + '/' + file);
-                      }
-                    });
-
-                    return res.render('run.html', { run_id: run_id, log_files: log_files });
-                }
             }
+            var user_id = result.rows[0].user_id;
+            if (user_id != req.session.user_id) {
+                return res.send(401);
+            }
+            var run_dir = __dirname + '/submissions/' +
+                req.session.username + '/' + run_id;
+            var log_files = {};
+            fs.readdirSync(run_dir).forEach(function(file) {
+              if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 && !arr_contains(file, dont_display)) {
+                  log_files[file] = fs.readFileSync(run_dir + '/' + file);
+              }
+            });
+
+            return res.render('run.html', { run_id: run_id, log_files: log_files });
         });
     });
 });
