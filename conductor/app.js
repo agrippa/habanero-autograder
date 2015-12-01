@@ -1260,6 +1260,15 @@ function load_and_validate_rubric(rubric_file) {
   return { success: true, rubric: rubric };
 }
 
+function find_correctness_test_with_name(name, rubric) {
+  for (var c = 0; c < rubric.correctness.length; c++) {
+    if (rubric.correctness[c].testname === name) {
+      return rubric.correctness[c];
+    }
+  }
+  return null;
+}
+
 function calculate_score(assignment_id, log_files) {
   var rubric_file = __dirname + '/instructor-tests/' + assignment_id + '/rubric.json';
 
@@ -1267,13 +1276,75 @@ function calculate_score(assignment_id, log_files) {
   if (!validated.success) {
     return null;
   }
+  var rubric = validated.rubric;
 
-  return { total: 64.0,
-           total_possible: 64.0,
+  var total_possible = 0.0;
+  var total_correctness_possible = 0.0;
+  for (var c = 0; c < rubric.correctness.length; c++) {
+    var t = rubric.correctness[c];
+    total_possible += t.points_worth;
+    total_correctness_possible += t.points_worth;
+  }
+  var total_performance_possible = 0.0;
+  for (var p = 0; p < rubric.performance.length; p++) {
+    var t = rubric.performance[p];
+    total_possible += t.points_worth;
+    total_performance_possible += t.points_worth;
+  }
+  total_possible += rubric.style.max_points_off;
+
+  var correctness = total_correctness_possible;
+  if ('correct.txt' in log_files) {
+    var content = log_files['correct.txt'].toString('utf8');
+    var lines = content.split('\n');
+    var nfailures = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (line.startsWith('There were ') && line.endsWith(' failures:')) {
+        nfailures = parseInt(line.split(' ')[2]);
+        break;
+      } else if (line.startsWith('There was ') && line.endsWith(' failure:')) {
+        nfailures = 1;
+        break;
+      }
+    }
+
+    var failure = 1;
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].startsWith(failure + ') ')) {
+        var junit_testname = lines[i].split(' ')[1];
+        var test_tokens = junit_testname.split('(');
+        var testname = test_tokens[0];
+        var classname = test_tokens[1].substring(0, test_tokens[1].length - 1);
+        var fullname = classname + '.' + testname;
+
+        var test = find_correctness_test_with_name(fullname, rubric);
+        if (test) {
+          console.log('calculate_score: taking off ' + test.points_worth +
+              ' points for test ' + test.testname);
+          correctness -= test.points_worth;
+        }
+
+        failure++;
+      }
+    }
+  } else {
+    correctness = 0.0;
+  }
+
+  var performance = total_performance_possible;
+
+  var style = rubric.style.max_points_off;
+
+  return { total: correctness + performance + style,
+           total_possible: total_possible,
            breakdown: [
-                       { name: 'Correctness', points: 30.0, total: 30.0 },
-                       { name: 'Performance', points: 30.0, total: 30.0 },
-                       { name: 'Style', points: 4.0, total: 4.0 }
+                       { name: 'Correctness', points: correctness,
+                         total: total_correctness_possible },
+                       { name: 'Performance', points: performance,
+                         total: total_performance_possible },
+                       { name: 'Style', points: style,
+                         total: rubric.style.max_points_off }
                       ]}
 }
 

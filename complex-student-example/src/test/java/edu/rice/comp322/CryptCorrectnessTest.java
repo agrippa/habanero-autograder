@@ -31,4 +31,12 @@ public class CryptCorrectnessTest extends TestCase {
           checkCorrectness(800000);
         });
     }
+
+    public void testCorrectness4() {
+      assertFalse("Expected test failure", true);
+    }
+
+    public void testCorrectness5() {
+      assertFalse("Expected test failure", true);
+    }
 }

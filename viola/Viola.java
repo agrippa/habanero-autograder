@@ -507,12 +507,10 @@ public class Viola {
                       "-Dhj.numWorkers=1", "-javaagent:" + hj, "-cp",
                       classpath, "org.junit.runner.JUnitCore", classname};
                   ProcessResults junit_results = runInProcess(junit_cmd, unzipped_code_dir);
-                  if (junit_results.code != 0) {
-                    throw new TestRunnerException("Error running JUnit tests " +
-                        "for test class " + classname + "\n=====STDERR=====\n" +
-                        junit_results.stderr + "\n=====STDOUT=====\n" +
-                        junit_results.stdout);
-                  }
+                  /*
+                   * A non-zero exit code here can simply indicate a test
+                   * failure, so we ignore all error checking and continue.
+                   */
 
                   stdout.append("Running " + classname + "\n");
                   stdout.append(junit_results.stdout);
