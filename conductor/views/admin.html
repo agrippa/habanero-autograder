@@ -80,11 +80,18 @@
                         '<input name="pom" type="file">' +
                         '<input value="Upload" name="submit" type="submit">' +
                         '</form>';
+                      var upload_rubric_html =
+                        '<form action="/upload_rubric/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
+                        '<input name="rubric" type="file">' +
+                        '<input value="Upload" name="submit" type="submit">' +
+                        '</form>';
+
 
                     $('#existing-assignments tr:last').after('<tr><td><center>' +
                         curr.name + '</center></td><td><center>' + button_html +
                         '</center></td><td>' + upload_zip_html + '</td><td>' +
-                        upload_instructor_pom_html + '</td></tr>');
+                        upload_instructor_pom_html + '</td><td>' +
+                        upload_rubric_html + '</td></tr>');
                 }
                 $('#assignment-count').text(assignments.length + " assignment(s)");
               } else {
@@ -109,8 +116,9 @@
         <div class="col-md-4 col-md-offset-4">
           <form action="/assignment" method="post" enctype="multipart/form-data" role="form">
             <input name="assignment_name" type="text" class="form-control" placeholder="Assignment Name" id="name"></input>
-            <label>Instructor tests</label><input name="zip" type="file">
-            <label>Instructor pom</label><input name="instructor_pom" type="file">
+            <label>Instructor Tests</label><input name="zip" type="file">
+            <label>Instructor POM</label><input name="instructor_pom" type="file">
+            <label>Assignment Rubric</label><input name="rubric" type="file">
             <input value="Create" name="submit" type="submit" class="btn btn-primary" style="float:right">
           </form>
         </div>
@@ -126,6 +134,7 @@
             <td bgcolor="#AAAAAA"><center><b>Visibility</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Re-Upload Zip</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Re-Upload Instructor POM</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Re-Upload Rubric</b></center></td>
           </tr>
         </table>
       </div>

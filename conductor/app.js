@@ -436,8 +436,9 @@ function is_actual_svn_err(err) {
 
 // Create a new assignment with a given name, not visible to students
 var assignment_file_fields = [
-                              { name: 'zip', maxCount: 1},
-                              { name: 'instructor_pom', maxCount: 1}
+                              { name: 'zip', maxCount: 1 },
+                              { name: 'instructor_pom', maxCount: 1 },
+                              { name: 'rubric', maxCount: 1 }
                              ];
 app.post('/assignment', upload.fields(assignment_file_fields), function(req, res, next) {
   console.log('assignment: is_admin=' + req.session.is_admin);
@@ -457,6 +458,10 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
     if (!req.files.instructor_pom) {
       return res.render('admin.html',
         {err_msg: 'Please provide an instructor pom for the assignment'});
+    }
+    if (!req.files.rubric) {
+      return res.render('admin.html',
+        {err_msg: 'Please provide a rubric for the assignment'});
     }
 
     pgclient(function(client, done) {
@@ -487,10 +492,13 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
                           assignment_dir + '/instructor.zip');
                         fs.renameSync(req.files.instructor_pom[0].path,
                           assignment_dir + '/instructor_pom.xml');
+                        fs.renameSync(req.files.rubric[0].path,
+                          assignment_dir + '/rubric.json');
 
                         svn_client.cmd(['add',
                           assignment_dir + '/instructor.zip',
-                          assignment_dir + '/instructor_pom.xml'], function(err, data) {
+                          assignment_dir + '/instructor_pom.xml',
+                          assignment_dir + '/rubric.json'], function(err, data) {
                             if (is_actual_svn_err(err)) {
                               return res.render('admin.html',
                                 {err_msg: 'Error adding files to assignment repo'});
@@ -564,15 +572,24 @@ function handle_reupload(req, res, missing_msg, target_filename) {
   }
 }
 
-app.post('/upload_zip/:assignment_id', upload.single('zip'), function(req, res, next) {
-  console.log('upload_zip: is_admin=' + req.session.is_admin);
-  return handle_reupload(req, res, 'Please provide a ZIP', 'instructor.zip');
-});
+app.post('/upload_zip/:assignment_id', upload.single('zip'),
+    function(req, res, next) {
+      console.log('upload_zip: is_admin=' + req.session.is_admin);
+      return handle_reupload(req, res, 'Please provide a ZIP', 'instructor.zip');
+    });
 
-app.post('/upload_instructor_pom/:assignment_id', upload.single('pom'), function(req, res, next) {
-  console.log('upload_instructor_pom: is_admin=' + req.session.is_admin);
-  return handle_reupload(req, res, 'Please provide an instructor pom.xml', 'instructor_pom.xml');
-});
+app.post('/upload_instructor_pom/:assignment_id', upload.single('pom'),
+    function(req, res, next) {
+      console.log('upload_instructor_pom: is_admin=' + req.session.is_admin);
+      return handle_reupload(req, res, 'Please provide an instructor pom.xml',
+        'instructor_pom.xml');
+    });
+
+app.post('/upload_rubric/:assignment_id', upload.single('rubric'),
+    function(req, res, next) {
+      console.log('upload_rubric is_admin=' + req.session.is_admin);
+      return handle_reupload(req, res, 'Please provide a rubric', 'rubric.json');
+    });
 
 /*
  * Get all assignments, with an optional flag to also view not visible
