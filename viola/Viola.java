@@ -195,7 +195,8 @@ public class Viola {
                 byte[] postData = urlParameters.getBytes(StandardCharsets.UTF_8);
                 int postDataLength = postData.length;
                 // TODO make configurable
-                String request = "http://" + conductorHost + ":" + conductorPort + "/local_run_finished";
+                String request = "http://" + conductorHost + ":" +
+                  conductorPort + "/local_run_finished";
                 URL url = new URL(request);
                 HttpURLConnection conn = (HttpURLConnection)url.openConnection();
                 conn.setDoOutput(true);

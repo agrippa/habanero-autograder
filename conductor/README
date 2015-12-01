@@ -24,6 +24,10 @@ The Habanero AutoGrader for parallel programs
  - Hamcrest-core 1.3
      | Should be installed on the remote compute cluster and the Viola host,
      | with the environment variable HAMCREST_JAR pointed to the core jar file.
+ - RoadRunner v0.3
+     | Should be installed on the remote compute cluster, with the environment
+     | variable RR_AGENT_JAR pointed to the agent JAR file and RR_RUNTIME_JAR
+     | pointed to the runtime JAR file.
 
 ===== npm installation instructions =====
 
