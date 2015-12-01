@@ -1261,6 +1261,20 @@ function load_and_validate_rubric(rubric_file) {
 }
 
 function calculate_score(assignment_id, log_files) {
+  var rubric_file = __dirname + '/instructor-tests/' + assignment_id + '/rubric.json';
+
+  var validated = load_and_validate_rubric(rubric_file);
+  if (!validated.success) {
+    return null;
+  }
+
+  return { total: 64.0,
+           total_possible: 64.0,
+           breakdown: [
+                       { name: 'Correctness', points: 30.0, total: 30.0 },
+                       { name: 'Performance', points: 30.0, total: 30.0 },
+                       { name: 'Style', points: 4.0, total: 4.0 }
+                      ]}
 }
 
 app.get('/run/:run_id', function(req, res, next) {
@@ -1287,7 +1301,15 @@ app.get('/run/:run_id', function(req, res, next) {
               }
             });
 
-            return res.render('run.html', { run_id: run_id, log_files: log_files });
+            var score = calculate_score(result.rows[0].assignment_id, log_files);
+            var render_vars = { run_id: run_id, log_files: log_files };
+            if (score) {
+              render_vars['score'] = score;
+            } else {
+              render_vars['err_msg'] = 'Error calculating score';
+            }
+
+            return res.render('run.html', render_vars);
         });
     });
 });

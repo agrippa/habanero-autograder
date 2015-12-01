@@ -16,6 +16,17 @@
       </div>
     </div>
 
+    <div class="row" style="width:100%">
+      <div class="col-md-8 col-md-offset-2">
+        <h4>Score: <%= score.total %> / <%= score.total_possible %></h4>
+        <div class="col-md-offset-1">
+          <% for (var iter = 0; iter < score.breakdown.length; iter++) { %>
+          <h5><%= score.breakdown[iter].name %>: <%= score.breakdown[iter].points %> / <%= score.breakdown[iter].total %></h5>
+          <% } %>
+        </div>
+      </div>
+    </div>
+
     <% for (filename in log_files) { %>
     <div class="row" style="width:100%">
       <div class="col-md-8 col-md-offset-2">
