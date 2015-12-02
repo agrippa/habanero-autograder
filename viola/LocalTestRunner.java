@@ -43,6 +43,9 @@ import org.tmatesoft.svn.core.wc.ISVNOptions;
  * Logic for actually running single-threaded tests.
  */
 public class LocalTestRunner implements Runnable {
+    private static final long LOCAL_RUNS_TIMEOUT = 60 * 1000;
+    private static final long TIMEOUT_CHECK_INTERVAL = 5 * 1000;
+
     private final String done_token;
     private final String user;
     private final String assignment_name;
@@ -193,31 +196,53 @@ public class LocalTestRunner implements Runnable {
       return acc;
     }
 
+    private boolean processIsFinished(Process p) {
+      boolean finished = true;
+      try {
+        p.exitValue();
+      } catch (IllegalThreadStateException e) {
+        finished = false;
+      }
+      return finished;
+    }
+
     private ProcessResults runInProcess(String[] cmd, File working_dir)
         throws IOException, InterruptedException {
       ProcessBuilder pb = new ProcessBuilder(Arrays.asList(cmd));
       pb.directory(working_dir);
       Process p = pb.start();
 
-      BufferedReader stdInput = new BufferedReader(
-          new InputStreamReader(p.getInputStream()));
-      BufferedReader stdError = new BufferedReader(
-          new InputStreamReader(p.getErrorStream()));
-
-      String s = null;
-      final StringBuilder stdout = new StringBuilder();
-      while ((s = stdInput.readLine()) != null) {
-        stdout.append(s + "\n");
+      final long startTime = System.currentTimeMillis();
+      while (System.currentTimeMillis() - startTime < LOCAL_RUNS_TIMEOUT &&
+          !processIsFinished(p)) {
+        Thread.sleep(TIMEOUT_CHECK_INTERVAL);
       }
 
-      final StringBuilder stderr = new StringBuilder();
-      while ((s = stdError.readLine()) != null) {
-        stderr.append(s + "\n");
+      if (!processIsFinished(p)) {
+        p.destroy();
+
+        return new ProcessResults("", "TIMEOUT TIMEOUT TIMEOUT", 0);
+      } else {
+        BufferedReader stdInput = new BufferedReader(
+            new InputStreamReader(p.getInputStream()));
+        BufferedReader stdError = new BufferedReader(
+            new InputStreamReader(p.getErrorStream()));
+
+        String s = null;
+        final StringBuilder stdout = new StringBuilder();
+        while ((s = stdInput.readLine()) != null) {
+          stdout.append(s + "\n");
+        }
+
+        final StringBuilder stderr = new StringBuilder();
+        while ((s = stdError.readLine()) != null) {
+          stderr.append(s + "\n");
+        }
+
+        int exitCode = p.exitValue();
+
+        return new ProcessResults(stdout.toString(), stderr.toString(), exitCode);
       }
-
-      int exitCode = p.waitFor();
-
-      return new ProcessResults(stdout.toString(), stderr.toString(), exitCode);
     }
 
     private void svnAddIfExists(File f) {

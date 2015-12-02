@@ -12,6 +12,7 @@ var crypto = require('crypto');
 var ssh = require('ssh2');
 var scp = require('scp2')
 var child_process = require('child_process');
+var nodemailer = require('nodemailer');
 
 var permissionDenied = 'Permission denied. But you should shoot me an e-mail at jmaxg3@gmail.com. If you like playing around with systems, we have interesting research for you in the Habanero group.';
 
@@ -21,6 +22,41 @@ var KEEP_CLUSTER_DIRS = true;
 var VERBOSE = false;
 
 var LOCAL_JOB_ID = 'LOCAL';
+
+function check_env(varname) {
+  if (!(varname in process.env)) {
+    console.log('The ' + varname + ' environment variable must be set');
+    process.exit(1);
+  }
+  return process.env[varname];
+}
+
+var AUTOGRADER_HOME = check_env('AUTOGRADER_HOME');
+
+var GMAIL_USER = check_env('GMAIL_USER');
+var GMAIL_PASS = check_env('GMAIL_PASS');
+
+var transporter = nodemailer.createTransport({
+  service: 'Gmail',
+  auth: {
+    user: GMAIL_USER,
+    pass: GMAIL_PASS
+  }
+});
+
+function send_email(to, subject, body, cb) {
+  console.log('send_email: to=' + to + ' subject="' + subject + '"');
+
+  var options = {
+    from: 'Habanero AutoGrader <' + GMAIL_USER + '>',
+    to: to,
+    subject: subject,
+    text: body
+  };
+  transporter.sendMail(options, function(err, info) {
+    cb(err);
+  });
+}
 
 var POSTGRES_USERNAME = process.env.PGSQL_USER || 'postgres';
 var POSTGRES_PASSWORD = process.env.PGSQL_PASSWORD || 'foobar';
@@ -205,23 +241,25 @@ function cluster_scp(src_file, dst_file, is_upload, cb) {
   }
 }
 
-function batched_cluster_scp_helper(pair_index, file_pairs, is_upload, cb) {
+function batched_cluster_scp_helper(pair_index, file_pairs, is_upload, stat, cb) {
   if (pair_index >= file_pairs.length) {
-    return cb(null);
+    return cb(stat);
   }
 
   cluster_scp(file_pairs[pair_index].src, file_pairs[pair_index].dst, is_upload,
       function(err) {
         if (err) {
-          return cb(err);
+          stat.push({dst: file_pairs[pair_index].dst, success: false, err: err});
         } else {
-          return batched_cluster_scp_helper(pair_index + 1, file_pairs, is_upload, cb);
+          stat.push({dst: file_pairs[pair_index].dst, success: true});
         }
+        return batched_cluster_scp_helper(pair_index + 1, file_pairs, is_upload, stat, cb);
       });
 }
 
 function batched_cluster_scp(file_pairs, is_upload, cb) {
-  return batched_cluster_scp_helper(0, file_pairs, is_upload, cb);
+  var stat = [];
+  return batched_cluster_scp_helper(0, file_pairs, is_upload, stat, cb);
 }
 
 function create_cluster_dir(dirname, conn, cb) {
@@ -362,7 +400,7 @@ app.post('/login', function(req, res, next) {
   var username = req.body.username;
   var password = req.body.password;
 
-  console.log('login: username=' + username + ' password=' + password);
+  console.log('login: username=' + username);
 
   // Check that user exists
   pgclient(function(client, done) {
@@ -856,7 +894,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     "#SBATCH --cpus-per-task=" + ncores + "\n" +
     "#SBATCH --exclusive\n" +
     "#SBATCH --nodes=1\n" +
-    "#SBATCH --time=00:10:00\n" +
+    "#SBATCH --time=00:01:00\n" +
     "#SBATCH --partition=interactive\n" +
     "#SBATCH --output=" + home_dir + "/autograder/" + run_id + "/stdout.txt\n" +
     "#SBATCH --error=" + home_dir + "/autograder/" + run_id + "/stderr.txt\n" +
@@ -957,6 +995,14 @@ function failed_starting_perf_tests(res, failure_msg) {
   return res.send(JSON.stringify({status: 'Failure', msg: failure_msg}));
 }
 
+function email_for_user(username) {
+  var email = username + '@rice.edu';
+  if (username === 'admin') {
+    email = 'jmg3@rice.edu';
+  }
+  return email;
+}
+
 app.post('/local_run_finished', function(req, res, next) {
     var done_token = req.body.done_token;
     console.log('local_run_finished: done_token=' + done_token);
@@ -997,8 +1043,16 @@ app.post('/local_run_finished', function(req, res, next) {
                       register_query_helpers(query, res, done, 'unknown');
                       query.on('end', function(result) {
                           done();
-                          return res.send(
+                          var subject = 'Habanero AutoGrader Run ' + run_id + ' Finished';
+                          send_email(email_for_user(username), subject, '', function(err) {
+                            if (err) {
+                              return failed_starting_perf_tests(res,
+                                'Failed sending notification e-mail, err=' + err);
+                            }
+
+                            return res.send(
                               JSON.stringify({ status: 'Success' }));
+                          });
                       });
                   } else {
                       var query = client.query(
@@ -1079,14 +1133,18 @@ app.post('/local_run_finished', function(req, res, next) {
                                               return failed_starting_perf_tests(res,
                                                 'Failed creating autograder dir');
                                             }
-                                            var localPolicyPath = process.env.AUTOGRADER_HOME + '/shared/security.policy';
-                                            var copies = [{src: run_dir + '/cello.slurm', dst: 'autograder/' + run_id + '/cello.slurm'},
-                                                          {src: localPolicyPath, dst: 'autograder/' + run_id + '/security.policy'}];
-                                            batched_cluster_scp(copies, true, function(err) {
-                                                if (err) {
-                                                  console.log('scp err=' + err);
-                                                  return failed_starting_perf_tests(res,
-                                                    'Failed scp-ing cello.slurm+security.policy');
+                                            var localPolicyPath = AUTOGRADER_HOME + '/shared/security.policy';
+                                            var copies = [{src: run_dir + '/cello.slurm',
+                                                           dst: 'autograder/' + run_id + '/cello.slurm'},
+                                                          {src: localPolicyPath,
+                                                           dst: 'autograder/' + run_id + '/security.policy'}];
+                                            batched_cluster_scp(copies, true, function(stat) {
+                                                for (var i = 0; i < stat.length; i++) {
+                                                  if (!stat[i].success) {
+                                                    console.log('scp err copying to ' + stat[i].dst + ', ' + stat[i].err);
+                                                    return failed_starting_perf_tests(res,
+                                                      'Failed scp-ing cello.slurm+security.policy');
+                                                  }
                                                 }
 
                                                 run_cluster_cmd(conn, 'submission checkout', submission_checkout,
@@ -1215,7 +1273,7 @@ app.get('/runs', function(req, res, next) {
   });
 });
 
-var dont_display = ['cluster-stderr.txt', 'cluster-stdout.txt', 'profiler.txt'];
+var dont_display = ['profiler.txt'];
 
 function arr_contains(target, arr) {
   for (var i = 0; i < arr.length; i++) {
@@ -1343,7 +1401,7 @@ function calculate_score(assignment_id, log_files, ncores) {
   if ('correct.txt' in log_files) {
     var content = log_files['correct.txt'].toString('utf8');
     var lines = content.split('\n');
-    var nfailures = 0;
+    var nfailures = -1;
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       if (line.startsWith('There were ') && line.endsWith(' failures:')) {
@@ -1352,26 +1410,39 @@ function calculate_score(assignment_id, log_files, ncores) {
       } else if (line.startsWith('There was ') && line.endsWith(' failure:')) {
         nfailures = 1;
         break;
+      } else if (line.startsWith("OK (") && (line.endsWith(" tests)") ||
+              line.endsWith(" test)"))) {
+        nfailures = 0;
+        break;
       }
     }
 
-    var failure = 1;
-    for (var i = 0; i < lines.length; i++) {
-      if (lines[i].startsWith(failure + ') ')) {
-        var junit_testname = lines[i].split(' ')[1];
-        var test_tokens = junit_testname.split('(');
-        var testname = test_tokens[0];
-        var classname = test_tokens[1].substring(0, test_tokens[1].length - 1);
-        var fullname = classname + '.' + testname;
+    if (nfailures === -1) {
+      /*
+       * Something went really wrong during parsing as there is no JUnit report.
+       * The most likely cause is a timeout during the student tests, so assign
+       * a score of 0 for correctness.
+       */
+      correctness = 0.0;
+    } else {
+      var failure = 1;
+      for (var i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith(failure + ') ')) {
+          var junit_testname = lines[i].split(' ')[1];
+          var test_tokens = junit_testname.split('(');
+          var testname = test_tokens[0];
+          var classname = test_tokens[1].substring(0, test_tokens[1].length - 1);
+          var fullname = classname + '.' + testname;
 
-        var test = find_correctness_test_with_name(fullname, rubric);
-        if (test) {
-          console.log('calculate_score: taking off ' + test.points_worth +
-              ' points for test ' + test.testname);
-          correctness -= test.points_worth;
+          var test = find_correctness_test_with_name(fullname, rubric);
+          if (test) {
+            console.log('calculate_score: taking off ' + test.points_worth +
+                ' points for test ' + test.testname);
+            correctness -= test.points_worth;
+          }
+
+          failure++;
         }
-
-        failure++;
       }
     }
   } else {
@@ -1582,11 +1653,8 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                             { src: REMOTE_STDERR, dst: LOCAL_STDERR },
                             { src: REMOTE_PROFILER, dst: LOCAL_PROFILER },
                             { src: REMOTE_TRACES, dst: LOCAL_TRACES }];
-              var svn_add_cmd = ['add', LOCAL_STDOUT, LOCAL_STDERR, LOCAL_SLURM,
-                                 LOCAL_PROFILER, LOCAL_TRACES];
               if (os !== 'Darwin') {
                 copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
-                svn_add_cmd.push(LOCAL_DATARACE);
               }
 
               var tests = get_scalability_tests(ncores);
@@ -1596,12 +1664,22 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                 var remote = REMOTE_FOLDER + '/performance.' + curr_cores + '.txt';
 
                 copies.push({ src: remote, dst: local });
-                svn_add_cmd.push(local);
               }
 
-              batched_cluster_scp(copies, false, function(err) {
-                if (err) {
-                  return abort_and_reset_perf_tests(err, done, conn, 'scp');
+              batched_cluster_scp(copies, false, function(stat) {
+                var svn_add_cmd = ['add'];
+                for (var i = 0; i < stat.length; i++) {
+                  if (stat[i].success) {
+                    svn_add_cmd.push(stat[i].dst);
+                  } else {
+                    console.log('scp err copying to ' + stat[i].dst + ', err=' +
+                      stat[i].err);
+                  }
+                }
+
+                if (svn_add_cmd.length === 1) {
+                  // No successful copies
+                  return abort_and_reset_perf_tests(err, done, conn, 'svn-add');
                 }
 
                 delete_cluster_dir('autograder/' + run.run_id, conn,
@@ -1621,7 +1699,19 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                             return abort_and_reset_perf_tests(err, done, conn,
                               'committing local files');
                           }
-                          check_cluster_helper(perf_runs, i + 1, conn, client, done);
+
+                          var email = username + '@rice.edu';
+                          if (username === 'admin') {
+                            email = 'jmg3@rice.edu';
+                          }
+                          var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
+                          send_email(email_for_user(username), subject, '', function(err) {
+                            if (err) {
+                              return abort_and_reset_perf_tests(err, done, conn,
+                                'sending notification email');
+                            }
+                            check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                          });
                         });
                     });
                   });
@@ -1656,7 +1746,7 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                 stdout = stdout.trim();
 
                 var query = null;
-                if (stdout === 'FAILED') {
+                if (stdout === 'FAILED' || stdout === 'TIMEOUT') {
                     console.log('check_cluster_helper: marking ' + run.run_id + ' FAILED');
                     query = client.query(
                         "UPDATE runs SET status='FAILED' WHERE run_id=($1)",
@@ -1716,11 +1806,6 @@ function check_cluster() {
     });
 }
 
-if (!('AUTOGRADER_HOME' in process.env)) {
-  console.log('The AUTOGRADER_HOME environment variable must be set');
-  process.exit(1);
-}
-
 pgclient(function(client, done) {
   /*
    * Mark any in-progress tests as failed on reboot.
@@ -1750,4 +1835,3 @@ pgclient(function(client, done) {
     });
   });
 });
-

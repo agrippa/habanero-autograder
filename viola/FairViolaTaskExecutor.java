@@ -7,8 +7,9 @@ import java.util.LinkedList;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.PriorityQueue;
+import java.util.concurrent.Executor;
 
-public class FairViolaTaskQueue implements BlockingQueue<Runnable> {
+public class FairViolaTaskExecutor implements Executor {
   private final long windowSizeMilliseconds = 120 * 60 * 1000; // 2 hours
   private final LinkedList<TaskExecution> executedTaskWindow =
     new LinkedList<TaskExecution>();
@@ -20,8 +21,17 @@ public class FairViolaTaskQueue implements BlockingQueue<Runnable> {
     new HashMap<String, LinkedList<LocalTestRunner>>();
   private int nPending = 0;
 
+  private final Thread[] workerThreads;
+
+  public FairViolaTaskExecutor(int nthreads) {
+    this.workerThreads = new Thread[nthreads];
+    for (int t = 0; t < nthreads; t++) {
+      this.workerThreads[t] = new Thread(new ViolaRunner());
+      this.workerThreads[t].start();
+    }
+  }
+
   private void newPendingTask(LocalTestRunner r, String username) {
-    System.err.println("New pending task for user=" + username + " run_id=" + r.getRunId());
     synchronized(this) {
       if (!tasksInWindowPerUser.containsKey(username)) {
         TasksInWindow inWindow = new TasksInWindow(username);
@@ -38,13 +48,15 @@ public class FairViolaTaskQueue implements BlockingQueue<Runnable> {
     }
   }
 
-  private Runnable getPendingTask() throws InterruptedException {
-    System.err.println("Getting pending task");
+  private Runnable getPendingTask() {
     LocalTestRunner result = null;
 
     synchronized(this) {
       while (nPending == 0) {
-        this.wait();
+        try {
+          this.wait();
+        } catch (InterruptedException ie) {
+        }
       }
 
       PriorityQueue<TasksInWindow> newUserPriorities =
@@ -78,135 +90,23 @@ public class FairViolaTaskQueue implements BlockingQueue<Runnable> {
       assert result != null;
       nPending--;
     }
-    System.err.println("Got pending task result=" + result);
     return result;
   }
 
   @Override
-  public boolean add(Runnable r) {
-    LocalTestRunner actual = (LocalTestRunner)r;
+  public void execute(Runnable command) {
+    LocalTestRunner actual = (LocalTestRunner)command;
     newPendingTask(actual, actual.getUser());
-    return true;
   }
 
-  @Override
-  public boolean contains(Object obj) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public int drainTo(Collection<? super Runnable> c) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public int drainTo(Collection<? super Runnable> c, int maxElements) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public boolean offer(Runnable r) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public boolean offer(Runnable r, long timeout, TimeUnit unit) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Runnable poll(long timeout, TimeUnit unit) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void put(Runnable r) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public int remainingCapacity() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public boolean remove(Object o) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Runnable take() throws InterruptedException {
-    return getPendingTask();
-  }
-
-  @Override
-  public Runnable peek() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Runnable poll() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Runnable remove() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Runnable element() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void clear() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public boolean retainAll(Collection<?> c) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public boolean removeAll(Collection<?> c) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public boolean addAll(Collection<? extends Runnable> c) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public boolean containsAll(Collection<?> c) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Object[] toArray() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public <T> T[] toArray(T[] a) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Iterator<Runnable> iterator() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public boolean isEmpty() {
-    throw new UnsupportedOperationException();
-  }
-  
-  @Override
-  public int size() {
-    throw new UnsupportedOperationException();
+  class ViolaRunner implements Runnable {
+    @Override
+    public void run() {
+      while (true) {
+        Runnable r = getPendingTask();
+        r.run();
+      }
+    }
   }
 
   class TaskExecution implements Comparable<TaskExecution> {

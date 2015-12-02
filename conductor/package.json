@@ -18,7 +18,8 @@
     "fs-extra": "0.26.2",
     "svn-spawn": "0.1.4",
     "ssh2": "0.4.12",
-    "scp2": "0.2.2"
+    "scp2": "0.2.2",
+    "nodemailer": "1.10.0"
   },
   "scripts": {
     "start": "node app.js"

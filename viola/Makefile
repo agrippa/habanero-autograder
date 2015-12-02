@@ -1,4 +1,4 @@
-all: ViolaEnv.class TestRunnerException.class ViolaUtil.class LocalTestRunner.class FairViolaTaskQueue.class Viola.class
+all: ViolaEnv.class TestRunnerException.class ViolaUtil.class LocalTestRunner.class FairViolaTaskExecutor.class Viola.class
 
 ViolaEnv.class: ViolaEnv.java
 	javac -Xlint:deprecation -classpath .:lib/svnkit-1.8.11/lib/svnkit-1.8.11.jar ViolaEnv.java
@@ -12,8 +12,8 @@ ViolaUtil.class: ViolaUtil.java
 Viola.class: Viola.java
 	javac -Xlint:deprecation -classpath .:lib/svnkit-1.8.11/lib/svnkit-1.8.11.jar Viola.java
 
-FairViolaTaskQueue.class: FairViolaTaskQueue.java
-	javac -Xlint:deprecation -classpath .:lib/svnkit-1.8.11/lib/svnkit-1.8.11.jar FairViolaTaskQueue.java
+FairViolaTaskExecutor.class: FairViolaTaskExecutor.java
+	javac -Xlint:deprecation -classpath .:lib/svnkit-1.8.11/lib/svnkit-1.8.11.jar FairViolaTaskExecutor.java
 
 LocalTestRunner.class: LocalTestRunner.java
 	javac -Xlint:deprecation -classpath .:lib/svnkit-1.8.11/lib/svnkit-1.8.11.jar LocalTestRunner.java

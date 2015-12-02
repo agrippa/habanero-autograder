@@ -38,27 +38,27 @@ public class CryptCorrectnessTest extends TestCase {
         });
     }
 
-    // public void testCorrectness4() {
-    //   assertFalse("Expected test failure", true);
-    // }
+    public void testCorrectness4() {
+      assertFalse("Expected test failure", true);
+    }
 
-    // public void testCorrectness5() {
-    //   assertFalse("Expected test failure", true);
-    // }
+    public void testCorrectness5() {
+      assertFalse("Expected test failure", true);
+    }
 
-    // public void testNetworkConnectivity() {
-    //   try {
-    //     URL oracle = new URL("http://www.oracle.com/");
-    //     BufferedReader in = new BufferedReader(
-    //         new InputStreamReader(oracle.openStream()));
+    public void testNetworkConnectivity() {
+      try {
+        URL oracle = new URL("http://www.oracle.com/");
+        BufferedReader in = new BufferedReader(
+            new InputStreamReader(oracle.openStream()));
 
-    //     String inputLine;
-    //     while ((inputLine = in.readLine()) != null) {
-    //       ;
-    //     }
-    //     in.close();
-    //   } catch (MalformedURLException m) {
-    //   } catch (IOException io) {
-    //   }
-    // }
+        String inputLine;
+        while ((inputLine = in.readLine()) != null) {
+          ;
+        }
+        in.close();
+      } catch (MalformedURLException m) {
+      } catch (IOException io) {
+      }
+    }
 }

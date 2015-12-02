@@ -40,12 +40,13 @@ import org.tmatesoft.svn.core.auth.ISVNAuthenticationManager;
 import org.tmatesoft.svn.core.wc.ISVNOptions;
 
 public class Viola {
-    // Executor for actually running the local tests
-    private static final FairViolaTaskQueue executorQueue = new FairViolaTaskQueue();
-    // private static final BlockingQueue<Runnable> executorQueue = new LinkedBlockingQueue<Runnable>();
+    // Executor for running the local tests
     private final static int poolSize = 4;
-    private static final ThreadPoolExecutor exec = new ThreadPoolExecutor(poolSize, poolSize,
-        60, TimeUnit.SECONDS, executorQueue);
+    private static final FairViolaTaskExecutor executor = new FairViolaTaskExecutor(poolSize);
+    // Thread pool for accepting HTTP requests
+    private static final ThreadPoolExecutor serverExecutor =
+      new ThreadPoolExecutor(poolSize, poolSize, 60, TimeUnit.SECONDS,
+          new LinkedBlockingQueue());
 
     private static ViolaEnv env = null;
 
@@ -106,7 +107,7 @@ public class Viola {
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/run", new RunHandler());
         // Executor for handling incoming connections
-        server.setExecutor(exec);
+        server.setExecutor(serverExecutor);
         server.start();
     }
 
@@ -143,7 +144,7 @@ public class Viola {
 
                 final LocalTestRunner runnable = new LocalTestRunner(done_token,
                         user, assignment_name, run_id, assignment_id, env);
-                exec.execute(runnable);
+                executor.execute(runnable);
                 writeResponse(t, "{ \"status\": \"Success\" }");
             }
         }
