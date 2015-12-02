@@ -7,6 +7,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -40,7 +41,8 @@ import org.tmatesoft.svn.core.wc.ISVNOptions;
 
 public class Viola {
     // Executor for actually running the local tests
-    private static final FairViolaTaskQueue executorQueue = new FairViolaTaskQueue();
+    // private static final FairViolaTaskQueue executorQueue = new FairViolaTaskQueue();
+    private static final BlockingQueue<Runnable> executorQueue = new LinkedBlockingQueue<Runnable>();
     private static final ThreadPoolExecutor exec = new ThreadPoolExecutor(2, 4,
         60, TimeUnit.SECONDS, executorQueue);
 
@@ -80,6 +82,7 @@ public class Viola {
         final String hamcrest = getEnvVarOrFail("HAMCREST_JAR");
         final String hj = getEnvVarOrFail("HJ_JAR");
         final String asm = getEnvVarOrFail("ASM_JAR");
+        final String autograderHome = getEnvVarOrFail("AUTOGRADER_HOME");
 
         final SVNClientManager ourClientManager =
             SVNClientManager.newInstance(SVNWCUtil.createDefaultOptions(true),
@@ -93,10 +96,11 @@ public class Viola {
         System.out.printf("hamcrest   = %s\n", hamcrest);
         System.out.printf("hj         = %s\n", hj);
         System.out.printf("asm        = %s\n", asm);
+        System.out.printf("autograder = %s\n", autograderHome);
         System.out.println("===================================");
 
         env = new ViolaEnv(conductorHost, conductorPort,
-            ourClientManager, svnRepo, junit, hamcrest, hj, asm);
+            ourClientManager, svnRepo, junit, hamcrest, hj, asm, autograderHome);
 
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/run", new RunHandler());

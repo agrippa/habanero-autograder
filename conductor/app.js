@@ -779,11 +779,14 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                                         run_id + '&assignment_id=' + assignment_id;
                                     var viola_options = { host: VIOLA_HOST,
                                         port: VIOLA_PORT, path: '/run?' + viola_params };
+                                    console.log('submit_run: sending viola ' +
+                                      'request for run ' + run_id);
                                     http.get(viola_options, function(viola_res) {
                                         var bodyChunks = [];
                                         viola_res.on('data', function(chunk) {
                                             bodyChunks.push(chunk);
-                                        }).on('end', function() {
+                                        });
+                                        viola_res.on('end', function() {
                                             var body = Buffer.concat(bodyChunks);
                                             var result = JSON.parse(body);
                                             if (result.status === 'Success') {
@@ -896,6 +899,8 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   slurmFileContents += 'mvn -f $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml clean compile test-compile\n';
   slurmFileContents += 'cd $CELLO_WORK_DIR/submission/student/$STUDENT_DIR\n';
 
+  var remotePolicyPath = '$CELLO_WORK_DIR/security.policy';
+  var securityFlags = '-Djava.security.manager -Djava.security.policy==' + remotePolicyPath;
   var tests = get_scalability_tests(ncores);
   var classpath = ['.', 'target/classes', 'target/test-classes', junit_jar,
                    hamcrest_jar, hj_jar, asm_jar];
@@ -904,7 +909,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     var output_file = '$CELLO_WORK_DIR/performance.' + curr_cores + '.txt';
 
     slurmFileContents += 'touch ' + output_file + '\n';
-    slurmFileContents += loop_over_all_perf_tests('java -Dhj.numWorkers=' +
+    slurmFileContents += loop_over_all_perf_tests('java ' + securityFlags + ' -Dhj.numWorkers=' +
       curr_cores + ' -javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
       'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
   }
@@ -913,7 +918,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   var profiler_output = '$CELLO_WORK_DIR/profiler.txt';
   slurmFileContents += 'touch ' + profiler_output + '\n';
   slurmFileContents += loop_over_all_perf_tests(
-    'java -Dhj.numWorkers=' + ncores +
+    'java ' + securityFlags + ' -Dhj.numWorkers=' + ncores +
     ' -agentpath:' + java_profiler_dir + '/liblagent.so ' +
     '-javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
     'org.junit.runner.JUnitCore $CLASSNAME >> ' + profiler_output + ' 2>&1 ; ' +
@@ -935,7 +940,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
    */
   if (os !== 'Darwin') {
     var rr_output = '$CELLO_WORK_DIR/datarace.txt';
-    slurmFileContents += loop_over_all_perf_tests('java -cp ' +
+    slurmFileContents += loop_over_all_perf_tests('java ' + securityFlags + ' -cp ' +
       classpath.join(':') + ' -Dhj.numWorkers=' + ncores + ' -javaagent:' +
       hj_jar + ' -javaagent:' + rr_agent_jar + ' -Xbootclasspath/p:' +
       rr_runtime_jar + ' rr.RRMain -toolpath= -maxTid=80 -tool=FT_CHECKER ' +
@@ -1074,12 +1079,14 @@ app.post('/local_run_finished', function(req, res, next) {
                                               return failed_starting_perf_tests(res,
                                                 'Failed creating autograder dir');
                                             }
-                                            cluster_scp(run_dir + '/cello.slurm',
-                                              'autograder/' + run_id + '/cello.slurm', true, function(err) {
+                                            var localPolicyPath = process.env.AUTOGRADER_HOME + '/shared/security.policy';
+                                            var copies = [{src: run_dir + '/cello.slurm', dst: 'autograder/' + run_id + '/cello.slurm'},
+                                                          {src: localPolicyPath, dst: 'autograder/' + run_id + '/security.policy'}];
+                                            batched_cluster_scp(copies, true, function(err) {
                                                 if (err) {
                                                   console.log('scp err=' + err);
                                                   return failed_starting_perf_tests(res,
-                                                    'Failed scp-ing cello.slurm');
+                                                    'Failed scp-ing cello.slurm+security.policy');
                                                 }
 
                                                 run_cluster_cmd(conn, 'submission checkout', submission_checkout,
@@ -1224,7 +1231,12 @@ function failed_rubric_validation(err_msg) {
 }
 
 function load_and_validate_rubric(rubric_file) {
-  var rubric = JSON.parse(fs.readFileSync(rubric_file));
+  var rubric = null;
+  try {
+    rubric = JSON.parse(fs.readFileSync(rubric_file));
+  } catch (err) {
+    return failed_rubric_validation('Failed to parse rubric JSON: ' + err.message);
+  }
 
   if (!rubric.hasOwnProperty('correctness')) {
     return failed_rubric_validation('Rubric is missing correctness section');
@@ -1702,6 +1714,11 @@ function check_cluster() {
             });
         });
     });
+}
+
+if (!('AUTOGRADER_HOME' in process.env)) {
+  console.log('The AUTOGRADER_HOME environment variable must be set');
+  process.exit(1);
 }
 
 pgclient(function(client, done) {

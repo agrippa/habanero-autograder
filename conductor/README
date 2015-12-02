@@ -28,6 +28,9 @@ The Habanero AutoGrader for parallel programs
      | Should be installed on the remote compute cluster, with the environment
      | variable RR_AGENT_JAR pointed to the agent JAR file and RR_RUNTIME_JAR
      | pointed to the runtime JAR file.
+ - AUTOGRADER_HOME
+     | This environment variable must be set everywhere (node server, Viola
+     | server, cluster) to the root autograder directory.
 
 ===== npm installation instructions =====
 

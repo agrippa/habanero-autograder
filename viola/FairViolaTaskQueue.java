@@ -16,18 +16,19 @@ public class FairViolaTaskQueue implements BlockingQueue<Runnable> {
     new PriorityQueue<TasksInWindow>();
   private final Map<String, TasksInWindow> tasksInWindowPerUser =
     new HashMap<String, TasksInWindow>();
-  private final Map<String, LinkedList<Runnable>> pendingTasks =
-    new HashMap<String, LinkedList<Runnable>>();
+  private final Map<String, LinkedList<LocalTestRunner>> pendingTasks =
+    new HashMap<String, LinkedList<LocalTestRunner>>();
   private int nPending = 0;
 
-  private void newPendingTask(Runnable r, String username) {
+  private void newPendingTask(LocalTestRunner r, String username) {
+    System.err.println("New pending task for user=" + username + " run_id=" + r.getRunId());
     synchronized(this) {
       if (!tasksInWindowPerUser.containsKey(username)) {
         TasksInWindow inWindow = new TasksInWindow(username);
         tasksInWindowPerUser.put(username, inWindow);
         userPriorities.add(inWindow);
 
-        pendingTasks.put(username, new LinkedList<Runnable>());
+        pendingTasks.put(username, new LinkedList<LocalTestRunner>());
       }
 
       pendingTasks.get(username).add(r);
@@ -38,7 +39,7 @@ public class FairViolaTaskQueue implements BlockingQueue<Runnable> {
   }
 
   private Runnable getPendingTask() {
-    Runnable result = null;
+    LocalTestRunner result = null;
 
     synchronized(this) {
       while (nPending == 0) {
@@ -62,7 +63,7 @@ public class FairViolaTaskQueue implements BlockingQueue<Runnable> {
       while (!userPriorities.isEmpty() && result == null) {
         final TasksInWindow inWindow = userPriorities.poll();
         final String username = inWindow.getUsername();
-        final LinkedList<Runnable> pending = pendingTasks.get(username);
+        final LinkedList<LocalTestRunner> pending = pendingTasks.get(username);
 
         if (!pending.isEmpty()) {
           result = pending.poll(); // will cause break from while loop
@@ -85,7 +86,7 @@ public class FairViolaTaskQueue implements BlockingQueue<Runnable> {
   @Override
   public boolean add(Runnable r) {
     LocalTestRunner actual = (LocalTestRunner)r;
-    newPendingTask(r, actual.getUser());
+    newPendingTask(actual, actual.getUser());
     return true;
   }
 

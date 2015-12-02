@@ -64,6 +64,10 @@ public class LocalTestRunner implements Runnable {
       return user;
     }
 
+    public int getRunId() {
+      return run_id;
+    }
+
     /*
      * Partially taken from http://stackoverflow.com/questions/4205980/java-sending-http-parameters-via-post-method-easily
      * TODO Problem here is we could fail silently to succeed.
@@ -409,8 +413,9 @@ public class LocalTestRunner implements Runnable {
               final String classpath =
                   ".:target/classes:target/test-classes:" + env.junit + ":" +
                   env.hamcrest + ":" + env.hj + ":" + env.asm;
+              final String policyPath = env.autograderHome + "/shared/security.policy";
               final String[] junit_cmd = new String[]{"java",
-                  "-Djava.security.manager=default", "-Dhj.numWorkers=1",
+                  "-Djava.security.manager", "-Djava.security.policy==" + policyPath, "-Dhj.numWorkers=1",
                   "-javaagent:" + env.hj, "-cp", classpath,
                   "org.junit.runner.JUnitCore", classname};
               ProcessResults junit_results = runInProcess(junit_cmd, unzipped_code_dir);

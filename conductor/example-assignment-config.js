@@ -4,7 +4,8 @@
     { "testname": "edu.rice.comp322.CryptCorrectnessTest.testCorrectness2", "points_worth": 10.0 },
     { "testname": "edu.rice.comp322.CryptCorrectnessTest.testCorrectness3", "points_worth": 10.0 },
     { "testname": "edu.rice.comp322.CryptCorrectnessTest.testCorrectness4", "points_worth": 10.0 },
-    { "testname": "edu.rice.comp322.CryptCorrectnessTest.testCorrectness5", "points_worth": 10.0 }
+    { "testname": "edu.rice.comp322.CryptCorrectnessTest.testCorrectness5", "points_worth": 10.0 },
+    { "testname": "edu.rice.comp322.CryptCorrectnessTest.testNetworkConnectivity", "points_worth": 10.0 }
   ],
   "performance": [
     { "testname": "edu.rice.comp322.CryptPerformanceTest.testCorrectness1",

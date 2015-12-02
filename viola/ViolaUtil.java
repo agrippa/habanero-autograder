@@ -7,7 +7,7 @@ public class ViolaUtil {
         StackTraceElement callee = stack[2];
         String calleeClassname = callee.getClassName();
         String timestamp = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss").format(new Date());
-        System.out.printf(timestamp + " " + calleeClassname + ": " + format, args);
+        System.err.printf(timestamp + " " + calleeClassname + ": " + format, args);
     }
 }
 
