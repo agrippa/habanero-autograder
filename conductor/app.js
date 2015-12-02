@@ -1272,7 +1272,16 @@ function find_correctness_test_with_name(name, rubric) {
   return null;
 }
 
-function calculate_score(assignment_id, log_files) {
+function find_performance_test_with_name(name, rubric) {
+  for (var p = 0; p < rubric.performance.length; p++) {
+    if (rubric.performance[p].testname === name) {
+      return rubric.performance[p];
+    }
+  }
+  return null;
+}
+
+function calculate_score(assignment_id, log_files, ncores) {
   var rubric_file = __dirname + '/instructor-tests/' + assignment_id + '/rubric.json';
 
   var validated = load_and_validate_rubric(rubric_file);
@@ -1296,6 +1305,7 @@ function calculate_score(assignment_id, log_files) {
   }
   total_possible += rubric.style.max_points_off;
 
+  // Compute correctness score based on test failures
   var correctness = total_correctness_possible;
   if ('correct.txt' in log_files) {
     var content = log_files['correct.txt'].toString('utf8');
@@ -1335,9 +1345,72 @@ function calculate_score(assignment_id, log_files) {
     correctness = 0.0;
   }
 
+  // Compute performance score based on performance of each test
   var performance = total_performance_possible;
+  if ('performance.1.txt' in log_files && 'performance.' + ncores + '.txt' in log_files) {
+    var single_thread_content = log_files['performance.1.txt'].toString('utf8');
+    var multi_thread_content = log_files['performance.' + ncores + '.txt'].toString('utf8');
 
+    var single_thread_lines = single_thread_content.split('\n');
+    var multi_thread_lines = multi_thread_content.split('\n');
+
+    var single_thread_perf = {};
+    for (var i = 0; i < single_thread_lines.length; i++) {
+      var line = single_thread_lines[i];
+      if (line.startsWith('HABANERO-AUTOGRADER-PERF-TEST')) {
+        var tokens = line.split(' ');
+        var testname = tokens[2];
+        var t = parseInt(tokens[3]);
+        single_thread_perf[testname] = t;
+      }
+    }
+
+    for (var i = 0; i < multi_thread_lines.length; i++) {
+      var line = multi_thread_lines[i];
+      if (line.startsWith('HABANERO-AUTOGRADER-PERF-TEST')) {
+        var tokens = line.split(' ');
+        var testname = tokens[2];
+        var t = parseInt(tokens[3]);
+
+        if (testname in single_thread_perf) {
+          var test = find_performance_test_with_name(testname, rubric);
+          if (test) {
+            var single_thread_time = single_thread_perf[testname];
+            var multi_thread_time = t;
+            var speedup = single_thread_time / multi_thread_time;
+            var grading = test.grading;
+            var matched = false;
+            for (var g = 0; g < grading.length && !matched; g++) {
+              var top_exclusive = grading[g].top_exclusive;
+              if (grading[g].bottom_inclusive <= speedup &&
+                  (top_exclusive < 0.0 || top_exclusive > speedup)) {
+                matched = true;
+                performance -= grading[g].points_off;
+              }
+            }
+          }
+        }
+      }
+    }
+  } else {
+    performance = 0.0;
+  }
+
+  // Compute style score based on number of style violations
   var style = rubric.style.max_points_off;
+  if ('checkstyle.txt' in log_files) {
+    var content = log_files['checkstyle.txt'].toString('utf8');
+    var summaryMessage = 'Checkstyle ends with';
+    var summaryMessageIndex = content.search(summaryMessage);
+    var errorCountStr = content.substring(summaryMessageIndex +
+        summaryMessage.length + 1);
+    errorCountStr = errorCountStr.substring(0, errorCountStr.search(' '));
+    var errorCount = parseInt(errorCountStr);
+    style -= errorCount * rubric.style.points_per_error;
+    if (style < 0.0) style = 0.0;
+  } else {
+    style = 0.0;
+  }
 
   return { total: correctness + performance + style,
            total_possible: total_possible,
@@ -1370,20 +1443,35 @@ app.get('/run/:run_id', function(req, res, next) {
                 req.session.username + '/' + run_id;
             var log_files = {};
             fs.readdirSync(run_dir).forEach(function(file) {
-              if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 && !arr_contains(file, dont_display)) {
+              if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 &&
+                    !arr_contains(file, dont_display)) {
                   log_files[file] = fs.readFileSync(run_dir + '/' + file);
               }
             });
 
-            var score = calculate_score(result.rows[0].assignment_id, log_files);
-            var render_vars = { run_id: run_id, log_files: log_files };
-            if (score) {
-              render_vars['score'] = score;
-            } else {
-              render_vars['err_msg'] = 'Error calculating score';
-            }
+            connect_to_cluster(function(conn, err) {
+              if (err) {
+                return res.render('overview.html',
+                  { err_msg: 'Failed connecting to cluster' });
+              }
 
-            return res.render('run.html', render_vars);
+              get_cluster_cores(conn, function(err, ncores) {
+                if (err) {
+                  return res.render('overview.html',
+                    { err_msg: 'Failed getting cluster info' });
+                }
+
+                var score = calculate_score(result.rows[0].assignment_id, log_files, ncores);
+                var render_vars = { run_id: run_id, log_files: log_files };
+                if (score) {
+                  render_vars['score'] = score;
+                } else {
+                  render_vars['err_msg'] = 'Error calculating score';
+                }
+
+                return res.render('run.html', render_vars);
+              });
+            });
         });
     });
 });

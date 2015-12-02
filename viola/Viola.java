@@ -57,9 +57,6 @@ public class Viola {
     private static String hj = null;
     private static String asm = null;
 
-    private final static String[] checkstyleOptions = new String[] {
-      "AvoidStarImport", "ConstantName", "EmptyBlock"};
-
     private static String conductorHost = null;
     private static int conductorPort = 0;
 
@@ -423,9 +420,11 @@ public class Viola {
                 writer.println("<module name=\"Checker\">");
                 writer.println("    <module name=\"JavadocPackage\"/>");
                 writer.println("    <module name=\"TreeWalker\">");
-                for (String option : checkstyleOptions) {
-                    writer.println("        <module name=\"" + option + "\"/>");
-                }
+                writer.println("         <module name=\"AvoidStarImport\"/>");
+                writer.println("         <module name=\"ConstantName\"/>");
+                writer.println("         <module name=\"EmptyBlock\"/>");
+                writer.println("         <module name=\"LeftCurly\"/>");
+                writer.println("         <module name=\"RightCurly\"/>");
                 writer.println("    </module>");
                 writer.println("</module>");
                 writer.close();
