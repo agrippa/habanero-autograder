@@ -5,6 +5,8 @@ import junit.framework.*;
 import java.net.URL;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.net.MalformedURLException;
+import java.io.IOException;
 
 import static edu.rice.hj.Module0.launchHabaneroApp;
 import edu.rice.hj.api.SuspendableException;
