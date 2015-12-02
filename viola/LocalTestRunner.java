@@ -384,8 +384,9 @@ public class LocalTestRunner implements Runnable {
                   ".:target/classes:target/test-classes:" + env.junit + ":" +
                   env.hamcrest + ":" + env.hj + ":" + env.asm;
               final String[] junit_cmd = new String[]{"java",
-                  "-Dhj.numWorkers=1", "-javaagent:" + env.hj, "-cp",
-                  classpath, "org.junit.runner.JUnitCore", classname};
+                  "-Djava.security.manager=default", "-Dhj.numWorkers=1",
+                  "-javaagent:" + env.hj, "-cp", classpath,
+                  "org.junit.runner.JUnitCore", classname};
               ProcessResults junit_results = runInProcess(junit_cmd, unzipped_code_dir);
               /*
                * A non-zero exit code here can simply indicate a test

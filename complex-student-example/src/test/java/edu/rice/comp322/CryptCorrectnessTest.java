@@ -2,6 +2,10 @@ package edu.rice.comp322;
 
 import junit.framework.*;
 
+import java.net.URL;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+
 import static edu.rice.hj.Module0.launchHabaneroApp;
 import edu.rice.hj.api.SuspendableException;
 
@@ -38,5 +42,17 @@ public class CryptCorrectnessTest extends TestCase {
 
     public void testCorrectness5() {
       assertFalse("Expected test failure", true);
+    }
+
+    public void testNetworkConnectivity() {
+      URL oracle = new URL("http://www.oracle.com/");
+      BufferedReader in = new BufferedReader(
+          new InputStreamReader(oracle.openStream()));
+
+      String inputLine;
+      while ((inputLine = in.readLine()) != null) {
+        ;
+      }
+      in.close();
     }
 }
