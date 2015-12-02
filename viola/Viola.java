@@ -40,7 +40,8 @@ import org.tmatesoft.svn.core.wc.ISVNOptions;
 
 public class Viola {
     // Executor for actually running the local tests
-    private static final ThreadPoolExecutor exec = new ThreadPoolExecutor(2, 4, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>());
+    private static final ThreadPoolExecutor exec = new ThreadPoolExecutor(2, 4,
+        60, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>());
 
     private static String svnRepo = null;
     private static final String svnUser =

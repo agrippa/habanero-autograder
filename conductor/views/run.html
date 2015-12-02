@@ -32,9 +32,10 @@
       <div class="col-md-8 col-md-offset-2">
         <hr/>
         <h4>File: <%= filename %></h4>
-        <div class="col-md-offset-1" style="border:1px solid black; padding:10px;">
+        <div class="col-md-offset-1">
           <font face="consolas">
-            <p style="white-space: pre-wrap"><%= log_files[filename] %></p>
+            <textarea style="width:100%; height:300px" wrap='off' readonly><%= log_files[filename] %></textarea>
+            <!--p style="white-space: pre-wrap"><%= log_files[filename] %></p-->
           </font>
         </div>
         <hr/>
