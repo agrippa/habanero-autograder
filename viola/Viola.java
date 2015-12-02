@@ -72,6 +72,9 @@ public class Viola {
         if (svnRepo == null) {
             svnRepo = "https://svn.rice.edu/r/parsoft/projects/AutoGrader/student-runs";
         }
+        while (svnRepo.endsWith("/")) {
+            svnRepo = svnRepo.substring(0, svnRepo.length() - 1);
+        }
 
         final String junit = getEnvVarOrFail("JUNIT_JAR");
         final String hamcrest = getEnvVarOrFail("HAMCREST_JAR");
@@ -81,6 +84,16 @@ public class Viola {
         final SVNClientManager ourClientManager =
             SVNClientManager.newInstance(SVNWCUtil.createDefaultOptions(true),
                     svnUser, svnPassword);
+
+        System.out.println("============== Viola ==============");
+        System.out.printf("Viola port = %d\n", port);
+        System.out.printf("Conductor  = %s:%d\n", conductorHost, conductorPort);
+        System.out.printf("SVN        = %s @ %s\n", svnUser, svnRepo);
+        System.out.printf("junit      = %s\n", junit);
+        System.out.printf("hamcrest   = %s\n", hamcrest);
+        System.out.printf("hj         = %s\n", hj);
+        System.out.printf("asm        = %s\n", asm);
+        System.out.println("===================================");
 
         env = new ViolaEnv(conductorHost, conductorPort,
             ourClientManager, svnRepo, junit, hamcrest, hj, asm);

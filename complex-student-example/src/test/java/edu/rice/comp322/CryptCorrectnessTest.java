@@ -45,14 +45,18 @@ public class CryptCorrectnessTest extends TestCase {
     }
 
     public void testNetworkConnectivity() {
-      URL oracle = new URL("http://www.oracle.com/");
-      BufferedReader in = new BufferedReader(
-          new InputStreamReader(oracle.openStream()));
+      try {
+        URL oracle = new URL("http://www.oracle.com/");
+        BufferedReader in = new BufferedReader(
+            new InputStreamReader(oracle.openStream()));
 
-      String inputLine;
-      while ((inputLine = in.readLine()) != null) {
-        ;
+        String inputLine;
+        while ((inputLine = in.readLine()) != null) {
+          ;
+        }
+        in.close();
+      } catch (MalformedURLException m) {
+      } catch (IOException io) {
       }
-      in.close();
     }
 }

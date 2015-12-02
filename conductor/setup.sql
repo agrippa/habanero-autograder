@@ -30,5 +30,6 @@ CREATE TABLE IF NOT EXISTS runs
  assignment_id BIGSERIAL,
  done_token TEXT NOT NULL UNIQUE,
  status TEXT NOT NULL,
- job_id TEXT
+ job_id TEXT,
+ correctness_only BOOLEAN NOT NULL
 );

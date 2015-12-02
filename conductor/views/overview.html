@@ -87,9 +87,10 @@
           </div>
 
           <form action="/submit_run" method="post" enctype="multipart/form-data">
-            <input name="zip" type="file">
-            <input name="assignment" type="hidden" value="" id="assignment_id">
-            <input value="Run" name="submit" type="submit" class="btn btn-primary" style="float:right">
+            <input name="zip" type="file"/>
+            <input name="assignment" type="hidden" value="" id="assignment_id"/>
+            <input value="Run" name="submit" type="submit" class="btn btn-primary" style="float:right"/>
+            <input type="checkbox" name="correctness_only" defaultValue="off" defaultChecked="on">Correctness Tests Only</input>
           </form>
         </div>
       </div>

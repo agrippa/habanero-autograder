@@ -7,6 +7,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Arrays;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -190,7 +191,10 @@ public class LocalTestRunner implements Runnable {
 
     private ProcessResults runInProcess(String[] cmd, File working_dir)
         throws IOException, InterruptedException {
-      Process p = Runtime.getRuntime().exec(cmd, new String[0], working_dir);
+      ProcessBuilder pb = new ProcessBuilder(Arrays.asList(cmd));
+      pb.directory(working_dir);
+      Process p = pb.start();
+
       BufferedReader stdInput = new BufferedReader(
           new InputStreamReader(p.getInputStream()));
       BufferedReader stdError = new BufferedReader(
@@ -212,16 +216,31 @@ public class LocalTestRunner implements Runnable {
       return new ProcessResults(stdout.toString(), stderr.toString(), exitCode);
     }
 
+    private void svnAddIfExists(File f) {
+        if (f.exists()) {
+            try {
+                env.ourClientManager.getWCClient().doAdd(f, false, false, false,
+                        SVNDepth.INFINITY, false, false);
+            } catch (SVNException svn) {
+                svn.printStackTrace();
+            }
+        }
+    }
+
     @Override
     public void run() {
         ViolaUtil.log("Running local tests for user=%s assignment=%s run=%d\n",
                 user, assignment_name, run_id);
 
+        File code_dir = null;
+        File instructor_dir = null;
+        File extract_code_dir = null;
+        File extract_instructor_dir = null;
         try {
-            final File code_dir = getTempDirectory();
-            final File instructor_dir = getTempDirectory();
-            final File extract_code_dir = getTempDirectory();
-            final File extract_instructor_dir = getTempDirectory();
+            code_dir = getTempDirectory();
+            instructor_dir = getTempDirectory();
+            extract_code_dir = getTempDirectory();
+            extract_instructor_dir = getTempDirectory();
 
             /*
              * Check out the student code from SVN. This should check out a
@@ -230,10 +249,11 @@ public class LocalTestRunner implements Runnable {
             SVNUpdateClient updateClient = env.ourClientManager.getUpdateClient();
             updateClient.setIgnoreExternals(false);
 
-            ViolaUtil.log("Checking student code out to %s\n", code_dir.getAbsolutePath());
-            updateClient.doCheckout(SVNURL.parseURIDecoded(env.svnRepo + "/" +
-                        user + "/" + assignment_name + "/" + run_id),
-                    code_dir, SVNRevision.HEAD, SVNRevision.HEAD, SVNDepth.INFINITY, false);
+            final String svnLoc = env.svnRepo + "/" + user + "/" +
+                assignment_name + "/" + run_id;
+            ViolaUtil.log("Checking student code out to %s from %s\n", code_dir.getAbsolutePath(), svnLoc);
+            updateClient.doCheckout(SVNURL.parseURIDecoded(svnLoc), code_dir,
+                    SVNRevision.HEAD, SVNRevision.HEAD, SVNDepth.INFINITY, false);
 
             ViolaUtil.log("Checking instructor code out to %s\n", instructor_dir.getAbsolutePath());
             updateClient.doCheckout(SVNURL.parseURIDecoded(env.svnRepo +
@@ -353,6 +373,12 @@ public class LocalTestRunner implements Runnable {
              */
             String[] cmd = new String[]{"mvn", "clean", "compile", "test-compile"};
             ProcessResults mvn_results = runInProcess(cmd, unzipped_code_dir);
+            writer = new PrintWriter(code_dir.getAbsolutePath() + "/compile.txt", "UTF-8");
+            writer.println("======= STDOUT =======");
+            writer.println(mvn_results.stdout);
+            writer.println("\n======= STDERR =======");
+            writer.println(mvn_results.stderr);
+            writer.close();
             if (mvn_results.code != 0) {
               throw new TestRunnerException("Error compiling correctness " +
                   "tests from dir=" + unzipped_code_dir.getAbsolutePath() +
@@ -407,48 +433,6 @@ public class LocalTestRunner implements Runnable {
             writer.close();
 
             ViolaUtil.log("Filled correctness log file\n");
-
-            // Add the generated files to the repo
-            env.ourClientManager.getWCClient().doAdd(
-                    new File(code_dir.getAbsolutePath(), "correct.txt"), false,
-                    false, false, SVNDepth.INFINITY, false, false);
-            env.ourClientManager.getWCClient().doAdd(
-                    new File(code_dir.getAbsolutePath(), "checkstyle.txt"), false,
-                    false, false, SVNDepth.INFINITY, false, false);
-            env.ourClientManager.getWCClient().doAdd(
-                    new File(code_dir.getAbsolutePath(), "findbugs.txt"), false,
-                    false, false, SVNDepth.INFINITY, false, false);
-
-            ViolaUtil.log("Added log file to repo\n");
-
-            // Commit the added files to the repo
-            File[] wc = new File[1];
-            wc[0] = new File(code_dir.getAbsolutePath());
-            final String commitMessage =
-                user + " " + assignment_name + " " + run_id + " local-runs";
-            try {
-                env.ourClientManager.getCommitClient().doCommit(wc, false,
-                        commitMessage, false, true);
-            } catch (SVNException svn) {
-                /*
-                 * For now (while the Habanero repo is still misconfigured)
-                 * we ignore commit failures.
-                 */
-                svn.printStackTrace();
-            }
-
-            ViolaUtil.log("Committed log file to repo\n");
-
-            /*
-             * Clean up the test directory. This assumes that no directories
-             * are created in the process of testing.
-             */
-            delete_dir(code_dir);
-            delete_dir(instructor_dir);
-            delete_dir(extract_code_dir);
-            delete_dir(extract_instructor_dir);
-
-            ViolaUtil.log("Done with local testing\n");
         } catch (IOException io) {
             io.printStackTrace();
         } catch (InterruptedException ie) {
@@ -457,6 +441,45 @@ public class LocalTestRunner implements Runnable {
             svn.printStackTrace();
         } catch (TestRunnerException tr) {
             tr.printStackTrace();
+        } finally {
+            // Add the generated files to the repo
+            if (code_dir != null) {
+                svnAddIfExists(new File(code_dir.getAbsolutePath(), "compile.txt"));
+                svnAddIfExists(new File(code_dir.getAbsolutePath(), "correct.txt"));
+                svnAddIfExists(new File(code_dir.getAbsolutePath(), "checkstyle.txt"));
+                svnAddIfExists(new File(code_dir.getAbsolutePath(), "findbugs.txt"));
+
+                ViolaUtil.log("Added log files to repo\n");
+
+                // Commit the added files to the repo
+                File[] wc = new File[1];
+                wc[0] = new File(code_dir.getAbsolutePath());
+                final String commitMessage =
+                    user + " " + assignment_name + " " + run_id + " local-runs";
+                try {
+                    env.ourClientManager.getCommitClient().doCommit(wc, false,
+                            commitMessage, false, true);
+                } catch (SVNException svn) {
+                    /*
+                     * For now (while the Habanero repo is still misconfigured)
+                     * we ignore commit failures.
+                     */
+                    svn.printStackTrace();
+                }
+            }
+
+            ViolaUtil.log("Committed log file to repo\n");
+
+            /*
+             * Clean up the test directory. This assumes that no directories
+             * are created in the process of testing.
+             */
+            if (code_dir != null) delete_dir(code_dir);
+            if (instructor_dir != null) delete_dir(instructor_dir);
+            if (extract_code_dir != null) delete_dir(extract_code_dir);
+            if (extract_instructor_dir != null) delete_dir(extract_instructor_dir);
+
+            ViolaUtil.log("Done with local testing\n");
         }
 
         notifyConductor();
