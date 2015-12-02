@@ -38,15 +38,13 @@ public class FairViolaTaskQueue implements BlockingQueue<Runnable> {
     }
   }
 
-  private Runnable getPendingTask() {
+  private Runnable getPendingTask() throws InterruptedException {
+    System.err.println("Getting pending task");
     LocalTestRunner result = null;
 
     synchronized(this) {
       while (nPending == 0) {
-        try {
-          this.wait();
-        } catch (InterruptedException ie) {
-        }
+        this.wait();
       }
 
       PriorityQueue<TasksInWindow> newUserPriorities =
@@ -80,6 +78,7 @@ public class FairViolaTaskQueue implements BlockingQueue<Runnable> {
       assert result != null;
       nPending--;
     }
+    System.err.println("Got pending task result=" + result);
     return result;
   }
 
@@ -136,7 +135,7 @@ public class FairViolaTaskQueue implements BlockingQueue<Runnable> {
   }
 
   @Override
-  public Runnable take() {
+  public Runnable take() throws InterruptedException {
     return getPendingTask();
   }
 

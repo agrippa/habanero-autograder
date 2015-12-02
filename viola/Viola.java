@@ -41,9 +41,10 @@ import org.tmatesoft.svn.core.wc.ISVNOptions;
 
 public class Viola {
     // Executor for actually running the local tests
-    // private static final FairViolaTaskQueue executorQueue = new FairViolaTaskQueue();
-    private static final BlockingQueue<Runnable> executorQueue = new LinkedBlockingQueue<Runnable>();
-    private static final ThreadPoolExecutor exec = new ThreadPoolExecutor(2, 4,
+    private static final FairViolaTaskQueue executorQueue = new FairViolaTaskQueue();
+    // private static final BlockingQueue<Runnable> executorQueue = new LinkedBlockingQueue<Runnable>();
+    private final static int poolSize = 4;
+    private static final ThreadPoolExecutor exec = new ThreadPoolExecutor(poolSize, poolSize,
         60, TimeUnit.SECONDS, executorQueue);
 
     private static ViolaEnv env = null;
