@@ -20,6 +20,7 @@
         <% } %>
       </ul>
       <ul class="nav navbar-nav navbar-right">
+        <li><a href="/comments">Leave Comments</a></li>
         <li><a href="/login">Login</a></li>
         <li><a href="/logout">Logout</a></li>
       </ul>
@@ -48,5 +49,8 @@ function show_error(msg) {
 
 <% if (locals.err_msg) { %>
   $(function() { show_error("<%= locals.err_msg %>"); });
+<% } %>
+<% if (locals.success_msg) { %>
+  $(function() { show_success("<%= locals.success_msg %>"); });
 <% } %>
 </script>

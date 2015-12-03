@@ -466,6 +466,21 @@ app.get('/overview', function(req, res, next) {
   res.render('overview.html');
 });
 
+app.get('/comments', function(req, res, next) {
+  res.render('comments.html');
+});
+
+app.post('/comments', function(req, res, next) {
+  var comment = req.body.comments;
+  send_email('jmg3@rice.edu', 'AUTOGRADER COMMENT', comment, function(err) {
+    if (err) {
+      console.log('comments: err=' + err);
+      return res.render('comments.html', {err_msg: 'Error submitting comment' });
+    }
+    return res.render('overview.html', {success_msg: 'Thank you for your comment!'});
+  });
+});
+
 app.get('/admin', function(req, res, next) {
   if (req.session.is_admin) {
     res.render('admin.html');
