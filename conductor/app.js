@@ -918,7 +918,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     "#SBATCH --cpus-per-task=" + ncores + "\n" +
     "#SBATCH --exclusive\n" +
     "#SBATCH --nodes=1\n" +
-    "#SBATCH --time=00:01:00\n" +
+    "#SBATCH --time=00:10:00\n" +
     "#SBATCH --partition=interactive\n" +
     "#SBATCH --output=" + home_dir + "/autograder/" + run_id + "/stdout.txt\n" +
     "#SBATCH --error=" + home_dir + "/autograder/" + run_id + "/stderr.txt\n" +

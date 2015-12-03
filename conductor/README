@@ -7,10 +7,13 @@ The Habanero AutoGrader for parallel programs
  - postgres
  - bash
  - svn
+     | On the node host, Viola host, and cluster set store-plaintext-passwords
+     | to no in ~/.subversion/servers
  - mvn
  - Java 1.8 w/ JAVA_HOME set appropriately
  - checkstyle
-     | Should be somewhere in PATH on the Viola host.
+     | Should be somewhere in PATH on the Viola host. For Red Hat, downloaded
+     | from http://pkgs.org/altlinux-sisyphus/classic-noarch/checkstyle-5.6-alt1_7jpp7.noarch.rpm.html.
  - FindBugs
      | Should be somewhere in PATH on the Viola host.
  - lightweight-java-profiler: git@github.com:agrippa/lightweight-java-profiler.git

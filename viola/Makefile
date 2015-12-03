@@ -22,5 +22,5 @@ clean:
 	rm -f *.class
 
 run:
-	./deploy.sh
+	./deploy.sh localhost 8000
 
