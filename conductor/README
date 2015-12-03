@@ -8,6 +8,7 @@ The Habanero AutoGrader for parallel programs
  - bash
  - svn
  - mvn
+ - Java 1.8 w/ JAVA_HOME set appropriately
  - checkstyle
      | Should be somewhere in PATH on the Viola host.
  - FindBugs
@@ -44,6 +45,8 @@ The Habanero AutoGrader for parallel programs
 If that doesn't work, take a look at https://nodejs.org/en/download/package-manager/.
 
 ===== postgres installation instructions =====
+
+On RedHat, follow the instructions at http://www.if-not-true-then-false.com/2012/install-postgresql-on-fedora-centos-red-hat-rhel/. Create an 'autograder' database instead of a 'test' database. Set the password of postgres as necessary. Then run the setup.sql script.
 
  1. apt-get install postgresql
  2. apt-get install postgresql-contrib

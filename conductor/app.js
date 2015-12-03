@@ -13,6 +13,7 @@ var ssh = require('ssh2');
 var scp = require('scp2')
 var child_process = require('child_process');
 var nodemailer = require('nodemailer');
+var url = require('url');
 
 var permissionDenied = 'Permission denied. But you should shoot me an e-mail at jmaxg3@gmail.com. If you like playing around with systems, we have interesting research for you in the Habanero group.';
 
@@ -382,6 +383,14 @@ function get_cluster_cores(conn, cb) {
   });
 }
 
+function string_starts_with(st, prefix) {
+  return st.slice(0, prefix.length) === prefix;
+}
+
+function string_ends_with(st, suffix) {
+  return st.indexOf(suffix, st.length - suffix.length) !== -1;
+};
+
 var app = express();
 app.use(bodyParser.urlencoded());
 app.use(session({secret: 'blarp', cookie:{maxAge: 7 * 24 * 3600 * 1000}}));
@@ -451,7 +460,7 @@ app.get('*', function(req, res, next) {
 
     next();
   } else {
-    if (req.url.startsWith('/third_party')) {
+    if (req.url.length > 1 && string_starts_with(req.url, '/third_party')) {
         next();
     } else {
         res.locals.username = null;
@@ -1419,14 +1428,14 @@ function calculate_score(assignment_id, log_files, ncores) {
     var nfailures = -1;
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
-      if (line.startsWith('There were ') && line.endsWith(' failures:')) {
+      if (string_starts_with(line, 'There were ') && string_ends_with(line, ' failures:')) {
         nfailures = parseInt(line.split(' ')[2]);
         break;
-      } else if (line.startsWith('There was ') && line.endsWith(' failure:')) {
+      } else if (string_starts_with(line, 'There was ') && string_ends_with(line, ' failure:')) {
         nfailures = 1;
         break;
-      } else if (line.startsWith("OK (") && (line.endsWith(" tests)") ||
-              line.endsWith(" test)"))) {
+      } else if (string_starts_with(line, "OK (") && (string_ends_with(line, " tests)") ||
+              string_ends_with(line, " test)"))) {
         nfailures = 0;
         break;
       }
@@ -1442,7 +1451,7 @@ function calculate_score(assignment_id, log_files, ncores) {
     } else {
       var failure = 1;
       for (var i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith(failure + ') ')) {
+        if (string_starts_with(lines[i], failure + ') ')) {
           var junit_testname = lines[i].split(' ')[1];
           var test_tokens = junit_testname.split('(');
           var testname = test_tokens[0];
@@ -1476,7 +1485,7 @@ function calculate_score(assignment_id, log_files, ncores) {
     var single_thread_perf = {};
     for (var i = 0; i < single_thread_lines.length; i++) {
       var line = single_thread_lines[i];
-      if (line.startsWith('HABANERO-AUTOGRADER-PERF-TEST')) {
+      if (string_starts_with(line, 'HABANERO-AUTOGRADER-PERF-TEST')) {
         var tokens = line.split(' ');
         var testname = tokens[2];
         var t = parseInt(tokens[3]);
@@ -1486,7 +1495,7 @@ function calculate_score(assignment_id, log_files, ncores) {
 
     for (var i = 0; i < multi_thread_lines.length; i++) {
       var line = multi_thread_lines[i];
-      if (line.startsWith('HABANERO-AUTOGRADER-PERF-TEST')) {
+      if (string_starts_with(line, 'HABANERO-AUTOGRADER-PERF-TEST')) {
         var tokens = line.split(' ');
         var testname = tokens[2];
         var t = parseInt(tokens[3]);
@@ -1522,12 +1531,12 @@ function calculate_score(assignment_id, log_files, ncores) {
     var lines = content.split('\n');
 
     var iter = 0;
-    while (iter < lines.length && !lines[iter].startsWith('Starting audit')) {
+    while (iter < lines.length && !string_starts_with(lines[iter], 'Starting audit')) {
         iter++;
     }
     iter++;
     var errorCount = 0;
-    while (iter < lines.length && !lines[iter].startsWith('Audit done')) {
+    while (iter < lines.length && !string_starts_with(lines[iter], 'Audit done')) {
         errorCount++;
         iter++;
     }
