@@ -85,13 +85,17 @@
                         '<input name="rubric" type="file">' +
                         '<input value="Upload" name="submit" type="submit">' +
                         '</form>';
-
+                      var upload_checkstyle_html =
+                        '<form action="/upload_checkstyle/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
+                        '<input name="checkstyle_config" type="file">' +
+                        '<input value="Upload" name="submit" type="submit">' +
+                        '</form>';
 
                     $('#existing-assignments tr:last').after('<tr><td><center>' +
                         curr.name + '</center></td><td><center>' + button_html +
                         '</center></td><td>' + upload_zip_html + '</td><td>' +
                         upload_instructor_pom_html + '</td><td>' +
-                        upload_rubric_html + '</td></tr>');
+                        upload_rubric_html + '</td><td>' + upload_checkstyle_html + '</td></tr>');
                 }
                 $('#assignment-count').text(assignments.length + " assignment(s)");
               } else {
@@ -119,6 +123,7 @@
             <label>Instructor Tests</label><input name="zip" type="file">
             <label>Instructor POM</label><input name="instructor_pom" type="file">
             <label>Assignment Rubric</label><input name="rubric" type="file">
+            <label>Checkstyle File</label><input name="checkstyle_config" type="file">
             <input value="Create" name="submit" type="submit" class="btn btn-primary" style="float:right">
           </form>
         </div>
@@ -135,6 +140,7 @@
             <td bgcolor="#AAAAAA"><center><b>Re-Upload Zip</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Re-Upload Instructor POM</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Re-Upload Rubric</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Re-Upload Checkstyle</b></center></td>
           </tr>
         </table>
       </div>

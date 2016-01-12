@@ -11,9 +11,8 @@ The Habanero AutoGrader for parallel programs
      | to no in ~/.subversion/servers
  - mvn
  - Java 1.8 w/ JAVA_HOME set appropriately
- - checkstyle
-     | Should be somewhere in PATH on the Viola host. For Red Hat, downloaded
-     | from http://pkgs.org/altlinux-sisyphus/classic-noarch/checkstyle-5.6-alt1_7jpp7.noarch.rpm.html.
+ - checkstyle-all.jar (>= 6.1)
+     | Should set environment variable CHECKSTYLE_JAR to point to this.
  - FindBugs
      | Should be somewhere in PATH on the Viola host.
  - lightweight-java-profiler: git@github.com:agrippa/lightweight-java-profiler.git

@@ -506,7 +506,8 @@ function is_actual_svn_err(err) {
 var assignment_file_fields = [
                               { name: 'zip', maxCount: 1 },
                               { name: 'instructor_pom', maxCount: 1 },
-                              { name: 'rubric', maxCount: 1 }
+                              { name: 'rubric', maxCount: 1 },
+                              { name: 'checkstyle_config', maxCount: 1 }
                              ];
 app.post('/assignment', upload.fields(assignment_file_fields), function(req, res, next) {
   console.log('assignment: is_admin=' + req.session.is_admin);
@@ -530,6 +531,10 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
     if (!req.files.rubric) {
       return res.render('admin.html',
         {err_msg: 'Please provide a rubric for the assignment'});
+    }
+    if (!req.files.checkstyle_config) {
+      return res.render('admin.html',
+        {err_msg: 'Please provide a checkstyle configuration for the assignment'});
     }
 
     pgclient(function(client, done) {
@@ -568,11 +573,14 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
                           assignment_dir + '/instructor_pom.xml');
                         fs.renameSync(req.files.rubric[0].path,
                           assignment_dir + '/rubric.json');
+                        fs.renameSync(req.files.checkstyle_config[0].path,
+                          assignment_dir + '/checkstyle.xml');
 
                         svn_client.cmd(['add',
                           assignment_dir + '/instructor.zip',
                           assignment_dir + '/instructor_pom.xml',
-                          assignment_dir + '/rubric.json'], function(err, data) {
+                          assignment_dir + '/rubric.json',
+                          assignment_dir + '/checkstyle.xml'], function(err, data) {
                             if (is_actual_svn_err(err)) {
                               return res.render('admin.html',
                                 {err_msg: 'Error adding files to assignment repo'});
@@ -669,6 +677,13 @@ app.post('/upload_rubric/:assignment_id', upload.single('rubric'),
       }
 
       return handle_reupload(req, res, 'Please provide a rubric', 'rubric.json');
+    });
+
+app.post('/upload_checkstyle/:assignment_id', upload.single('checkstyle_config'),
+    function(req, res, next) {
+      console.log('upload_checkstyle: is_admin=' + req.session.is_admin);
+
+      return handle_reupload(req, res, 'Please provide a checkstyle file', 'checkstyle.xml');
     });
 
 /*

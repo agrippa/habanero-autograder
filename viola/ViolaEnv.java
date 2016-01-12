@@ -11,11 +11,13 @@ public class ViolaEnv {
   public final String hamcrest;
   public final String hj;
   public final String asm;
+  public final String checkstyle;
   public final String autograderHome;
 
   public ViolaEnv(String conductorHost, int conductorPort,
       SVNClientManager ourClientManager, String svnRepo, String junit,
-      String hamcrest, String hj, String asm, String autograderHome) {
+      String hamcrest, String hj, String asm, String checkstyle,
+      String autograderHome) {
     this.conductorHost = conductorHost;
     this.conductorPort = conductorPort;
 
@@ -27,5 +29,6 @@ public class ViolaEnv {
     this.hj = hj;
     this.asm = asm;
     this.autograderHome = autograderHome;
+    this.checkstyle = checkstyle;
   }
 }

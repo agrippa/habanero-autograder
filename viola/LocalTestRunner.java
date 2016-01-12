@@ -338,42 +338,26 @@ public class LocalTestRunner implements Runnable {
             /*
              * Run checkstyle
              */
-            final File checkstyle_config = File.createTempFile("temp",
-                ".xml");
+            final File checkstyle_config = new File(instructor_dir.getAbsolutePath() + "/checkstyle.xml");
             ViolaUtil.log("Checkstyle config file = " + checkstyle_config.getAbsolutePath() + "\n");
-            PrintWriter writer = new PrintWriter(
-                checkstyle_config.getAbsolutePath(), "UTF-8");
-            writer.println("<?xml version=\"1.0\"?>");
-            writer.println("<!DOCTYPE module PUBLIC \"-//Puppy Crawl//DTD " +
-                "Check Configuration 1.2//EN\" \"http://www.puppycrawl.com/" +
-                "dtds/configuration_1_2.dtd\">");
-            writer.println("<module name=\"Checker\">");
-            writer.println("    <module name=\"JavadocPackage\"/>");
-            writer.println("    <module name=\"TreeWalker\">");
-            writer.println("         <module name=\"AvoidStarImport\"/>");
-            writer.println("         <module name=\"ConstantName\"/>");
-            writer.println("         <module name=\"EmptyBlock\"/>");
-            writer.println("         <module name=\"LeftCurly\"/>");
-            writer.println("         <module name=\"RightCurly\"/>");
-            writer.println("    </module>");
-            writer.println("</module>");
-            writer.close();
 
             File mainCodeFolder = new File(new File(unzipped_code_dir, "src"), "main");
             List<String> studentJavaFiles = findAllJavaFiles(mainCodeFolder, false);
 
-            String[] checkstyle_cmd = new String[3 + studentJavaFiles.size()];
-            checkstyle_cmd[0] = "checkstyle";
-            checkstyle_cmd[1] = "-c";
-            checkstyle_cmd[2] = checkstyle_config.getAbsolutePath();
-            int checkstyle_index = 3;
+            String[] checkstyle_cmd = new String[5 + studentJavaFiles.size()];
+            checkstyle_cmd[0] = "java";
+            checkstyle_cmd[1] = "-jar";
+            checkstyle_cmd[2] = env.checkstyle;
+            checkstyle_cmd[3] = "-c";
+            checkstyle_cmd[4] = checkstyle_config.getAbsolutePath();
+            int checkstyle_index = 5;
             for (String filename : studentJavaFiles) {
                 checkstyle_cmd[checkstyle_index++] = filename;
             }
 
             ProcessResults checkstyle_results = runInProcess(checkstyle_cmd,
                 unzipped_code_dir);
-            writer = new PrintWriter(
+            PrintWriter writer = new PrintWriter(
                 code_dir.getAbsolutePath() + "/checkstyle.txt", "UTF-8");
             writer.println(checkstyle_results.stdout);
             writer.close();

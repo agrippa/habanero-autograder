@@ -85,6 +85,7 @@ public class Viola {
         final String hj = getEnvVarOrFail("HJ_JAR");
         final String asm = getEnvVarOrFail("ASM_JAR");
         final String autograderHome = getEnvVarOrFail("AUTOGRADER_HOME");
+        final String checkstyle = getEnvVarOrFail("CHECKSTYLE_JAR");
 
         final SVNClientManager ourClientManager =
             SVNClientManager.newInstance(SVNWCUtil.createDefaultOptions(true),
@@ -99,10 +100,11 @@ public class Viola {
         System.out.printf("hj         = %s\n", hj);
         System.out.printf("asm        = %s\n", asm);
         System.out.printf("autograder = %s\n", autograderHome);
+        System.out.printf("checkstyle = %s\n", checkstyle);
         System.out.println("===================================");
 
         env = new ViolaEnv(conductorHost, conductorPort,
-            ourClientManager, svnRepo, junit, hamcrest, hj, asm, autograderHome);
+            ourClientManager, svnRepo, junit, hamcrest, hj, asm, checkstyle, autograderHome);
 
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/run", new RunHandler());
