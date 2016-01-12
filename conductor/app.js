@@ -715,6 +715,40 @@ app.get('/assignments', function(req, res, next) {
   });
 });
 
+app.post('/set_assignment_correctness_only', function(req, res, next) {
+  console.log('set_assignment_correctness_only: is_admin=' + req.session.is_admin);
+  if (!req.session.is_admin) {
+    res.send(JSON.stringify({ status: 'Failure', msg: permissionDenied }));
+  } else {
+    var assignment_id = req.body.assignment_id;
+    var set_correctness_only = req.body.set_correctness_only;
+
+    pgclient(function(client, done) {
+        var query = client.query(
+            "SELECT * FROM assignments WHERE assignment_id=($1);",
+            [assignment_id]);
+        register_query_helpers(query, res, done, req.session.username);
+        query.on('end', function(result) {
+            if (result.rowCount == 0) {
+                done();
+                return res.send(JSON.stringify({ status: 'Failure',
+                        msg: 'Invalid assignment ID, does not exist' }));
+            } else {
+                var query = client.query(
+                    "UPDATE assignments SET correctness_only=($1) WHERE assignment_id=($2);",
+                    [set_correctness_only, assignment_id]);
+                register_query_helpers(query, res, done, req.session.username);
+                query.on('end', function(result) {
+                    done();
+                    return res.send(JSON.stringify({ status: 'Success',
+                            redirect: '/admin' }));
+                });
+            }
+        });
+    });
+  }
+});
+
 app.post('/set_assignment_visible', function(req, res, next) {
   console.log('set_assignment_visible: is_admin=' + req.session.is_admin);
   if (!req.session.is_admin) {
@@ -810,6 +844,11 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                 { err_msg: 'There appear to be duplicate assignments ' + assignment_name });
             } else {
               var assignment_id = result.rows[0].assignment_id;
+
+              // Allow assignment settings to override user-provided setting
+              var assignment_correctness_only = result.rows[0].correctness_only;
+              if (assignment_correctness_only) correctness_only = true;
+
               crypto.randomBytes(48, function(ex, buf) {
                   var done_token = buf.toString('hex');
 
@@ -1029,9 +1068,20 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   return slurmFileContents;
 }
 
-function failed_starting_perf_tests(res, failure_msg) {
-  console.log('Failure initiating performance tests: ' + failure_msg);
-  return res.send(JSON.stringify({status: 'Failure', msg: failure_msg}));
+function failed_starting_perf_tests(res, failure_msg, done, client, run_id) {
+  query = client.query(
+      "UPDATE runs SET status='FAILED' WHERE run_id=($1)",
+      [run_id]);
+  query.on('row', function(row, result) { result.addRow(row); }); // unnecessary?
+  query.on('error', function(err, result) {
+    console.log('Error storing failure starting perf tests: ' + err);
+    done();
+  });
+  query.on('end', function(result) {
+    done();
+    console.log('Failure initiating performance tests: ' + failure_msg);
+    return res.send(JSON.stringify({status: 'Failure', msg: failure_msg}));
+  });
 }
 
 function email_for_user(username) {
@@ -1052,8 +1102,7 @@ app.post('/local_run_finished', function(req, res, next) {
         register_query_helpers(query, res, done, 'unknown');
         query.on('end', function(result) {
           if (result.rows.length != 1) {
-            done();
-            return failed_starting_perf_tests(res, 'Unexpected # of rows');
+            return failed_starting_perf_tests(res, 'Unexpected # of rows', done, client, -1);
           } else {
             var run_id = result.rows[0].run_id;
             var user_id = result.rows[0].user_id;
@@ -1064,15 +1113,14 @@ app.post('/local_run_finished', function(req, res, next) {
             register_query_helpers(query, res, done, 'unknown');
             query.on('end', function(result) {
               if (result.rows.length != 1) {
-                done();
-                return failed_starting_perf_tests(res, 'Invalid user ID');
+                return failed_starting_perf_tests(res, 'Invalid user ID', done, client, run_id);
               } else {
                 var username = result.rows[0].user_name;
                 var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
 
                 svn_client.cmd(['up', '--accept', 'theirs-full', run_dir], function(err, data) {
                   if (err) {
-                    return failed_starting_perf_tests(res, 'Failed updating repo');
+                    return failed_starting_perf_tests(res, 'Failed updating repo', done, client, run_id);
                   }
 
                   if (correctness_only) {
@@ -1081,16 +1129,16 @@ app.post('/local_run_finished', function(req, res, next) {
                           [run_id]);
                       register_query_helpers(query, res, done, 'unknown');
                       query.on('end', function(result) {
-                          done();
                           var subject = 'Habanero AutoGrader Run ' + run_id + ' Finished';
                           send_email(email_for_user(username), subject, '', function(err) {
                             if (err) {
                               return failed_starting_perf_tests(res,
-                                'Failed sending notification e-mail, err=' + err);
+                                'Failed sending notification e-mail, err=' + err, done, client, run_id);
+                            } else {
+                              done();
+                              return res.send(
+                                JSON.stringify({ status: 'Success' }));
                             }
-
-                            return res.send(
-                              JSON.stringify({ status: 'Success' }));
                           });
                       });
                   } else {
@@ -1104,7 +1152,6 @@ app.post('/local_run_finished', function(req, res, next) {
                           register_query_helpers(query, res, done, 'unknown');
                           query.on('end', function(result) {
                             var assignment_name = result.rows[0].name;
-                            done();
 
                             console.log('local_run_finished: Connecting to ' +
                                 CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
@@ -1112,7 +1159,7 @@ app.post('/local_run_finished', function(req, res, next) {
                             connect_to_cluster(function(conn, err) {
                                 if (err) {
                                   return failed_starting_perf_tests(res,
-                                    'Error connecting to cluster, err=' + err);
+                                    'Error connecting to cluster, err=' + err, done, client, run_id);
                                 }
 
                                 var vars = ['HOME',
@@ -1122,7 +1169,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                 batched_get_cluster_env_var(vars, conn, function(err, vals) {
                                   if (err) {
                                     return failed_starting_perf_tests(res,
-                                      'Error getting cluster env variables, err=' + err);
+                                      'Error getting cluster env variables, err=' + err, done, client, run_id);
                                   }
 
                                   var home_dir = vals['HOME'];
@@ -1137,13 +1184,13 @@ app.post('/local_run_finished', function(req, res, next) {
                                   get_cluster_cores(conn, function(err, ncores) {
                                     if (err) {
                                       return failed_starting_perf_tests(res,
-                                        'Failed getting ncores from cluster');
+                                        'Failed getting ncores from cluster', done, client, run_id);
                                     }
 
                                     get_cluster_os(conn, function(err, os) {
                                       if (err) {
                                         return failed_starting_perf_tests(res,
-                                          'Failed getting cluster OS');
+                                          'Failed getting cluster OS', done, client, run_id);
                                       }
 
                                       fs.appendFileSync(run_dir + '/cello.slurm',
@@ -1170,7 +1217,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                           function(err, conn, stdout, stderr) {
                                             if (err) {
                                               return failed_starting_perf_tests(res,
-                                                'Failed creating autograder dir');
+                                                'Failed creating autograder dir', done, client, run_id);
                                             }
                                             var localPolicyPath = AUTOGRADER_HOME + '/shared/security.policy';
                                             var copies = [{src: run_dir + '/cello.slurm',
@@ -1182,7 +1229,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                                   if (!stat[i].success) {
                                                     console.log('scp err copying to ' + stat[i].dst + ', ' + stat[i].err);
                                                     return failed_starting_perf_tests(res,
-                                                      'Failed scp-ing cello.slurm+security.policy');
+                                                      'Failed scp-ing cello.slurm+security.policy', done, client, run_id);
                                                   }
                                                 }
 
@@ -1190,14 +1237,14 @@ app.post('/local_run_finished', function(req, res, next) {
                                                   function(err, conn, stdout, stderr) {
                                                     if (err) {
                                                       return failed_starting_perf_tests(res,
-                                                           'Failed checking out student code');
+                                                           'Failed checking out student code', done, client, run_id);
                                                     }
 
                                                     run_cluster_cmd(conn, 'assignment checkout', assignment_checkout,
                                                       function(err, conn, stdout, stderr) {
                                                         if (err) {
                                                           return failed_starting_perf_tests(res,
-                                                                'Failed checking out assignment code');
+                                                                'Failed checking out assignment code', done, client, run_id);
                                                         }
 
                                                         if (CLUSTER_TYPE === 'slurm') {
@@ -1206,14 +1253,18 @@ app.post('/local_run_finished', function(req, res, next) {
                                                                 function(err, conn, stdout, stderr) {
                                                                     if (err) {
                                                                       return failed_starting_perf_tests(res,
-                                                                        'Failed submitting job');
+                                                                        'Failed submitting job', done, client, run_id);
                                                                     }
                                                                     disconnect_from_cluster(conn);
                                                                     // stdout == Submitted batch job 474297
                                                                     if (stdout.search('Submitted batch job ') !== 0) {
                                                                         return failed_starting_perf_tests(res,
-                                                                                'Failed submitting batch job');
+                                                                                'Failed submitting batch job', done, client, run_id);
                                                                     }
+
+                                                                    // Close connection to outermost DB connection
+                                                                    done();
+
                                                                     var tokens = stdout.trim().split(' ');
                                                                     var job_id = tokens[tokens.length - 1];
                                                                     pgclient(function(client, done) {
@@ -1240,8 +1291,11 @@ app.post('/local_run_finished', function(req, res, next) {
 
                                                                 if (err) {
                                                                   return failed_starting_perf_tests(res,
-                                                                    'Failed running on local cluster');
+                                                                    'Failed running on local cluster', done, client, run_id);
                                                                 }
+
+                                                                // Close connection to outermost DB connection
+                                                                done();
 
                                                                 pgclient(function(client, done) {
                                                                     var query = client.query('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [LOCAL_JOB_ID, run_id]);

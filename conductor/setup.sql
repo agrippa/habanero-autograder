@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS assignments
 (
  assignment_id BIGSERIAL PRIMARY KEY,
  name TEXT NOT NULL UNIQUE,
- visible BOOLEAN NOT NULL
+ visible BOOLEAN NOT NULL,
+ correctness_only BOOLEAN NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS runs
@@ -31,5 +32,5 @@ CREATE TABLE IF NOT EXISTS runs
  done_token TEXT NOT NULL UNIQUE,
  status TEXT NOT NULL,
  job_id TEXT,
- correctness_only BOOLEAN NOT NULL
+ correctness_only BOOLEAN NOT NULL DEFAULT FALSE
 );

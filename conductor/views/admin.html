@@ -47,6 +47,26 @@
           });
       }
 
+      function set_assignment_correctness_only(assignment_id, set_correctness_only) {
+          $.ajax({
+             url: '/set_assignment_correctness_only',
+            type: 'POST',
+            data: { assignment_id: assignment_id, set_correctness_only: set_correctness_only },
+            ContentType: 'application/json; charset=utf-8',
+            dataType: 'json',
+            success: function(data) {
+              if (data.status === 'Success') {
+                window.location.replace(data.redirect);
+              } else {
+                show_error(data.msg);
+              }
+            },
+            failure: function() {
+              show_error('Internal failure');
+            },
+          });
+      }
+
       $(function() {
         $('#name').keydown(function(e) {
               if (e.keyCode === 13) {
@@ -65,11 +85,17 @@
                 var assignments = data.assignments;
                 for (var i = 0; i < assignments.length; i++) {
                     var curr = assignments[i];
-                    var lbl = curr.visible ? 'Disable' : 'Enable';
-                    var button_html = '<button type="button" ' +
+                    var visible_lbl = curr.visible ? 'Disable' : 'Enable';
+
+                    var visibility_button_html = '<button type="button" ' +
                       'class="btn btn-default" ' +
                       'onclick="set_assignment_visible(' + curr.assignment_id +
-                      ', ' + !curr.visible + ');">' + lbl + '</button>';
+                      ', ' + !curr.visible + ');">' + visible_lbl + '</button>';
+                    var correctness_button_html = (curr.correctness_only ? 'True' : 'False') + '&nbsp;|&nbsp;<button type="button" ' +
+                      'class="btn btn-default" ' +
+                      'onclick="set_assignment_correctness_only(' + curr.assignment_id +
+                      ', ' + !curr.correctness_only + ');">Toggle</button>';
+
                       var upload_zip_html =
                         '<form action="/upload_zip/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
                         '<input name="zip" type="file">' +
@@ -92,7 +118,8 @@
                         '</form>';
 
                     $('#existing-assignments tr:last').after('<tr><td><center>' +
-                        curr.name + '</center></td><td><center>' + button_html +
+                        curr.name + '</center></td><td><center>' + visibility_button_html +
+                        '</center></td><td><center>' + correctness_button_html +
                         '</center></td><td>' + upload_zip_html + '</td><td>' +
                         upload_instructor_pom_html + '</td><td>' +
                         upload_rubric_html + '</td><td>' + upload_checkstyle_html + '</td></tr>');
@@ -137,10 +164,11 @@
           <tr>
             <td bgcolor="#AAAAAA"><center><b>Name</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Visibility</b></center></td>
-            <td bgcolor="#AAAAAA"><center><b>Re-Upload Zip</b></center></td>
-            <td bgcolor="#AAAAAA"><center><b>Re-Upload Instructor POM</b></center></td>
-            <td bgcolor="#AAAAAA"><center><b>Re-Upload Rubric</b></center></td>
-            <td bgcolor="#AAAAAA"><center><b>Re-Upload Checkstyle</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Correctness Only</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Reupload Zip</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Reupload Instructor POM</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Reupload Rubric</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Reupload Checkstyle</b></center></td>
           </tr>
         </table>
       </div>
