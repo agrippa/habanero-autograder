@@ -129,6 +129,8 @@ public class Viola {
                 err_msg = "Missing run ID";
             } else if (!parms.containsKey("assignment_id")) {
                 err_msg = "Missing assignment ID";
+            } else if (!parms.containsKey("jvm_args")) {
+                err_msg = "Missing JVM args";
             }
 
             if (err_msg != null) {
@@ -141,11 +143,13 @@ public class Viola {
                 final String assignment_name = parms.get("assignment");
                 final int run_id = Integer.parseInt(parms.get("run"));
                 final int assignment_id = Integer.parseInt(parms.get("assignment_id"));
-                ViolaUtil.log("starting tests for user=%s assignment=%s run=%d assignment_id=%d\n", user,
-                        assignment_name, run_id, assignment_id);
+                final String jvm_args = parms.get("jvm_args");
+                ViolaUtil.log("starting tests for user=%s assignment=%s run=%d " +
+                        "assignment_id=%d jvm_args=%s\n", user, assignment_name,
+                        run_id, assignment_id, jvm_args);
 
                 final LocalTestRunner runnable = new LocalTestRunner(done_token,
-                        user, assignment_name, run_id, assignment_id, env);
+                        user, assignment_name, run_id, assignment_id, jvm_args, env);
                 executor.execute(runnable);
                 writeResponse(t, "{ \"status\": \"Success\" }");
             }

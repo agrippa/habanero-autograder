@@ -96,30 +96,36 @@
                       'onclick="set_assignment_correctness_only(' + curr.assignment_id +
                       ', ' + !curr.correctness_only + ');">Toggle</button>';
 
-                      var upload_zip_html =
-                        '<form action="/upload_zip/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
-                        '<input name="zip" type="file">' +
-                        '<input value="Upload" name="submit" type="submit">' +
-                        '</form>';
-                      var upload_instructor_pom_html =
-                        '<form action="/upload_instructor_pom/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
-                        '<input name="pom" type="file">' +
-                        '<input value="Upload" name="submit" type="submit">' +
-                        '</form>';
-                      var upload_rubric_html =
-                        '<form action="/upload_rubric/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
-                        '<input name="rubric" type="file">' +
-                        '<input value="Upload" name="submit" type="submit">' +
-                        '</form>';
-                      var upload_checkstyle_html =
-                        '<form action="/upload_checkstyle/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
-                        '<input name="checkstyle_config" type="file">' +
-                        '<input value="Upload" name="submit" type="submit">' +
-                        '</form>';
+                    var jvm_args_html = '<form action="/update_jvm_args/' + curr.assignment_id + '" method="post" enctype="application/x-www-form-urlencoded">' +
+                      '<input name="jvm_args" type="text" value="' + curr.jvm_args + '">' +
+                      '<input value="Update" name="submit" type="submit">' +
+                      '</form>';
+
+                    var upload_zip_html =
+                      '<form action="/upload_zip/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
+                      '<input name="zip" type="file">' +
+                      '<input value="Upload" name="submit" type="submit">' +
+                      '</form>';
+                    var upload_instructor_pom_html =
+                      '<form action="/upload_instructor_pom/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
+                      '<input name="pom" type="file">' +
+                      '<input value="Upload" name="submit" type="submit">' +
+                      '</form>';
+                    var upload_rubric_html =
+                      '<form action="/upload_rubric/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
+                      '<input name="rubric" type="file">' +
+                      '<input value="Upload" name="submit" type="submit">' +
+                      '</form>';
+                    var upload_checkstyle_html =
+                      '<form action="/upload_checkstyle/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
+                      '<input name="checkstyle_config" type="file">' +
+                      '<input value="Upload" name="submit" type="submit">' +
+                      '</form>';
 
                     $('#existing-assignments tr:last').after('<tr><td><center>' +
                         curr.name + '</center></td><td><center>' + visibility_button_html +
                         '</center></td><td><center>' + correctness_button_html +
+                        '</center></td><td><center>' + jvm_args_html +
                         '</center></td><td>' + upload_zip_html + '</td><td>' +
                         upload_instructor_pom_html + '</td><td>' +
                         upload_rubric_html + '</td><td>' + upload_checkstyle_html + '</td></tr>');
@@ -165,6 +171,7 @@
             <td bgcolor="#AAAAAA"><center><b>Name</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Visibility</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Correctness Only</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>JVM Args</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Reupload Zip</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Reupload Instructor POM</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Reupload Rubric</b></center></td>

@@ -51,15 +51,17 @@ public class LocalTestRunner implements Runnable {
     private final String assignment_name;
     private final int run_id;
     private final int assignment_id;
+    private final String[] jvm_args;
     private final ViolaEnv env;
 
     public LocalTestRunner(String done_token, String user,
-            String assignment_name, int run_id, int assignment_id, ViolaEnv env) {
+            String assignment_name, int run_id, int assignment_id, String jvm_args, ViolaEnv env) {
         this.done_token = done_token;
         this.user = user;
         this.assignment_name = assignment_name;
         this.run_id = run_id;
         this.assignment_id = assignment_id;
+        this.jvm_args = jvm_args.split("\\s+");
         this.env = env;
     }
     
@@ -423,10 +425,22 @@ public class LocalTestRunner implements Runnable {
                   ".:target/classes:target/test-classes:" + env.junit + ":" +
                   env.hamcrest + ":" + env.hj + ":" + env.asm;
               final String policyPath = env.autograderHome + "/shared/security.policy";
-              final String[] junit_cmd = new String[]{"java",
-                  "-Djava.security.manager", "-Djava.security.policy==" + policyPath, "-Dhj.numWorkers=1",
-                  "-javaagent:" + env.hj, "-cp", classpath,
-                  "org.junit.runner.JUnitCore", classname};
+              final int junit_cmd_length = 9 + jvm_args.length;
+              final String[] junit_cmd = new String[junit_cmd_length];
+              int junit_cmd_index = 0;
+              junit_cmd[junit_cmd_index++] = "java";
+              junit_cmd[junit_cmd_index++] = "-Djava.security.manager";
+              junit_cmd[junit_cmd_index++] = "-Djava.security.policy==" + policyPath;
+              junit_cmd[junit_cmd_index++] = "-Dhj.numWorkers=1";
+              junit_cmd[junit_cmd_index++] = "-javaagent:" + env.hj;
+              junit_cmd[junit_cmd_index++] = "-cp";
+              junit_cmd[junit_cmd_index++] = classpath;
+              for (String arg : jvm_args) {
+                junit_cmd[junit_cmd_index++] = arg;
+              }
+              junit_cmd[junit_cmd_index++] = "org.junit.runner.JUnitCore";
+              junit_cmd[junit_cmd_index++] = classname;
+              assert junit_cmd_index == junit_cmd_length;
               ProcessResults junit_results = runInProcess(junit_cmd, unzipped_code_dir);
               /*
                * A non-zero exit code here can simply indicate a test

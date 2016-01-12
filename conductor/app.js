@@ -654,6 +654,39 @@ function handle_reupload(req, res, missing_msg, target_filename) {
   }
 }
 
+app.post('/update_jvm_args/:assignment_id', function(req, res, next) {
+  console.log('update_jvm_args: is_admin=' + req.session.is_admin + ', jvm_args=' + req.body.jvm_args);
+  if (!req.session.is_admin) {
+    return res.render('admin.html', {err_msg: permissionDenied});
+  } else {
+    if (!req.body.jvm_args) {
+      return res.render('admin.html', {err_msg: 'Malformed request, missing JVM args field?'});
+    }
+    var assignment_id = req.params.assignment_id;
+
+    pgclient(function(client, done) {
+      var query = client.query(
+        "SELECT * FROM assignments WHERE assignment_id=($1)", [assignment_id]);
+      register_query_helpers(query, res, done, req.session.username);
+      query.on('end', function(result) {
+        if (result.rows.length != 1) {
+          done();
+          return res.render('admin.html',
+            {err_msg: 'That assignment doesn\'t seem to exist'});
+        } else {
+          var query = client.query("UPDATE assignments SET jvm_args=($1) WHERE assignment_id=($2);",
+              [req.body.jvm_args, assignment_id]);
+          register_query_helpers(query, res, done, req.session.username);
+          query.on('end', function(result) {
+            done();
+            return res.redirect('/admin');
+          });
+        }
+      });
+    });
+  }
+});
+
 app.post('/upload_zip/:assignment_id', upload.single('zip'),
     function(req, res, next) {
       console.log('upload_zip: is_admin=' + req.session.is_admin);
@@ -844,6 +877,7 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                 { err_msg: 'There appear to be duplicate assignments ' + assignment_name });
             } else {
               var assignment_id = result.rows[0].assignment_id;
+              var jvm_args = result.rows[0].jvm_args;
 
               // Allow assignment settings to override user-provided setting
               var assignment_correctness_only = result.rows[0].correctness_only;
@@ -892,9 +926,9 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                                     var viola_params = 'done_token=' + done_token +
                                         '&user=' + req.session.username +
                                         '&assignment=' + assignment_name + '&run=' +
-                                        run_id + '&assignment_id=' + assignment_id;
+                                        run_id + '&assignment_id=' + assignment_id + '&jvm_args=' + jvm_args;
                                     var viola_options = { host: VIOLA_HOST,
-                                        port: VIOLA_PORT, path: '/run?' + viola_params };
+                                        port: VIOLA_PORT, path: '/run?' + encodeURI(viola_params) };
                                     console.log('submit_run: sending viola ' +
                                       'request for run ' + run_id);
                                     http.get(viola_options, function(viola_res) {
@@ -964,7 +998,7 @@ function loop_over_all_perf_tests(cmd) {
 
 function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     assignment_name, java_profiler_dir, os, ncores, junit_jar, hamcrest_jar, hj_jar,
-    asm_jar, rr_agent_jar, rr_runtime_jar) {
+    asm_jar, rr_agent_jar, rr_runtime_jar, assignment_jvm_args) {
   var slurmFileContents =
     "#!/bin/bash\n" +
     "\n" +
@@ -1056,7 +1090,8 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
    */
   if (os !== 'Darwin') {
     var rr_output = '$CELLO_WORK_DIR/datarace.txt';
-    slurmFileContents += loop_over_all_perf_tests('java ' + securityFlags + ' -cp ' +
+    slurmFileContents += loop_over_all_perf_tests('java ' +
+      assignment_jvm_args + ' ' + securityFlags + ' -cp ' +
       classpath.join(':') + ' -Dhj.numWorkers=' + ncores + ' -javaagent:' +
       hj_jar + ' -javaagent:' + rr_agent_jar + ' -Xbootclasspath/p:' +
       rr_runtime_jar + ' rr.RRMain -toolpath= -maxTid=80 -tool=FT_CHECKER ' +
@@ -1151,7 +1186,8 @@ app.post('/local_run_finished', function(req, res, next) {
                             [assignment_id]);
                           register_query_helpers(query, res, done, 'unknown');
                           query.on('end', function(result) {
-                            var assignment_name = result.rows[0].name;
+                            var assignment_name = result.rows[0].name; 
+                            var assignment_jvm_args = result.rows[0].jvm_args;
 
                             console.log('local_run_finished: Connecting to ' +
                                 CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
@@ -1197,7 +1233,8 @@ app.post('/local_run_finished', function(req, res, next) {
                                         get_slurm_file_contents(run_id, home_dir,
                                           username, assignment_id, assignment_name,
                                           java_profiler_dir, os, ncores, junit,
-                                          hamcrest, hj, asm, rr_agent_jar, rr_runtime_jar));
+                                          hamcrest, hj, asm, rr_agent_jar, rr_runtime_jar,
+                                          assignment_jvm_args));
 
                                       var cello_work_dir = get_cello_work_dir(home_dir, run_id);
                                       var submission_checkout = 'svn checkout ' +
