@@ -12,6 +12,17 @@ fi
 NETID=$1
 PW=$(generate_password)
 EXISTS=$(check_user_exists $NETID)
+HOSTNAME=$(hostname)
+
+if [[ -z "$GMAIL_USER" ]]; then
+    echo GMAIL_USER must be a defined environment variable
+    exit 1
+fi
+
+if [[ -z "$GMAIL_PASS" ]]; then
+    echo GMAIL_PASS must be a defined environment variable
+    exit 1
+fi
 
 if [[ $EXISTS == 0 ]]; then
     HASH=$(node password_hash.js $PW)
@@ -28,7 +39,7 @@ if [[ $EXISTS == 0 ]]; then
 
     python send-autograder-email.py ${NETID}@rice.edu \
         "Habanero AutoGrader Account Creation" \
-        "An account has been created for you on the Habanero AutoGrader with the username '$NETID' and password '$PW'"
+        "An account has been created for you on the Habanero AutoGrader with the username '$NETID' and password '$PW'. The Habanero AutoGrader is currently accessible at ${HOSTNAME}."
 else
     echo User $NETID already exists
 fi

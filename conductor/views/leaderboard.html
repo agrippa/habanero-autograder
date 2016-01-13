@@ -1,0 +1,44 @@
+<html>
+  <head>
+    <link rel="stylesheet" href="/third_party/bootstrap.min.css">
+    <script src="/third_party/jquery-2.1.4.min.js"></script>
+    <script src="/third_party/bootstrap.min.js"></script>
+
+    <script type="text/javascript">
+    </script>
+  </head>
+
+  <body>
+    <% include header.html %>
+
+    <div class="row" style="width:100%">
+      <div class="col-md-8 col-md-offset-2">
+        <hr/>
+        <h3>Leaderboard</h3>
+        <hr/>
+        <div class="col-md-7 col-md-offset-3">
+          <div class="dropdown" style="float:left">
+            <button style="width=100%" id='dropdown-button' class="btn btn-primary btn-block dropdown-toggle" type="button" data-toggle="dropdown">Select Assignment</button>
+            <ul class="dropdown-menu" id="assignment-dropdown">
+              <li><a href="#">Loading...</a></li>
+            </ul>
+          </div>
+          <button type="button" class="btn btn-default" onclick="select_assignment();">Select</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="row" style="width:100%">
+      <div class="col-md-8 col-md-offset-2">
+        <table style="width:100%" border="1">
+          <tr>
+            <td bgcolor="#AAAAAA"><center><b>Run ID</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Summary</b></center></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <% include footer.html %>
+  </body>
+</html>

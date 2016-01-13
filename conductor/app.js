@@ -475,6 +475,10 @@ app.get('/overview', function(req, res, next) {
   res.render('overview.html');
 });
 
+app.get('/leaderboard', function(req, res, next) {
+  res.render('leaderboard.html');
+});
+
 app.get('/comments', function(req, res, next) {
   res.render('comments.html');
 });
