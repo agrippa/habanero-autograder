@@ -1369,6 +1369,18 @@ app.post('/local_run_finished', function(req, res, next) {
     });
 });
 
+app.get('/anonymous_runs', function(req, res, next) {
+  pgclient(function(client, done) {
+    var query = client.query(
+        "SELECT run_id,assignment_id,status FROM runs ORDER BY run_id DESC");
+    register_query_helpers(query, res, done, req.session.username);
+    query.on('end', function(result) {
+      return res.send(JSON.stringify({ status: 'Success', runs: result.rows }));
+    });
+  });
+  
+});
+
 app.get('/runs', function(req, res, next) {
   pgclient(function(client, done) {
     get_user_id_for_name(req.session.username, client, done, res,

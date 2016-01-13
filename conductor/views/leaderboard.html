@@ -5,6 +5,68 @@
     <script src="/third_party/bootstrap.min.js"></script>
 
     <script type="text/javascript">
+      function set_dropdown_label(lbl) {
+        $('#dropdown-button').text(lbl);
+        $('#assignment_id').val(lbl);
+
+        $.ajax({
+            url: '/anonymous_runs',
+            type: 'GET',
+            data: { assignment_name: lbl },
+            ContentType: 'application/json; charset=utf-8',
+            dataType: "json",
+            success: function(data) {
+              $('#runs_table').find("tr:gt(0)").remove(); // clear table except column headers
+
+              if (data.status === 'Success') {
+                var runs = data.runs;
+                for (var i = 0; i < runs.length; i++) {
+                  var curr = runs[i];
+                  var status = curr.status;
+                  var status_color = status === 'FINISHED' ? 'green' : (status === 'FAILED' ? 'red' : 'orange');
+                  $('#runs_table tr:last').after('<tr><td><center>' +
+                      curr.run_id + '</center></td><td><center><font color="' +
+                      status_color + '">' + curr.status + '</font></td></center></tr>');
+                }
+              } else {
+                show_error(data.msg);
+              }
+            },
+            failure: function() {
+              show_error('Internal failure');
+            },
+        });
+      }
+
+      $(function() {
+          $.ajax({
+              url: '/assignments',
+              type: 'GET',
+              data: { get_not_visible: false },
+              ContentType: 'application/json; charset=utf-8',
+              dataType: 'json',
+              success: function(data) {
+                if (data.status === 'Success') {
+                  var assignments = data.assignments;
+                  $('#assignment-dropdown').empty();
+                  if (assignments.length > 0) {
+                    for (var i = 0; i < assignments.length; i++) {
+                        var curr = assignments[i];
+                        var entry_html = '<li><a href="#" onclick=set_dropdown_label("' + curr.name + '")>' + curr.name + '</a></li>';
+                        $('#assignment-dropdown').append(entry_html);
+                    }
+                  } else {
+                    $('#assignment-dropdown').append('<li><a href="#">No Assignments Available</a></li>');
+                  }
+                } else {
+                  show_error(data.msg);
+                }
+              },
+              failure: function() {
+                show_error('Internal failure');
+              },
+            });
+        });
     </script>
   </head>
 
@@ -23,14 +85,13 @@
               <li><a href="#">Loading...</a></li>
             </ul>
           </div>
-          <button type="button" class="btn btn-default" onclick="select_assignment();">Select</button>
         </div>
       </div>
     </div>
 
     <div class="row" style="width:100%">
       <div class="col-md-8 col-md-offset-2">
-        <table style="width:100%" border="1">
+        <table id="runs_table" style="width:100%" border="1">
           <tr>
             <td bgcolor="#AAAAAA"><center><b>Run ID</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Summary</b></center></td>
