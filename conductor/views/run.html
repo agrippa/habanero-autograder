@@ -24,6 +24,10 @@
           <h5><%= score.breakdown[iter].name %>: <%= score.breakdown[iter].points %> / <%= score.breakdown[iter].total %></h5>
           <% } %>
         </div>
+        <% if (viola_err && viola_err.length > 0) { %>
+          <h4><font color="red">Correctness tests reported error: <%= viola_err %></font></h4>
+        <% } %>
+        <h4>
       </div>
     </div>
 

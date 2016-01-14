@@ -882,12 +882,14 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
             } else {
               var assignment_id = result.rows[0].assignment_id;
               var jvm_args = result.rows[0].jvm_args;
+              console.log('submit_run: found assignment_id=' + assignment_id + ' jvm_args="' + jvm_args + '"');
 
               // Allow assignment settings to override user-provided setting
               var assignment_correctness_only = result.rows[0].correctness_only;
               if (assignment_correctness_only) correctness_only = true;
 
               crypto.randomBytes(48, function(ex, buf) {
+                  console.log('submit_run: got random bytes');
                   var done_token = buf.toString('hex');
 
                   var query = client.query("INSERT INTO runs (user_id, " +
@@ -1133,7 +1135,9 @@ function email_for_user(username) {
 
 app.post('/local_run_finished', function(req, res, next) {
     var done_token = req.body.done_token;
-    console.log('local_run_finished: done_token=' + done_token);
+    var viola_err_msg = req.body.err_msg;
+    console.log('local_run_finished: done_token=' + done_token + ' err_msg="' +
+        viola_err_msg + '"');
 
     pgclient(function(client, done) {
         // Can only be one match here because of SQL schema constraints
@@ -1164,8 +1168,8 @@ app.post('/local_run_finished', function(req, res, next) {
 
                   if (correctness_only) {
                       query = client.query(
-                          "UPDATE runs SET status='FINISHED' WHERE run_id=($1)",
-                          [run_id]);
+                          "UPDATE runs SET status='FINISHED',viola_msg=$1 WHERE run_id=($2)",
+                          [viola_err_msg, run_id]);
                       register_query_helpers(query, res, done, 'unknown');
                       query.on('end', function(result) {
                           var subject = 'Habanero AutoGrader Run ' + run_id + ' Finished';
@@ -1182,7 +1186,7 @@ app.post('/local_run_finished', function(req, res, next) {
                       });
                   } else {
                       var query = client.query(
-                          "UPDATE runs SET status='TESTING PERFORMANCE' WHERE run_id=($1)", [run_id]);
+                          "UPDATE runs SET status='TESTING PERFORMANCE',viola_msg=$1 WHERE run_id=($2)", [viola_err_msg, run_id]);
                       register_query_helpers(query, res, done, username);
                       query.on('end', function(result) {
                           var query = client.query(
@@ -1683,6 +1687,8 @@ function calculate_score(assignment_id, log_files, ncores) {
 
 app.get('/run/:run_id', function(req, res, next) {
     var run_id = req.params.run_id;
+    console.log('run: run_id=' + run_id);
+
     pgclient(function(client, done) {
         var query = client.query("SELECT * FROM runs WHERE run_id=($1)",
             [run_id]);
@@ -1693,41 +1699,57 @@ app.get('/run/:run_id', function(req, res, next) {
                 return res.render('overview.html', { err_msg: 'Unknown run' });
             }
             var user_id = result.rows[0].user_id;
-            if (user_id != req.session.user_id) {
+            var assignment_id = result.rows[0].assignment_id;
+            var viola_err_msg = result.rows[0].viola_msg;
+            if (!req.session.is_admin && user_id != req.session.user_id) {
                 return res.send(401);
             }
-            var run_dir = __dirname + '/submissions/' +
-                req.session.username + '/' + run_id;
-            var log_files = {};
-            fs.readdirSync(run_dir).forEach(function(file) {
-              if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 &&
-                    !arr_contains(file, dont_display)) {
-                  log_files[file] = fs.readFileSync(run_dir + '/' + file);
-              }
-            });
-
-            connect_to_cluster(function(conn, err) {
-              if (err) {
-                return res.render('overview.html',
-                  { err_msg: 'Failed connecting to cluster' });
-              }
-
-              get_cluster_cores(conn, function(err, ncores) {
-                if (err) {
-                  return res.render('overview.html',
-                    { err_msg: 'Failed getting cluster info' });
-                }
-
-                var score = calculate_score(result.rows[0].assignment_id, log_files, ncores);
-                var render_vars = { run_id: run_id, log_files: log_files };
-                if (score) {
-                  render_vars['score'] = score;
+            var query = client.query("SELECT * FROM users WHERE user_id=($1)", [user_id]);
+            register_query_helpers(query, res, done, req.session.username);
+            query.on('end', function(result) {
+                var username = result.rows[0].user_name;
+                var run_dir = __dirname + '/submissions/' +
+                    username + '/' + run_id;
+                /*
+                 * If bugs cause submissions to fail, their storage may not exist.
+                 * This shouldn't happen in a bugless AutoGrader.
+                 */
+                if (!fs.existsSync(run_dir)) {
+                  var render_vars = { run_id: run_id };
+                  return res.render('missing_run.html', render_vars);
                 } else {
-                  render_vars['err_msg'] = 'Error calculating score';
-                }
+                  var log_files = {};
+                  fs.readdirSync(run_dir).forEach(function(file) {
+                    if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 &&
+                          !arr_contains(file, dont_display)) {
+                        log_files[file] = fs.readFileSync(run_dir + '/' + file);
+                    }
+                  });
 
-                return res.render('run.html', render_vars);
-              });
+                  connect_to_cluster(function(conn, err) {
+                    if (err) {
+                      return res.render('overview.html',
+                        { err_msg: 'Failed connecting to cluster' });
+                    }
+
+                    get_cluster_cores(conn, function(err, ncores) {
+                      if (err) {
+                        return res.render('overview.html',
+                          { err_msg: 'Failed getting cluster info' });
+                      }
+
+                      var score = calculate_score(assignment_id, log_files, ncores);
+                      var render_vars = { run_id: run_id, log_files: log_files, viola_err: viola_err_msg };
+                      if (score) {
+                        render_vars['score'] = score;
+                      } else {
+                        render_vars['err_msg'] = 'Error calculating score';
+                      }
+
+                      return res.render('run.html', render_vars);
+                    });
+                  });
+                }
             });
         });
     });

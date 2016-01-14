@@ -61,7 +61,12 @@ public class LocalTestRunner implements Runnable {
         this.assignment_name = assignment_name;
         this.run_id = run_id;
         this.assignment_id = assignment_id;
-        this.jvm_args = jvm_args.split("\\s+");
+        jvm_args = jvm_args.trim();
+        if (jvm_args.length() == 0) {
+            this.jvm_args = new String[0];
+        } else {
+            this.jvm_args = jvm_args.split("\\s+");
+        }
         this.env = env;
     }
     
@@ -77,9 +82,9 @@ public class LocalTestRunner implements Runnable {
      * Partially taken from http://stackoverflow.com/questions/4205980/java-sending-http-parameters-via-post-method-easily
      * TODO Problem here is we could fail silently to succeed.
      */
-    private void notifyConductor() {
+    private void notifyConductor(String err_msg) {
         try {
-            String urlParameters = "done_token=" + done_token;
+            String urlParameters = "done_token=" + done_token + "&err_msg=" + err_msg;
             byte[] postData = urlParameters.getBytes(StandardCharsets.UTF_8);
             int postDataLength = postData.length;
             // TODO make configurable
@@ -210,6 +215,9 @@ public class LocalTestRunner implements Runnable {
 
     private ProcessResults runInProcess(String[] cmd, File working_dir)
         throws IOException, InterruptedException {
+      ViolaUtil.log("runInProcess: working_dir=%s cmd=%s\n",
+          working_dir.getAbsolutePath(), String.join(" ", cmd));
+      
       ProcessBuilder pb = new ProcessBuilder(Arrays.asList(cmd));
       pb.directory(working_dir);
       Process p = pb.start();
@@ -260,9 +268,11 @@ public class LocalTestRunner implements Runnable {
 
     @Override
     public void run() {
-        ViolaUtil.log("Running local tests for user=%s assignment=%s run=%d\n",
-                user, assignment_name, run_id);
+        ViolaUtil.log("Running local tests for user=%s assignment=%s run=%d " +
+                "jvm_args length=%d\n", user, assignment_name, run_id,
+                jvm_args.length);
 
+        String err_msg = "";
         File code_dir = null;
         File instructor_dir = null;
         File extract_code_dir = null;
@@ -318,15 +328,21 @@ public class LocalTestRunner implements Runnable {
             FilenameFilter dirsOnly = new FilenameFilter() {
               @Override
               public boolean accept(File current, String name) {
-                return new File(current, name).isDirectory();
+                return !name.equals("__MACOSX") && new File(current, name).isDirectory();
               }
             };
             String[] code_directories = extract_code_dir.list(dirsOnly);
             String[] instructor_directories = extract_instructor_dir.list(dirsOnly);
 
             if (code_directories.length != 1) {
-              throw new TestRunnerException("Unexpected number of code directories (" +
-                  code_directories.length + ")");
+              StringBuilder sb = new StringBuilder("Unexpected number of code " +
+                  "directories (" + code_directories.length + ") [");
+              for (String d : code_directories) {
+                  sb.append(" " + d);
+              }
+              sb.append("]");
+  
+              throw new TestRunnerException(sb.toString());
             }
             if (instructor_directories.length != 1) {
               throw new TestRunnerException("Unexpected number of instructor directories (" +
@@ -343,7 +359,15 @@ public class LocalTestRunner implements Runnable {
             final File checkstyle_config = new File(instructor_dir.getAbsolutePath() + "/checkstyle.xml");
             ViolaUtil.log("Checkstyle config file = " + checkstyle_config.getAbsolutePath() + "\n");
 
-            File mainCodeFolder = new File(new File(unzipped_code_dir, "src"), "main");
+            final File mainSrcFolder = new File(unzipped_code_dir, "src");
+            if (!mainSrcFolder.exists()) {
+                throw new TestRunnerException("Expected a src folder under top-level directory in zip.");
+            }
+            File mainCodeFolder = new File(mainSrcFolder, "main");
+            if (!mainCodeFolder.exists()) {
+                throw new TestRunnerException("Expected a main folder under the src/ directory in zip.");
+            }
+            ViolaUtil.log("mainCodeFolder = " + mainCodeFolder.getAbsolutePath() + "\n");
             List<String> studentJavaFiles = findAllJavaFiles(mainCodeFolder, false);
 
             String[] checkstyle_cmd = new String[5 + studentJavaFiles.size()];
@@ -468,6 +492,7 @@ public class LocalTestRunner implements Runnable {
         } catch (SVNException svn) {
             svn.printStackTrace();
         } catch (TestRunnerException tr) {
+            err_msg = tr.getMessage();
             tr.printStackTrace();
         } finally {
             // Add the generated files to the repo
@@ -510,7 +535,7 @@ public class LocalTestRunner implements Runnable {
             ViolaUtil.log("Done with local testing\n");
         }
 
-        notifyConductor();
+        notifyConductor(err_msg);
         ViolaUtil.log("Finished local tests for user=%s assignment=%s run=%d\n", user,
                 assignment_name, run_id);
     }

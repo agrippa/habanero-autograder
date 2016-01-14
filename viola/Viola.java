@@ -145,7 +145,7 @@ public class Viola {
                 final int assignment_id = Integer.parseInt(parms.get("assignment_id"));
                 final String jvm_args = parms.get("jvm_args");
                 ViolaUtil.log("starting tests for user=%s assignment=%s run=%d " +
-                        "assignment_id=%d jvm_args=%s\n", user, assignment_name,
+                        "assignment_id=%d jvm_args=\"%s\"\n", user, assignment_name,
                         run_id, assignment_id, jvm_args);
 
                 final LocalTestRunner runnable = new LocalTestRunner(done_token,
