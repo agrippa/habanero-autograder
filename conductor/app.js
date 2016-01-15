@@ -545,6 +545,7 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
 
           var validated = load_and_validate_rubric(req.files.rubric[0].path);
           if (!validated.success) {
+              done();
               return res.render('admin.html', {err_msg: 'Error in rubric: ' + validated.msg});
           }
 
@@ -1379,6 +1380,7 @@ app.get('/anonymous_runs', function(req, res, next) {
         "SELECT run_id,assignment_id,status FROM runs ORDER BY run_id DESC");
     register_query_helpers(query, res, done, req.session.username);
     query.on('end', function(result) {
+      done();
       return res.send(JSON.stringify({ status: 'Success', runs: result.rows }));
     });
   });
@@ -1694,8 +1696,8 @@ app.get('/run/:run_id', function(req, res, next) {
             [run_id]);
         register_query_helpers(query, res, done, req.session.username);
         query.on('end', function(result) {
-            done();
             if (result.rows.length == 0) {
+                done();
                 return res.render('overview.html', { err_msg: 'Unknown run' });
             }
             var user_id = result.rows[0].user_id;
@@ -1707,6 +1709,8 @@ app.get('/run/:run_id', function(req, res, next) {
             var query = client.query("SELECT * FROM users WHERE user_id=($1)", [user_id]);
             register_query_helpers(query, res, done, req.session.username);
             query.on('end', function(result) {
+                done();
+
                 var username = result.rows[0].user_name;
                 var run_dir = __dirname + '/submissions/' +
                     username + '/' + run_id;
