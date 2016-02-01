@@ -352,6 +352,14 @@ public class LocalTestRunner implements Runnable {
             final File unzipped_code_dir = new File(extract_code_dir, code_directories[0]);
             final File unzipped_instructor_dir = new File(extract_instructor_dir,
                 instructor_directories[0]);
+            final File unzipped_instructor_src_dir = new File(unzipped_instructor_dir, "src");
+            if (!unzipped_instructor_src_dir.exists()) {
+                throw new TestRunnerException("Instructor tests appear to be missing a src/ directory");
+            }
+            final File unzipped_instructor_test_dir = new File(unzipped_instructor_src_dir, "test");
+            if (!unzipped_instructor_test_dir.exists()) {
+                throw new TestRunnerException("Instructor tests appear to be missing a src/test/ directory");
+            }
 
             /*
              * Run checkstyle
@@ -367,6 +375,11 @@ public class LocalTestRunner implements Runnable {
             if (!mainCodeFolder.exists()) {
                 throw new TestRunnerException("Expected a main folder under the src/ directory in zip.");
             }
+            File mainTestFolder = new File(mainSrcFolder, "test");
+            if (!mainTestFolder.exists()) {
+                throw new TestRunnerException("Expected a test folder under the src/ directory in zip.");
+            }
+
             ViolaUtil.log("mainCodeFolder = " + mainCodeFolder.getAbsolutePath() + "\n");
             List<String> studentJavaFiles = findAllJavaFiles(mainCodeFolder, false);
 
@@ -400,10 +413,10 @@ public class LocalTestRunner implements Runnable {
             writer.close();
 
             /*
-             * Merge the student-provided code with the instructor-provided
-             * code into a single folder hierarchy.
+             * Merge the student-provided test code with the instructor-provided
+             * test code into a single folder hierarchy.
              */
-            merge_dirs(unzipped_code_dir, unzipped_instructor_dir);
+            merge_dirs(mainTestFolder, unzipped_instructor_test_dir);
             final File pom = new File(instructor_dir, "instructor_pom.xml");
             pom.renameTo(new File(unzipped_code_dir, "pom.xml"));
 
