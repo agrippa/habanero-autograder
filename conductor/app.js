@@ -1553,23 +1553,23 @@ function calculate_score(assignment_id, log_files, ncores) {
   if ('correct.txt' in log_files) {
     var content = log_files['correct.txt'].toString('utf8');
     var lines = content.split('\n');
-    var nfailures = -1;
+    var failure_counts = [];
+    var failures_message_found = false;
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       if (string_starts_with(line, 'There were ') && string_ends_with(line, ' failures:')) {
-        nfailures = parseInt(line.split(' ')[2]);
-        break;
+        failure_counts.push(parseInt(line.split(' ')[2]));
+        failures_message_found = true;
       } else if (string_starts_with(line, 'There was ') && string_ends_with(line, ' failure:')) {
-        nfailures = 1;
-        break;
+        failure_counts.push(1);
+        failures_message_found = true;
       } else if (string_starts_with(line, "OK (") && (string_ends_with(line, " tests)") ||
               string_ends_with(line, " test)"))) {
-        nfailures = 0;
-        break;
+        failures_message_found = true;
       }
     }
 
-    if (nfailures === -1) {
+    if (!failures_message_found) {
       /*
        * Something went really wrong during parsing as there is no JUnit report.
        * The most likely cause is a timeout during the student tests, so assign
@@ -1577,23 +1577,28 @@ function calculate_score(assignment_id, log_files, ncores) {
        */
       correctness = 0.0;
     } else {
-      var failure = 1;
-      for (var i = 0; i < lines.length; i++) {
-        if (string_starts_with(lines[i], failure + ') ')) {
-          var junit_testname = lines[i].split(' ')[1];
-          var test_tokens = junit_testname.split('(');
-          var testname = test_tokens[0];
-          var classname = test_tokens[1].substring(0, test_tokens[1].length - 1);
-          var fullname = classname + '.' + testname;
-
-          var test = find_correctness_test_with_name(fullname, rubric);
-          if (test) {
-            console.log('calculate_score: taking off ' + test.points_worth +
-                ' points for test ' + test.testname);
-            correctness -= test.points_worth;
+      var line_index = 0;
+      for (var i = 0; i < failure_counts.length; i++) {
+        var current_failure_count = failure_counts[i];
+        for (var failure = 1; failure <= current_failure_count; failure++) {
+          while (line_index < lines.length && !string_starts_with(lines[line_index], failure + ') ')) {
+            line_index++;
           }
 
-          failure++;
+          if (line_index < lines.length && string_starts_with(lines[line_index], failure + ') ')) {
+            var junit_testname = lines[line_index].split(' ')[1];
+            var test_tokens = junit_testname.split('(');
+            var testname = test_tokens[0];
+            var classname = test_tokens[1].substring(0, test_tokens[1].length - 1);
+            var fullname = classname + '.' + testname;
+
+            var test = find_correctness_test_with_name(fullname, rubric);
+            if (test) {
+              console.log('calculate_score: taking off ' + test.points_worth +
+                  ' points for test ' + test.testname);
+              correctness -= test.points_worth;
+            }
+          }
         }
       }
     }
