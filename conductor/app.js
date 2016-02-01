@@ -549,7 +549,7 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
               return res.render('admin.html', {err_msg: 'Error in rubric: ' + rubric_validated.msg});
           }
 
-          var pom_validated = validate_instructor_pom(req.file.path);
+          var pom_validated = validate_instructor_pom(req.files.instructor_pom[0].path);
           if (!pom_validated.success) {
               done();
               return res.render('admin.html', {err_msg: 'Error in POM: ' + pom_validated.msg});
@@ -1387,13 +1387,28 @@ app.post('/local_run_finished', function(req, res, next) {
 });
 
 app.get('/anonymous_runs', function(req, res, next) {
+  var assignment_name = req.query.assignment_name;
+  
+
   pgclient(function(client, done) {
-    var query = client.query(
-        "SELECT run_id,assignment_id,status FROM runs ORDER BY run_id DESC");
+    var query = client.query("SELECT assignment_id FROM assignments WHERE name=($1)", [assignment_name]);
     register_query_helpers(query, res, done, req.session.username);
     query.on('end', function(result) {
-      done();
-      return res.send(JSON.stringify({ status: 'Success', runs: result.rows }));
+      if (result.rows.length != 1) {
+        done();
+        return res.send(JSON.stringify({ status: 'Failure', msg: "That assignment name doesn't seem to exist" }));
+      }
+      var assignment_id = result.rows[0].assignment_id;
+
+      var query = client.query(
+          "SELECT run_id,status FROM runs WHERE assignment_id=($1) ORDER BY run_id DESC",
+          [assignment_id]);
+      register_query_helpers(query, res, done, req.session.username);
+      query.on('end', function(result) {
+        done();
+        return res.send(JSON.stringify({ status: 'Success', runs: result.rows }));
+      });
+
     });
   });
   
@@ -1588,50 +1603,73 @@ function calculate_score(assignment_id, log_files, ncores) {
   if ('correct.txt' in log_files) {
     var content = log_files['correct.txt'].toString('utf8');
     var lines = content.split('\n');
-    var failure_counts = [];
-    var failures_message_found = false;
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i];
-      if (string_starts_with(line, 'There were ') && string_ends_with(line, ' failures:')) {
-        failure_counts.push(parseInt(line.split(' ')[2]));
-        failures_message_found = true;
-      } else if (string_starts_with(line, 'There was ') && string_ends_with(line, ' failure:')) {
-        failure_counts.push(1);
-        failures_message_found = true;
-      } else if (string_starts_with(line, "OK (") && (string_ends_with(line, " tests)") ||
-              string_ends_with(line, " test)"))) {
-        failures_message_found = true;
+
+    /*
+     * First check if anything was printed to STDERR. This may indicate anything
+     * (from harmless prints by the student, to OutOfMemoryException) so we
+     * conservatively give zero points if STDERR is non-empty.
+     */
+    var i = lines.length - 1;
+    while (i >= 0 && lines[i] !== '======= STDERR =======') {
+      i--;
+    }
+    i++;
+    var any_nonempty_lines = false;
+    for (; i < lines.length; i++) {
+      if (lines[i].trim().length > 0) {
+        any_nonempty_lines = true;
+        break;
       }
     }
 
-    if (!failures_message_found) {
-      /*
-       * Something went really wrong during parsing as there is no JUnit report.
-       * The most likely cause is a timeout during the student tests, so assign
-       * a score of 0 for correctness.
-       */
+    if (any_nonempty_lines) {
       correctness = 0.0;
     } else {
-      var line_index = 0;
-      for (var i = 0; i < failure_counts.length; i++) {
-        var current_failure_count = failure_counts[i];
-        for (var failure = 1; failure <= current_failure_count; failure++) {
-          while (line_index < lines.length && !string_starts_with(lines[line_index], failure + ') ')) {
-            line_index++;
-          }
+      var failure_counts = [];
+      var failures_message_found = false;
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        if (string_starts_with(line, 'There were ') && string_ends_with(line, ' failures:')) {
+          failure_counts.push(parseInt(line.split(' ')[2]));
+          failures_message_found = true;
+        } else if (string_starts_with(line, 'There was ') && string_ends_with(line, ' failure:')) {
+          failure_counts.push(1);
+          failures_message_found = true;
+        } else if (string_starts_with(line, "OK (") && (string_ends_with(line, " tests)") ||
+                string_ends_with(line, " test)"))) {
+          failures_message_found = true;
+        }
+      }
 
-          if (line_index < lines.length && string_starts_with(lines[line_index], failure + ') ')) {
-            var junit_testname = lines[line_index].split(' ')[1];
-            var test_tokens = junit_testname.split('(');
-            var testname = test_tokens[0];
-            var classname = test_tokens[1].substring(0, test_tokens[1].length - 1);
-            var fullname = classname + '.' + testname;
+      if (!failures_message_found) {
+        /*
+         * Something went really wrong during parsing as there is no JUnit report.
+         * The most likely cause is a timeout during the student tests, so assign
+         * a score of 0 for correctness.
+         */
+        correctness = 0.0;
+      } else {
+        var line_index = 0;
+        for (var i = 0; i < failure_counts.length; i++) {
+          var current_failure_count = failure_counts[i];
+          for (var failure = 1; failure <= current_failure_count; failure++) {
+            while (line_index < lines.length && !string_starts_with(lines[line_index], failure + ') ')) {
+              line_index++;
+            }
 
-            var test = find_correctness_test_with_name(fullname, rubric);
-            if (test) {
-              console.log('calculate_score: taking off ' + test.points_worth +
-                  ' points for test ' + test.testname);
-              correctness -= test.points_worth;
+            if (line_index < lines.length && string_starts_with(lines[line_index], failure + ') ')) {
+              var junit_testname = lines[line_index].split(' ')[1];
+              var test_tokens = junit_testname.split('(');
+              var testname = test_tokens[0];
+              var classname = test_tokens[1].substring(0, test_tokens[1].length - 1);
+              var fullname = classname + '.' + testname;
+
+              var test = find_correctness_test_with_name(fullname, rubric);
+              if (test) {
+                console.log('calculate_score: taking off ' + test.points_worth +
+                    ' points for test ' + test.testname);
+                correctness -= test.points_worth;
+              }
             }
           }
         }
