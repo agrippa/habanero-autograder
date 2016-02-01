@@ -82,7 +82,7 @@ public class Viola {
 
         final String junit = getEnvVarOrFail("JUNIT_JAR");
         final String hamcrest = getEnvVarOrFail("HAMCREST_JAR");
-        final String hj = getEnvVarOrFail("HJ_JAR");
+        final String mavenRepo = getEnvVarOrFail("HOME") + "/.m2/repository";
         final String asm = getEnvVarOrFail("ASM_JAR");
         final String autograderHome = getEnvVarOrFail("AUTOGRADER_HOME");
         final String checkstyle = getEnvVarOrFail("CHECKSTYLE_JAR");
@@ -97,14 +97,14 @@ public class Viola {
         System.out.printf("SVN        = %s @ %s\n", svnUser, svnRepo);
         System.out.printf("junit      = %s\n", junit);
         System.out.printf("hamcrest   = %s\n", hamcrest);
-        System.out.printf("hj         = %s\n", hj);
+        System.out.printf("maven repo = %s\n", mavenRepo);
         System.out.printf("asm        = %s\n", asm);
         System.out.printf("autograder = %s\n", autograderHome);
         System.out.printf("checkstyle = %s\n", checkstyle);
         System.out.println("===================================");
 
         env = new ViolaEnv(conductorHost, conductorPort,
-            ourClientManager, svnRepo, junit, hamcrest, hj, asm, checkstyle, autograderHome);
+            ourClientManager, svnRepo, junit, hamcrest, mavenRepo, asm, checkstyle, autograderHome);
 
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/run", new RunHandler());

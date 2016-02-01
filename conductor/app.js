@@ -543,10 +543,16 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
 
     pgclient(function(client, done) {
 
-          var validated = load_and_validate_rubric(req.files.rubric[0].path);
-          if (!validated.success) {
+          var rubric_validated = load_and_validate_rubric(req.files.rubric[0].path);
+          if (!rubric_validated.success) {
               done();
-              return res.render('admin.html', {err_msg: 'Error in rubric: ' + validated.msg});
+              return res.render('admin.html', {err_msg: 'Error in rubric: ' + rubric_validated.msg});
+          }
+
+          var pom_validated = validate_instructor_pom(req.file.path);
+          if (!pom_validated.success) {
+              done();
+              return res.render('admin.html', {err_msg: 'Error in POM: ' + pom_validated.msg});
           }
 
           var query = client.query(
@@ -701,6 +707,12 @@ app.post('/upload_zip/:assignment_id', upload.single('zip'),
 app.post('/upload_instructor_pom/:assignment_id', upload.single('pom'),
     function(req, res, next) {
       console.log('upload_instructor_pom: is_admin=' + req.session.is_admin);
+
+      var validated = validate_instructor_pom(req.file.path);
+      if (!validated.success) {
+          return res.render('admin.html', {err_msg: 'Error in POM: ' + validated.msg});
+      }
+
       return handle_reupload(req, res, 'Please provide an instructor pom.xml',
         'instructor_pom.xml');
     });
@@ -1436,8 +1448,31 @@ function arr_contains(target, arr) {
   return false;
 }
 
-function failed_rubric_validation(err_msg) {
+function failed_validation(err_msg) {
   return {success: false, msg: err_msg};
+}
+
+function validate_instructor_pom(pom_file) {
+  var xml = fs.readFileSync(pom_file, 'utf8');
+  var hjlib_version_tag = '<hjlib.version>';
+  var found = xml.search(hjlib_version_tag);
+  if (found === -1) {
+    return failed_validation('The provided instructor POM does not seem to contain a hjlib.version property');
+  }
+  var version_index = found + hjlib_version_tag.length;
+  var end_version = version_index;
+  while (end_version < xml.length && xml[end_version] != '<') {
+    end_version++;
+  }
+  var version_str = xml.substring(version_index, end_version);
+  var split = version_str.split('.');
+  if (split.length != 3 || isNaN(split[0]) || isNaN(split[1]) || isNaN(split[2])) {
+    return failed_validation('The provided instructor POM does not seem to ' +
+        'contain a valid hjlib.version property, expected a version number ' +
+        'separated with two periods');
+  }
+  
+  return { success: true };
 }
 
 function load_and_validate_rubric(rubric_file) {
@@ -1445,62 +1480,62 @@ function load_and_validate_rubric(rubric_file) {
   try {
     rubric = JSON.parse(fs.readFileSync(rubric_file));
   } catch (err) {
-    return failed_rubric_validation('Failed to parse rubric JSON: ' + err.message);
+    return failed_validation('Failed to parse rubric JSON: ' + err.message);
   }
 
   if (!rubric.hasOwnProperty('correctness')) {
-    return failed_rubric_validation('Rubric is missing correctness section');
+    return failed_validation('Rubric is missing correctness section');
   }
   if (!rubric.hasOwnProperty('performance')) {
-    return failed_rubric_validation('Rubric is missing performance section');
+    return failed_validation('Rubric is missing performance section');
   }
   if (!rubric.hasOwnProperty('style')) {
-    return failed_rubric_validation('Rubric is missing style section');
+    return failed_validation('Rubric is missing style section');
   }
 
   for (var c = 0; c < rubric.correctness.length; c++) {
     if (!rubric.correctness[c].hasOwnProperty('testname')) {
-      return failed_rubric_validation('Correctness test is missing name');
+      return failed_validation('Correctness test is missing name');
     }
     if (!rubric.correctness[c].hasOwnProperty('points_worth') ||
         rubric.correctness[c].points_worth < 0.0) {
-      return failed_rubric_validation('Correctness test is missing valid points_worth');
+      return failed_validation('Correctness test is missing valid points_worth');
     }
   }
 
   for (var p = 0; p < rubric.performance.length; p++) {
     if (!rubric.performance[p].hasOwnProperty('testname')) {
-      return failed_rubric_validation('Performance test is missing name');
+      return failed_validation('Performance test is missing name');
     }
     if (!rubric.performance[p].hasOwnProperty('points_worth')) {
-      return failed_rubric_validation('Performance test is missing points_worth');
+      return failed_validation('Performance test is missing points_worth');
     }
     var points_worth = rubric.performance[p].points_worth;
     if (!rubric.performance[p].hasOwnProperty('grading')) {
-      return failed_rubric_validation('Performance test is missing speedup grading');
+      return failed_validation('Performance test is missing speedup grading');
     }
 
     for (var g = 0; g < rubric.performance[p].grading.length; g++) {
       if (!rubric.performance[p].grading[g].hasOwnProperty('bottom_inclusive')) {
-        return failed_rubric_validation('Performance test grading is missing bottom_inclusive');
+        return failed_validation('Performance test grading is missing bottom_inclusive');
       }
       if (!rubric.performance[p].grading[g].hasOwnProperty('top_exclusive')) {
-        return failed_rubric_validation('Performance test grading is missing top_exclusive');
+        return failed_validation('Performance test grading is missing top_exclusive');
       }
       if (!rubric.performance[p].grading[g].hasOwnProperty('points_off')) {
-        return failed_rubric_validation('Performance test grading is missing points_off');
+        return failed_validation('Performance test grading is missing points_off');
       }
       if (rubric.performance[p].grading[g].points_off > points_worth) {
-        return failed_rubric_validation('Performance test grading is more than points_worth');
+        return failed_validation('Performance test grading is more than points_worth');
       }
     }
   }
 
   if (!rubric.style.hasOwnProperty('points_per_error')) {
-    return failed_rubric_validation('Style section is missing points_per_error');
+    return failed_validation('Style section is missing points_per_error');
   }
   if (!rubric.style.hasOwnProperty('max_points_off')) {
-    return failed_rubric_validation('Style section is missing max_points_off');
+    return failed_validation('Style section is missing max_points_off');
   }
 
   return { success: true, rubric: rubric };

@@ -8,6 +8,8 @@ import java.net.InetSocketAddress;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Arrays;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -418,7 +420,33 @@ public class LocalTestRunner implements Runnable {
              */
             merge_dirs(mainTestFolder, unzipped_instructor_test_dir);
             final File pom = new File(instructor_dir, "instructor_pom.xml");
-            pom.renameTo(new File(unzipped_code_dir, "pom.xml"));
+            if (!pom.exists()) {
+                throw new TestRunnerException("We appear to be missing the " +
+                    "instructor-provided pom.xml. Please contact the " +
+                    "teaching staff");
+            }
+            final File renamedPom = new File(unzipped_code_dir, "pom.xml");
+            pom.renameTo(renamedPom);
+
+            /*
+             * We need to infer the correct version of HJlib to use from the
+             * local Maven repo using the instructor provided POM. We do this in
+             * an ugly way, by looking for the hjlib.version property.
+             */
+            final String pomXml = new String(Files.readAllBytes(Paths.get(
+                renamedPom.getAbsolutePath())), StandardCharsets.UTF_8);
+            final String hjlibVersionProperty = "<hjlib.version>";
+            int index = pomXml.indexOf(hjlibVersionProperty);
+            if (index == -1) {
+                throw new TestRunnerException("Missing hjlib.version in instructor-provided POM");
+            }
+            final int versionIndex = index + hjlibVersionProperty.length();
+            int endVersion = versionIndex;
+            while (endVersion < pomXml.length() && pomXml.charAt(endVersion) != '<') endVersion++;
+            final String versionStr = pomXml.substring(versionIndex, endVersion);
+            final File hjJar = new File(env.mavenRepo +
+                "/edu/rice/hjlib-cooperative/" + versionStr +
+                "/hjlib-cooperative-" + versionStr + ".jar");
 
             /*
              * Compile the full application and testing suite
@@ -460,7 +488,7 @@ public class LocalTestRunner implements Runnable {
 
               final String classpath =
                   ".:target/classes:target/test-classes:" + env.junit + ":" +
-                  env.hamcrest + ":" + env.hj + ":" + env.asm;
+                  env.hamcrest + ":" + hjJar + ":" + env.asm;
               final String policyPath = env.autograderHome + "/shared/security.policy";
               final int junit_cmd_length = 9 + jvm_args.length;
               final String[] junit_cmd = new String[junit_cmd_length];
@@ -469,7 +497,7 @@ public class LocalTestRunner implements Runnable {
               junit_cmd[junit_cmd_index++] = "-Djava.security.manager";
               junit_cmd[junit_cmd_index++] = "-Djava.security.policy==" + policyPath;
               junit_cmd[junit_cmd_index++] = "-Dhj.numWorkers=1";
-              junit_cmd[junit_cmd_index++] = "-javaagent:" + env.hj;
+              junit_cmd[junit_cmd_index++] = "-javaagent:" + hjJar;
               junit_cmd[junit_cmd_index++] = "-cp";
               junit_cmd[junit_cmd_index++] = classpath;
               for (String arg : jvm_args) {
