@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS assignments
  assignment_id BIGSERIAL PRIMARY KEY,
  name TEXT NOT NULL UNIQUE,
  visible BOOLEAN NOT NULL,
- correctness_only BOOLEAN NOT NULL,
+ correctness_only BOOLEAN NOT NULL DEFAULT TRUE,
  jvm_args TEXT NOT NULL DEFAULT ''
 );
 
