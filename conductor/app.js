@@ -108,7 +108,9 @@ console.log('Connecting to remote cluster at ' + CLUSTER_HOSTNAME +
 var conString = "postgres://" + POSTGRES_USER_TOKEN + "@localhost/autograder";
 
 function pgclient(cb) {
+  console.log('pgclient: acquiring PGSQL client...');
   pg.connect(conString, function(err, client, done) {
+          console.log("pgclient: finished acquiring PGSQL client, err=" + err);
           if (err) {
             done();
             return console.error('error fetching client from pool', err);
@@ -127,6 +129,9 @@ function register_query_helpers(query, res, done, username) {
 }
 
 function connect_to_cluster(cb) {
+  console.log('connect_to_cluster: Connecting to cluster of cluster type ' +
+      CLUSTER_TYPE + ', cluster hostname ' + CLUSTER_HOSTNAME +
+      ', cluster user ' + CLUSTER_USER);
   if (CLUSTER_TYPE === 'slurm') {
     var conn = new ssh.Client();
     conn.on('ready', function() {
@@ -138,7 +143,7 @@ function connect_to_cluster(cb) {
         port: 22,
         username: CLUSTER_USER,
         password: CLUSTER_PASSWORD,
-        readyTimeout: 120000
+        readyTimeout: 60000
     });
   } else {
     // local
@@ -1198,53 +1203,54 @@ app.post('/local_run_finished', function(req, res, next) {
                           });
                       });
                   } else {
-                      var query = client.query(
-                          "UPDATE runs SET status='TESTING PERFORMANCE',viola_msg=$1 WHERE run_id=($2)", [viola_err_msg, run_id]);
-                      register_query_helpers(query, res, done, username);
-                      query.on('end', function(result) {
-                          var query = client.query(
-                            "SELECT * FROM assignments WHERE assignment_id=($1)",
-                            [assignment_id]);
-                          register_query_helpers(query, res, done, 'unknown');
-                          query.on('end', function(result) {
-                            var assignment_name = result.rows[0].name; 
-                            var assignment_jvm_args = result.rows[0].jvm_args;
+                      connect_to_cluster(function(conn, err) {
+                          if (err) {
+                            return failed_starting_perf_tests(res,
+                              'Error connecting to cluster, err=' + err, done, client, run_id);
+                          }
 
-                            console.log('local_run_finished: Connecting to ' +
-                                CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
-                            // Launch on the cluster
-                            connect_to_cluster(function(conn, err) {
-                                if (err) {
-                                  return failed_starting_perf_tests(res,
-                                    'Error connecting to cluster, err=' + err, done, client, run_id);
-                                }
+                          get_cluster_cores(conn, function(err, ncores) {
+                            if (err) {
+                              return failed_starting_perf_tests(res,
+                                'Failed getting ncores from cluster', done, client, run_id);
+                            }
 
-                                var vars = ['HOME',
-                                            'LIGHTWEIGHT_JAVA_PROFILER_HOME',
-                                            'JUNIT_JAR', 'HAMCREST_JAR', 'HJ_JAR',
-                                            'ASM_JAR', 'RR_AGENT_JAR', 'RR_RUNTIME_JAR'];
-                                batched_get_cluster_env_var(vars, conn, function(err, vals) {
-                                  if (err) {
-                                    return failed_starting_perf_tests(res,
-                                      'Error getting cluster env variables, err=' + err, done, client, run_id);
-                                  }
+                            var query = client.query(
+                                "UPDATE runs SET status='TESTING PERFORMANCE',viola_msg=$1,ncores=$2 WHERE run_id=($3)", [viola_err_msg, ncores, run_id]);
+                            register_query_helpers(query, res, done, username);
+                            query.on('end', function(result) {
+                                var query = client.query(
+                                  "SELECT * FROM assignments WHERE assignment_id=($1)",
+                                  [assignment_id]);
+                                register_query_helpers(query, res, done, 'unknown');
+                                query.on('end', function(result) {
+                                  var assignment_name = result.rows[0].name; 
+                                  var assignment_jvm_args = result.rows[0].jvm_args;
 
-                                  var home_dir = vals['HOME'];
-                                  var java_profiler_dir = vals['LIGHTWEIGHT_JAVA_PROFILER_HOME'];
-                                  var junit = vals['JUNIT_JAR'];
-                                  var hamcrest = vals['HAMCREST_JAR'];
-                                  var hj = vals['HJ_JAR'];
-                                  var asm = vals['ASM_JAR'];
-                                  var rr_agent_jar = vals['RR_AGENT_JAR'];
-                                  var rr_runtime_jar = vals['RR_RUNTIME_JAR'];
+                                  console.log('local_run_finished: Connecting to ' +
+                                      CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
+                                  // Launch on the cluster
 
-                                  get_cluster_cores(conn, function(err, ncores) {
+                                  var vars = ['HOME',
+                                              'LIGHTWEIGHT_JAVA_PROFILER_HOME',
+                                              'JUNIT_JAR', 'HAMCREST_JAR', 'HJ_JAR',
+                                              'ASM_JAR', 'RR_AGENT_JAR', 'RR_RUNTIME_JAR'];
+                                  batched_get_cluster_env_var(vars, conn, function(err, vals) {
                                     if (err) {
                                       return failed_starting_perf_tests(res,
-                                        'Failed getting ncores from cluster', done, client, run_id);
+                                        'Error getting cluster env variables, err=' + err, done, client, run_id);
                                     }
 
-                                    get_cluster_os(conn, function(err, os) {
+                                    var home_dir = vals['HOME'];
+                                    var java_profiler_dir = vals['LIGHTWEIGHT_JAVA_PROFILER_HOME'];
+                                    var junit = vals['JUNIT_JAR'];
+                                    var hamcrest = vals['HAMCREST_JAR'];
+                                    var hj = vals['HJ_JAR'];
+                                    var asm = vals['ASM_JAR'];
+                                    var rr_agent_jar = vals['RR_AGENT_JAR'];
+                                    var rr_runtime_jar = vals['RR_RUNTIME_JAR'];
+
+                                      get_cluster_os(conn, function(err, os) {
                                       if (err) {
                                         return failed_starting_perf_tests(res,
                                           'Failed getting cluster OS', done, client, run_id);
@@ -1781,7 +1787,10 @@ app.get('/run/:run_id', function(req, res, next) {
             var user_id = result.rows[0].user_id;
             var assignment_id = result.rows[0].assignment_id;
             var viola_err_msg = result.rows[0].viola_msg;
+            var ncores = result.rows[0].ncores;
+
             if (!req.session.is_admin && user_id != req.session.user_id) {
+                done();
                 return res.send(401);
             }
             var query = client.query("SELECT * FROM users WHERE user_id=($1)", [user_id]);
@@ -1808,29 +1817,15 @@ app.get('/run/:run_id', function(req, res, next) {
                     }
                   });
 
-                  connect_to_cluster(function(conn, err) {
-                    if (err) {
-                      return res.render('overview.html',
-                        { err_msg: 'Failed connecting to cluster' });
-                    }
+                  var score = calculate_score(assignment_id, log_files, ncores);
+                  var render_vars = { run_id: run_id, log_files: log_files, viola_err: viola_err_msg };
+                  if (score) {
+                    render_vars['score'] = score;
+                  } else {
+                    render_vars['err_msg'] = 'Error calculating score';
+                  }
 
-                    get_cluster_cores(conn, function(err, ncores) {
-                      if (err) {
-                        return res.render('overview.html',
-                          { err_msg: 'Failed getting cluster info' });
-                      }
-
-                      var score = calculate_score(assignment_id, log_files, ncores);
-                      var render_vars = { run_id: run_id, log_files: log_files, viola_err: viola_err_msg };
-                      if (score) {
-                        render_vars['score'] = score;
-                      } else {
-                        render_vars['err_msg'] = 'Error calculating score';
-                      }
-
-                      return res.render('run.html', render_vars);
-                    });
-                  });
+                  return res.render('run.html', render_vars);
                 }
             });
         });
@@ -1889,11 +1884,6 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
           var LOCAL_STDERR = LOCAL_FOLDER + '/cluster-stderr.txt';
           var LOCAL_SLURM = LOCAL_FOLDER + '/cello.slurm';
 
-          get_cluster_cores(conn, function(err, ncores) {
-            if (err) {
-              return abort_and_reset_perf_tests(err, done, conn, 'ncores');
-            }
-
             get_cluster_os(conn, function(err, os) {
               if (err) {
                 return abort_and_reset_perf_tests(err, done, conn, 'OS');
@@ -1907,7 +1897,7 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                 copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
               }
 
-              var tests = get_scalability_tests(ncores);
+              var tests = get_scalability_tests(run.ncores);
               for (var i = 0; i < tests.length; i++) {
                 var curr_cores = tests[i];
                 var local = LOCAL_FOLDER + '/performance.' + curr_cores + '.txt';
@@ -1967,7 +1957,6 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                   });
                 });
             });
-          });
         }
       });
 
