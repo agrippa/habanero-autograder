@@ -11,24 +11,27 @@
 
   <properties>
     <jdk.version>1.8</jdk.version>
-    <hjlib.version>0.1.4-SNAPSHOT</hjlib.version>
+    <hjlib.version>0.1.8</hjlib.version>
     <main.class>edu.rice.comp322.Crypt</main.class>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
 
   <repositories>
     <repository>
-      <id>rice-habanero</id>
-      <name>Habanero Java library Repository - Rice University</name>
-      <url>http://www.cs.rice.edu/~vs3/hjlib/code/maven-repo</url>
+        <id>hjlib-maven-repo-mvn-repo</id>
+        <url>https://raw.github.com/habanero-maven/hjlib-maven-repo/mvn-repo/</url>
+        <snapshots>
+            <enabled>true</enabled>
+            <updatePolicy>always</updatePolicy>
+        </snapshots>
     </repository>
   </repositories>
 
   <dependencies>
     <dependency>
-      <groupId>edu.rice</groupId>
-      <artifactId>hjlib-cooperative</artifactId>
-      <version>${hjlib.version}</version>
+        <groupId>edu.rice</groupId>
+        <artifactId>hjlib-cooperative</artifactId>
+        <version>${hjlib.version}</version>
     </dependency>
     <dependency>
       <groupId>junit</groupId>

@@ -11,24 +11,27 @@
 
   <properties>
     <jdk.version>1.8</jdk.version>
-    <hjlib.version>0.1.4-SNAPSHOT</hjlib.version>
+    <hjlib.version>0.1.8</hjlib.version>
     <main.class>edu.rice.comp322.Crypt</main.class>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
 
   <repositories>
     <repository>
-      <id>rice-habanero</id>
-      <name>Habanero Java library Repository - Rice University</name>
-      <url>http://www.cs.rice.edu/~vs3/hjlib/code/maven-repo</url>
+        <id>hjlib-maven-repo-mvn-repo</id>
+        <url>https://raw.github.com/habanero-maven/hjlib-maven-repo/mvn-repo/</url>
+        <snapshots>
+            <enabled>true</enabled>
+            <updatePolicy>always</updatePolicy>
+        </snapshots>
     </repository>
   </repositories>
 
   <dependencies>
     <dependency>
-      <groupId>edu.rice</groupId>
-      <artifactId>hjlib-cooperative</artifactId>
-      <version>${hjlib.version}</version>
+        <groupId>edu.rice</groupId>
+        <artifactId>hjlib-cooperative</artifactId>
+        <version>${hjlib.version}</version>
     </dependency>
     <dependency>
       <groupId>junit</groupId>
@@ -48,7 +51,6 @@
         <configuration>
           <source>${jdk.version}</source>
           <target>${jdk.version}</target>
-          <compilerArgument>-g</compilerArgument>
         </configuration>
       </plugin>
       <plugin>
@@ -70,7 +72,7 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>2.17</version>
         <configuration>
-          <argLine>-javaagent:${edu.rice:hjlib-cooperative:jar} -Dhj.numWorkers=${env.AUTOGRADER_NUM_WORKERS}</argLine>
+          <argLine>-javaagent:${edu.rice:hjlib-cooperative:jar}</argLine>
           <useSystemClassLoader>true</useSystemClassLoader>
           <testFailureIgnore>true</testFailureIgnore>
         </configuration>
@@ -89,7 +91,6 @@
         <configuration>
           <executable>java</executable>
           <arguments>
-            <argument>-Dhj.numWorkers=${env.AUTOGRADER_NUM_WORKERS}</argument>
             <argument>-javaagent:${edu.rice:hjlib-cooperative:jar}</argument>
             <argument>-classpath</argument>
             <classpath/>
@@ -119,8 +120,6 @@
             <configuration>
               <executable>java</executable>
               <arguments>
-                <argument>-Dhj.numWorkers=${env.AUTOGRADER_NUM_WORKERS}</argument>
-                <argument>-javaagent:${edu.rice:hjlib-cooperative:jar}</argument>
                 <argument>-agentpath:${env.LIGHTWEIGHT_JAVA_PROFILER_HOME}/build-64/liblagent.so</argument>
                 <argument>-classpath</argument>
                 <classpath/>
@@ -167,8 +166,6 @@
             <configuration>
               <executable>java</executable>
               <arguments>
-                <argument>-javaagent:${edu.rice:hjlib-cooperative:jar}</argument>
-                <argument>-Dhj.numWorkers=${env.AUTOGRADER_NUM_WORKERS}</argument>
                 <argument>-javaagent:${rr:agent:jar}</argument>
                 <argument>-Xbootclasspath/p:${rr:runtime:jar}</argument>
                 <argument>rr.RRMain</argument>
