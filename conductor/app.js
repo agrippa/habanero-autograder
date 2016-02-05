@@ -1169,6 +1169,9 @@ app.post('/local_run_finished', function(req, res, next) {
             var user_id = result.rows[0].user_id;
             var assignment_id = result.rows[0].assignment_id;
             var correctness_only = result.rows[0].correctness_only;
+            console.log('local_run_finished: run_id=' + run_id + ' user_id=' +
+                user_id + ' assignment_id=' + assignment_id +
+                ' correctness_only=' + correctness_only);
 
             var query = client.query("SELECT * FROM users WHERE user_id=($1)", [user_id]);
             register_query_helpers(query, res, done, 'unknown');
@@ -1250,7 +1253,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                     var rr_agent_jar = vals['RR_AGENT_JAR'];
                                     var rr_runtime_jar = vals['RR_RUNTIME_JAR'];
 
-                                      get_cluster_os(conn, function(err, os) {
+                                    get_cluster_os(conn, function(err, os) {
                                       if (err) {
                                         return failed_starting_perf_tests(res,
                                           'Failed getting cluster OS', done, client, run_id);
@@ -1478,7 +1481,8 @@ function validate_instructor_pom(pom_file) {
   var hjlib_version_tag = '<hjlib.version>';
   var found = xml.search(hjlib_version_tag);
   if (found === -1) {
-    return failed_validation('The provided instructor POM does not seem to contain a hjlib.version property');
+    return failed_validation('The provided instructor POM does not seem to ' +
+            'contain a hjlib.version property');
   }
   var version_index = found + hjlib_version_tag.length;
   var end_version = version_index;
@@ -1493,7 +1497,7 @@ function validate_instructor_pom(pom_file) {
         'separated with two periods');
   }
   
-  return { success: true };
+  return { success: true, version: version_str };
 }
 
 function load_and_validate_rubric(rubric_file) {
