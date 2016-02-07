@@ -45,7 +45,7 @@ import org.tmatesoft.svn.core.wc.ISVNOptions;
  * Logic for actually running single-threaded tests.
  */
 public class LocalTestRunner implements Runnable {
-    private static final long LOCAL_RUNS_TIMEOUT = 60 * 1000;
+    private static final long LOCAL_RUNS_TIMEOUT = 10 * 60 * 1000;
     private static final long TIMEOUT_CHECK_INTERVAL = 5 * 1000;
 
     private final String done_token;

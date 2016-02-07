@@ -713,6 +713,10 @@ app.post('/upload_instructor_pom/:assignment_id', upload.single('pom'),
     function(req, res, next) {
       console.log('upload_instructor_pom: is_admin=' + req.session.is_admin);
 
+      if (!req.file) {
+          return res.render('admin.html', {err_msg: 'No POM provided'});
+      }
+
       var validated = validate_instructor_pom(req.file.path);
       if (!validated.success) {
           return res.render('admin.html', {err_msg: 'Error in POM: ' + validated.msg});
