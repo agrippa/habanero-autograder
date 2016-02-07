@@ -726,6 +726,10 @@ app.post('/upload_rubric/:assignment_id', upload.single('rubric'),
     function(req, res, next) {
       console.log('upload_rubric: is_admin=' + req.session.is_admin);
 
+      if (!req.file) {
+          return res.render('admin.html', {err_msg: 'No rubric provided'});
+      }
+
       var validated = load_and_validate_rubric(req.file.path);
       if (!validated.success) {
           return res.render('admin.html', {err_msg: 'Error in rubric: ' + validated.msg});
