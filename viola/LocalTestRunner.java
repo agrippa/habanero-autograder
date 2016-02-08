@@ -233,7 +233,8 @@ public class LocalTestRunner implements Runnable {
       if (!processIsFinished(p)) {
         p.destroy();
 
-        return new ProcessResults("", "TIMEOUT TIMEOUT TIMEOUT", 0);
+        return new ProcessResults("", "ERROR: The correctness tests took longer than " +
+            "the allowed " + LOCAL_RUNS_TIMEOUT + " ms to complete.", 0);
       } else {
         BufferedReader stdInput = new BufferedReader(
             new InputStreamReader(p.getInputStream()));
