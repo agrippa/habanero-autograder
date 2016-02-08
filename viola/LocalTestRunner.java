@@ -45,7 +45,7 @@ import org.tmatesoft.svn.core.wc.ISVNOptions;
  * Logic for actually running single-threaded tests.
  */
 public class LocalTestRunner implements Runnable {
-    private static final long LOCAL_RUNS_TIMEOUT = 10 * 60 * 1000;
+    private static final long LOCAL_RUNS_TIMEOUT = 20 * 60 * 1000;
     private static final long TIMEOUT_CHECK_INTERVAL = 5 * 1000;
 
     private final String done_token;
@@ -89,7 +89,6 @@ public class LocalTestRunner implements Runnable {
             String urlParameters = "done_token=" + done_token + "&err_msg=" + err_msg;
             byte[] postData = urlParameters.getBytes(StandardCharsets.UTF_8);
             int postDataLength = postData.length;
-            // TODO make configurable
             String request = "http://" + env.conductorHost + ":" +
               env.conductorPort + "/local_run_finished";
             URL url = new URL(request);
