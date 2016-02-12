@@ -1264,12 +1264,13 @@ app.post('/local_run_finished', function(req, res, next) {
                               any_failures = true;
                             }
                           }
-                          correctness_tests_passed = !any_failures;
+			  var any_nonempty_stderr_lines = check_for_empty_stderr(lines);
+                          correctness_tests_passed = !any_failures && !any_nonempty_stderr_lines;
                         }
                       }
                   }
 
-                  client.query('UPDATE runs SET passed_checkstyle=($1),' +
+                  var query = client.query('UPDATE runs SET passed_checkstyle=($1),' +
                       'compiled=($2),passed_all_correctness=($3) WHERE run_id=($4)',
                       [checkstyle_passed, compile_passed, correctness_tests_passed, run_id]);
                   register_query_helpers(query, res, done, 'unknown');
@@ -1705,7 +1706,23 @@ function find_performance_test_with_name(name, rubric) {
   return null;
 }
 
-function calculate_score(assignment_id, log_files, ncores) {
+function check_for_empty_stderr(lines) {
+  var i = lines.length - 1;
+  while (i >= 0 && lines[i] !== '======= STDERR =======') {
+    i--;
+  }
+  i++;
+  var any_nonempty_lines = false;
+  for (; i < lines.length; i++) {
+    if (lines[i].trim().length > 0) {
+      any_nonempty_lines = true;
+      break;
+    }
+  }
+  return any_nonempty_lines;
+}
+
+function calculate_score(assignment_id, log_files, ncores, run_status) {
   var rubric_file = __dirname + '/instructor-tests/' + assignment_id + '/rubric.json';
 
   var validated = load_and_validate_rubric(rubric_file);
@@ -1731,7 +1748,7 @@ function calculate_score(assignment_id, log_files, ncores) {
 
   // Compute correctness score based on test failures
   var correctness = total_correctness_possible;
-  if ('correct.txt' in log_files) {
+  if (run_status !== 'FAILED' && 'correct.txt' in log_files) {
     var content = log_files['correct.txt'].toString('utf8');
     var lines = content.split('\n');
 
@@ -1740,20 +1757,9 @@ function calculate_score(assignment_id, log_files, ncores) {
      * (from harmless prints by the student, to OutOfMemoryException) so we
      * conservatively give zero points if STDERR is non-empty.
      */
-    var i = lines.length - 1;
-    while (i >= 0 && lines[i] !== '======= STDERR =======') {
-      i--;
-    }
-    i++;
-    var any_nonempty_lines = false;
-    for (; i < lines.length; i++) {
-      if (lines[i].trim().length > 0) {
-        any_nonempty_lines = true;
-        break;
-      }
-    }
+    var any_nonempty_stderr_lines = check_for_empty_stderr(lines);
 
-    if (any_nonempty_lines) {
+    if (any_nonempty_stderr_lines) {
       correctness = 0.0;
     } else {
       var failure_counts = [];
@@ -1910,6 +1916,7 @@ app.get('/run/:run_id', function(req, res, next) {
                 return res.render('overview.html', { err_msg: 'Unknown run' });
             }
             var user_id = result.rows[0].user_id;
+            var run_status = result.rows[0].status;
             var assignment_id = result.rows[0].assignment_id;
             var viola_err_msg = result.rows[0].viola_msg;
             var ncores = result.rows[0].ncores; 
@@ -1945,7 +1952,7 @@ app.get('/run/:run_id', function(req, res, next) {
                     }
                   });
 
-                  var score = calculate_score(assignment_id, log_files, ncores);
+                  var score = calculate_score(assignment_id, log_files, ncores, run_status);
                   var render_vars = { run_id: run_id, log_files: log_files, viola_err: viola_err_msg,
                                       passed_checkstyle: passed_checkstyle,
                                       compiled: compiled,

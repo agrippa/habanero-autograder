@@ -32,7 +32,10 @@ for NETID in $(ls submissions/); do
                 if [[ -f $CORRECT_PATH ]]; then
                     FAILURES_SINGULAR=$(cat $CORRECT_PATH | grep " failures:" | wc -l)
                     FAILURES_PLURAL=$(cat $CORRECT_PATH | grep " failure:" | wc -l)
-                    if [[ $FAILURES_SINGULAR == 0 && $FAILURES_PLURAL == 0 ]]; then
+                    STDERR_START_LINE=$(cat $CORRECT_PATH | awk '/======= STDERR =======/{ print NR; exit }')
+                    NLINES=$(cat $CORRECT_PATH | wc -l)
+                    STDERR_LENGTH=$(echo $NLINES - $STDERR_START_LINE | bc)
+                    if [[ $FAILURES_SINGULAR == 0 && $FAILURES_PLURAL == 0 && $STDERR_LENGTH == 1 ]]; then
                         CORRECTNESS_PASSED=1
                     fi
                 fi
