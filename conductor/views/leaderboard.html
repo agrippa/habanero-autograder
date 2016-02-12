@@ -26,13 +26,17 @@
                 for (var i = 0; i < runs.length; i++) {
                   var curr = runs[i];
                   var status = curr.status;
+                  var checkstyle_color = curr.passed_checkstyle ? success_color : failed_color;
+                  var compiled_color = curr.compiled ? success_color : failed_color;
+                  var correctness_color = curr.passed_all_correctness ? success_color : failed_color;
+
                   var status_color = status === 'FINISHED' ? 'green' : (status === 'FAILED' ? 'red' : 'orange');
                   $('#runs_table tr:last').after('<tr><td><center>' +
                       curr.run_id + '</center></td><td><center><font color="' +
                       status_color + '">' + curr.status + '</font></center>' +
-                      '</td><td bgcolor=' + failed_color +
-                      '></td><td bgcolor=' + failed_color +
-                      '></td><td bgcolor=' + failed_color + '></td></tr>');
+                      '</td><td width="200px" bgcolor=' + checkstyle_color +
+                      '></td><td width="200px" bgcolor=' + compiled_color +
+                      '></td><td width="200px" bgcolor=' + correctness_color + '></td></tr>');
                 }
               } else {
                 show_error(data.msg);

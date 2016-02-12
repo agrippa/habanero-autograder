@@ -1246,14 +1246,14 @@ app.post('/local_run_finished', function(req, res, next) {
                   var correctness_tests_passed = false;
                    
                   if (fs.existsSync(checkstyle_txt)) {
-                      var checkstyle_contents = fs.readFileSync(checkstyle_txt);
+                      var checkstyle_contents = fs.readFileSync(checkstyle_txt, 'utf8');
                       var checkstyle_new_lines = count_new_lines(checkstyle_contents);
                       checkstyle_passed = (checkstyle_new_lines == 0);
                       if (checkstyle_passed && fs.existsSync(compile_txt)) {
-                        var compile_contents = fs.readFileSync(compile_txt);
+                        var compile_contents = fs.readFileSync(compile_txt, 'utf8');
                         compile_passed = (compile_contents.indexOf('BUILD SUCCESS') != -1);
                         if (compile_passed && fs.existsSync(correct_txt)) {
-                          var correct_contents = fs.readFileSync(correct_txt);
+                          var correct_contents = fs.readFileSync(correct_txt, 'utf8');
                           var lines = correct_contents.split('\n');
                           var any_failures = false;
                           for (var l = 0; l < lines.length && !any_failures; l++) {
@@ -1270,8 +1270,8 @@ app.post('/local_run_finished', function(req, res, next) {
                   }
 
                   client.query('UPDATE runs SET passed_checkstyle=($1),' +
-                      'compiled=($2),passed_all_correctness=($3)',
-                      [checkstyle_passed, compile_passed, correctness_tests_passed]);
+                      'compiled=($2),passed_all_correctness=($3) WHERE run_id=($4)',
+                      [checkstyle_passed, compile_passed, correctness_tests_passed, run_id]);
                   register_query_helpers(query, res, done, 'unknown');
                   query.on('end', function(result) {
 
@@ -1530,7 +1530,8 @@ app.get('/anonymous_runs', function(req, res, next) {
       var assignment_id = result.rows[0].assignment_id;
 
       var query = client.query(
-          "SELECT run_id,status FROM runs WHERE assignment_id=($1) ORDER BY run_id DESC",
+          "SELECT run_id,status,passed_checkstyle,compiled,passed_all_correctness " +
+          "FROM runs WHERE assignment_id=($1) ORDER BY run_id DESC",
           [assignment_id]);
       register_query_helpers(query, res, done, req.session.username);
       query.on('end', function(result) {
