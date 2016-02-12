@@ -45,7 +45,6 @@ import org.tmatesoft.svn.core.wc.ISVNOptions;
  * Logic for actually running single-threaded tests.
  */
 public class LocalTestRunner implements Runnable {
-    private static final long LOCAL_RUNS_TIMEOUT = 20 * 60 * 1000;
     private static final long TIMEOUT_CHECK_INTERVAL = 5 * 1000;
 
     private final String done_token;
@@ -54,10 +53,12 @@ public class LocalTestRunner implements Runnable {
     private final int run_id;
     private final int assignment_id;
     private final String[] jvm_args;
+    private final int timeout;
     private final ViolaEnv env;
 
     public LocalTestRunner(String done_token, String user,
-            String assignment_name, int run_id, int assignment_id, String jvm_args, ViolaEnv env) {
+            String assignment_name, int run_id, int assignment_id,
+            String jvm_args, int timeout, ViolaEnv env) {
         this.done_token = done_token;
         this.user = user;
         this.assignment_name = assignment_name;
@@ -69,6 +70,7 @@ public class LocalTestRunner implements Runnable {
         } else {
             this.jvm_args = jvm_args.split("\\s+");
         }
+        this.timeout = timeout;
         this.env = env;
     }
     
@@ -224,7 +226,7 @@ public class LocalTestRunner implements Runnable {
       Process p = pb.start();
 
       final long startTime = System.currentTimeMillis();
-      while (System.currentTimeMillis() - startTime < LOCAL_RUNS_TIMEOUT &&
+      while (System.currentTimeMillis() - startTime < this.timeout &&
           !processIsFinished(p)) {
         Thread.sleep(TIMEOUT_CHECK_INTERVAL);
       }
@@ -233,7 +235,7 @@ public class LocalTestRunner implements Runnable {
         p.destroy();
 
         return new ProcessResults("", "ERROR: The correctness tests took longer than " +
-            "the allowed " + LOCAL_RUNS_TIMEOUT + " ms to complete.", 0);
+            "the allowed " + this.timeout + " ms to complete.", 0);
       } else {
         BufferedReader stdInput = new BufferedReader(
             new InputStreamReader(p.getInputStream()));

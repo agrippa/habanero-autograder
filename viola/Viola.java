@@ -131,6 +131,8 @@ public class Viola {
                 err_msg = "Missing assignment ID";
             } else if (!parms.containsKey("jvm_args")) {
                 err_msg = "Missing JVM args";
+            } else if (!parms.containsKey("timeout")) {
+                err_msg = "Missing test timeout";
             }
 
             if (err_msg != null) {
@@ -144,12 +146,13 @@ public class Viola {
                 final int run_id = Integer.parseInt(parms.get("run"));
                 final int assignment_id = Integer.parseInt(parms.get("assignment_id"));
                 final String jvm_args = parms.get("jvm_args");
+                final int timeout = Integer.parseInt(parms.get("timeout"));
                 ViolaUtil.log("starting tests for user=%s assignment=%s run=%d " +
-                        "assignment_id=%d jvm_args=\"%s\"\n", user, assignment_name,
-                        run_id, assignment_id, jvm_args);
+                        "assignment_id=%d jvm_args=\"%s\" timeout=%d\n", user, assignment_name,
+                        run_id, assignment_id, jvm_args, timeout);
 
                 final LocalTestRunner runnable = new LocalTestRunner(done_token,
-                        user, assignment_name, run_id, assignment_id, jvm_args, env);
+                        user, assignment_name, run_id, assignment_id, jvm_args, timeout, env);
                 executor.execute(runnable);
                 writeResponse(t, "{ \"status\": \"Success\" }");
             }

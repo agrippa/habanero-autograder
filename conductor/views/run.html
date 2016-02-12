@@ -35,7 +35,7 @@
     <div class="row" style="width:100%">
       <div class="col-md-8 col-md-offset-2">
         <hr/>
-        <h4>File: <%= filename %></h4>
+        <h4><%= filename.charAt(0).toUpperCase() + filename.substring(1, filename.length - 4) %></h4>
         <div class="col-md-offset-1">
           <font face="consolas">
             <textarea style="width:100%; height:300px" wrap='off' readonly><%= log_files[filename] %></textarea>

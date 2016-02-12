@@ -100,6 +100,10 @@
                       '<input name="jvm_args" type="text" value="' + curr.jvm_args + '">' +
                       '<input value="Update" name="submit" type="submit">' +
                       '</form>';
+                    var correctness_timeout_html = '<form action="/update_correctness_timeout/' + curr.assignment_id + '" method="post" enctype="application/x-www-form-urlencoded">' +
+                      '<input name="correctness_timeout" type="text" value="' + curr.correctness_timeout_ms + '">' +
+                      '<input value="Update" name="submit" type="submit">' +
+                      '</form>';
 
                     var upload_zip_html =
                       '<form action="/upload_zip/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
@@ -126,6 +130,7 @@
                         curr.name + '</center></td><td><center>' + visibility_button_html +
                         '</center></td><td><center>' + correctness_button_html +
                         '</center></td><td><center>' + jvm_args_html +
+                        '</center></td><td>' + correctness_timeout_html +
                         '</center></td><td>' + upload_zip_html + '</td><td>' +
                         upload_instructor_pom_html + '</td><td>' +
                         upload_rubric_html + '</td><td>' + upload_checkstyle_html + '</td></tr>');
@@ -172,6 +177,7 @@
             <td bgcolor="#AAAAAA"><center><b>Visibility</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Correctness Only</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>JVM Args</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Correctness Tests Timeout (ms)</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Reupload Zip</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Reupload Instructor POM</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Reupload Rubric</b></center></td>

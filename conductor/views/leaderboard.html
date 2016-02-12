@@ -5,6 +5,9 @@
     <script src="/third_party/bootstrap.min.js"></script>
 
     <script type="text/javascript">
+      var failed_color = '"FF3333"';
+      var success_color = '"00FF00"';
+
       function set_dropdown_label(lbl) {
         $('#dropdown-button').text(lbl);
         $('#assignment_id').val(lbl);
@@ -26,7 +29,10 @@
                   var status_color = status === 'FINISHED' ? 'green' : (status === 'FAILED' ? 'red' : 'orange');
                   $('#runs_table tr:last').after('<tr><td><center>' +
                       curr.run_id + '</center></td><td><center><font color="' +
-                      status_color + '">' + curr.status + '</font></td></center></tr>');
+                      status_color + '">' + curr.status + '</font></center>' +
+                      '</td><td bgcolor=' + failed_color +
+                      '></td><td bgcolor=' + failed_color +
+                      '></td><td bgcolor=' + failed_color + '></td></tr>');
                 }
               } else {
                 show_error(data.msg);
@@ -95,6 +101,9 @@
           <tr>
             <td bgcolor="#AAAAAA"><center><b>Run ID</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Summary</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Passed Checkstyle?</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Compiled?</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Passed All Correctness Tests?</b></center></td>
           </tr>
         </table>
       </div>
