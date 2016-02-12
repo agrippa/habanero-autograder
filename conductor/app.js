@@ -1912,7 +1912,10 @@ app.get('/run/:run_id', function(req, res, next) {
             var user_id = result.rows[0].user_id;
             var assignment_id = result.rows[0].assignment_id;
             var viola_err_msg = result.rows[0].viola_msg;
-            var ncores = result.rows[0].ncores;
+            var ncores = result.rows[0].ncores; 
+            var passed_checkstyle = result.rows[0].passed_checkstyle;
+            var compiled = result.rows[0].compiled;
+            var passed_all_correctness = result.rows[0].passed_all_correctness;
 
             if (!req.session.is_admin && user_id != req.session.user_id) {
                 done();
@@ -1943,7 +1946,10 @@ app.get('/run/:run_id', function(req, res, next) {
                   });
 
                   var score = calculate_score(assignment_id, log_files, ncores);
-                  var render_vars = { run_id: run_id, log_files: log_files, viola_err: viola_err_msg };
+                  var render_vars = { run_id: run_id, log_files: log_files, viola_err: viola_err_msg,
+                                      passed_checkstyle: passed_checkstyle,
+                                      compiled: compiled,
+                                      passed_all_correctness: passed_all_correctness };
                   if (score) {
                     render_vars['score'] = score;
                   } else {

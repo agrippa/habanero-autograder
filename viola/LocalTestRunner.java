@@ -93,6 +93,8 @@ public class LocalTestRunner implements Runnable {
             int postDataLength = postData.length;
             String request = "http://" + env.conductorHost + ":" +
               env.conductorPort + "/local_run_finished";
+            ViolaUtil.log("Notifying conductor at " + request + " of run completion");
+
             URL url = new URL(request);
             HttpURLConnection conn = (HttpURLConnection)url.openConnection();
             conn.setDoOutput(true);
