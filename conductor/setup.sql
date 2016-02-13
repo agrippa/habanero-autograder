@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS users
  user_id BIGSERIAL PRIMARY KEY,
  user_name TEXT NOT NULL UNIQUE,
  password_hash TEXT NOT NULL,
- is_admin BOOLEAN NOT NULL
+ is_admin BOOLEAN NOT NULL,
+ receive_email_notifications BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 /* Create a default admin user with default password 'supreme-power' */

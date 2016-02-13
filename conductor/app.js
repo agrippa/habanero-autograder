@@ -476,6 +476,52 @@ app.get('*', function(req, res, next) {
   }
 });
 
+app.get('/profile', function(req, res, next) {
+  var username = req.session.username;
+  console.log('profile: username=' + username);
+
+  pgclient(function(client, done) {
+    var query = client.query('SELECT * FROM users WHERE user_name=($1)',
+        [username]);
+    register_query_helpers(query, res, done, username);
+    query.on('end', function(result) {
+      if (result.rowCount != 1) {
+        done();
+        return res.render('overview.html', {err_msg: 'User "' + username + '" does not exist'});
+      } else {
+        var user_id = result.rows[0].user_id;
+        var has_notifications_enabled = result.rows[0].receive_email_notifications;
+
+        var query = client.query('SELECT COUNT(*) FROM runs WHERE user_id=($1)', [user_id]);
+        register_query_helpers(query, res, done, username);
+        query.on('end', function(result) {
+          done();
+          var render_vars = {username: req.session.username,
+                             nruns: result.rows[0].count,
+                             notifications_enabled: has_notifications_enabled};
+          res.render('profile.html', render_vars);
+        });
+      }
+    });
+  });
+});
+
+app.post('/notifications/', function(req, res, next) {
+  var enable_notifications = ('enable' in req.body);
+  console.log('notifications: user=' + req.session.username +
+      ' enable_notifications=' + enable_notifications);
+  pgclient(function(client, done) {
+    var query = client.query('UPDATE users SET ' +
+        'receive_email_notifications=($1) WHERE user_name=($2)',
+        [enable_notifications, req.session.username]);
+    register_query_helpers(query, res, done, req.session.username);
+    query.on('end', function(result) {
+      done();
+      res.redirect('/profile');
+    });
+  });
+});
+
 app.get('/overview', function(req, res, next) {
   res.render('overview.html');
 });
@@ -1230,6 +1276,7 @@ app.post('/local_run_finished', function(req, res, next) {
                 return failed_starting_perf_tests(res, 'Invalid user ID', done, client, run_id);
               } else {
                 var username = result.rows[0].user_name;
+                var wants_notification = result.rows[0].receive_email_notifications;
                 var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
 
                 svn_client.cmd(['up', '--accept', 'theirs-full', run_dir], function(err, data) {
@@ -1282,17 +1329,23 @@ app.post('/local_run_finished', function(req, res, next) {
                             [viola_err_msg, run_id]);
                         register_query_helpers(query, res, done, 'unknown');
                         query.on('end', function(result) {
-                            var subject = 'Habanero AutoGrader Run ' + run_id + ' Finished';
-                            send_email(email_for_user(username), subject, '', function(err) {
-                              if (err) {
-                                return failed_starting_perf_tests(res,
-                                  'Failed sending notification e-mail, err=' + err, done, client, run_id);
-                              } else {
-                                done();
-                                return res.send(
-                                  JSON.stringify({ status: 'Success' }));
-                              }
-                            });
+                            if (wants_notification) {
+                              var subject = 'Habanero AutoGrader Run ' + run_id + ' Finished';
+                              send_email(email_for_user(username), subject, '', function(err) {
+                                if (err) {
+                                  return failed_starting_perf_tests(res,
+                                    'Failed sending notification e-mail, err=' + err, done, client, run_id);
+                                } else {
+                                  done();
+                                  return res.send(
+                                    JSON.stringify({ status: 'Success' }));
+                                }
+                              });
+                            } else {
+                              done();
+                              return res.send(
+                                JSON.stringify({ status: 'Success' }));
+                            }
                         });
                     } else {
                         connect_to_cluster(function(conn, err) {
@@ -2007,6 +2060,8 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
           setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
         } else {
           var username = result.rows[0].user_name;
+          var wants_notification = result.rows[0].receive_email_notifications;
+
           var REMOTE_FOLDER = 'autograder/' + run.run_id;
           var REMOTE_PROFILER = REMOTE_FOLDER + '/profiler.txt';
           var REMOTE_TRACES = REMOTE_FOLDER + '/traces.txt';
@@ -2078,18 +2133,22 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                               'committing local files');
                           }
 
-                          var email = username + '@rice.edu';
-                          if (username === 'admin') {
-                            email = 'jmg3@rice.edu';
-                          }
-                          var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
-                          send_email(email_for_user(username), subject, '', function(err) {
-                            if (err) {
-                              return abort_and_reset_perf_tests(err, done, conn,
-                                'sending notification email');
+                          if (wants_notification) {
+                            var email = username + '@rice.edu';
+                            if (username === 'admin') {
+                              email = 'jmg3@rice.edu';
                             }
+                            var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
+                            send_email(email_for_user(username), subject, '', function(err) {
+                              if (err) {
+                                return abort_and_reset_perf_tests(err, done, conn,
+                                  'sending notification email');
+                              }
+                              check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                            });
+                          } else {
                             check_cluster_helper(perf_runs, i + 1, conn, client, done);
-                          });
+                          }
                         });
                     });
                   });
