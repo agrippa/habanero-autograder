@@ -958,12 +958,18 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
     console.log('submit_run: username=' + req.session.username +
       ' assignment="' + assignment_name + '"');
 
-    if (assignment_name.length == 0) {
+    if (assignment_name.length === 0) {
       return res.render('overview.html', { err_msg: 'Please select an assignment' });
     }
 
-    if (!req.file) {
-      return res.render('overview.html', { err_msg: 'Please provide a ZIP file of your assignment' });
+    if (!req.file && (!req.body.svn_url || req.body.svn_url.length === 0)) {
+      return res.render('overview.html', { err_msg: 'Please provide a ZIP file or SVN URL for your assignment.' });
+    }
+    if (req.file && req.body.svn_url && req.body.svn_url.length > 0) {
+      return res.render('overview.html', { err_msg: 'Please provide either a ZIP file or SVN URL for your assignment, not both.' });
+    }
+    if (!req.file && req.body.svn_url && req.body.svn_url.length > 0) {
+      return res.render('overview.html', { err_msg: 'Sorry, run submission via SVN is not fully supported yet.' });
     }
 
     pgclient(function(client, done) {
