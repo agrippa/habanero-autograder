@@ -20,7 +20,9 @@
     "ssh2": "0.4.12",
     "scp2": "0.2.2",
     "nodemailer": "1.10.0",
-    "moment": "2.11.2"
+    "moment": "2.11.2",
+    "archiver": "0.21.0",
+    "temp": "0.8.3"
   },
   "scripts": {
     "start": "node app.js"

@@ -15,6 +15,8 @@ var child_process = require('child_process');
 var nodemailer = require('nodemailer');
 var url = require('url');
 var moment = require('moment');
+var archiver = require('archiver');
+var temp = require('temp');
 
 var permissionDenied = 'Permission denied. But you should shoot me an e-mail at jmaxg3@gmail.com. If you like playing around with systems, we have interesting research for you in the Habanero group.';
 
@@ -107,6 +109,8 @@ console.log('Connecting to remote cluster at ' + CLUSTER_HOSTNAME +
 
 // TODO load this from JSON file
 var conString = "postgres://" + POSTGRES_USER_TOKEN + "@localhost/autograder";
+
+temp.track();
 
 function pgclient(cb) {
   console.log('pgclient: acquiring PGSQL client...');
@@ -535,6 +539,11 @@ app.get('/comments', function(req, res, next) {
   res.render('comments.html');
 });
 
+app.get('/user_guide', function(req, res, next) {
+  res.render('user_guide.html');
+});
+
+
 app.post('/comments', function(req, res, next) {
   var comment = req.body.comments;
   send_email('jmg3@rice.edu', 'AUTOGRADER COMMENT', comment, function(err) {
@@ -949,6 +958,52 @@ function get_user_id_for_name(username, client, done, res, cb) {
   });
 }
 
+function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
+      assignment_id, jvm_args, correctness_timeout, req, res) {
+  svn_client.cmd(['add', run_dir + '/student.zip'], function(err, data) {
+    if (is_actual_svn_err(err)) {
+      return res.render('overview.html', { err_msg:
+        'An error occurred backing up your submission' });
+    } else {
+      var commit_msg = '"add ' + req.session.username + ' ' + assignment_name + ' ' + run_id + '"';
+      svn_client.cmd(['commit', '--message', commit_msg, run_dir], function(err, data) {
+        if (is_actual_svn_err(err)) {
+          return res.render('overview.html',
+              { err_msg: 'An error occurred backing up your submission' });
+        } else {
+          var viola_params = 'done_token=' + done_token +
+              '&user=' + req.session.username +
+              '&assignment=' + assignment_name + '&run=' +
+              run_id + '&assignment_id=' + assignment_id + '&jvm_args=' + jvm_args + '&timeout=' + correctness_timeout;
+          var viola_options = { host: VIOLA_HOST,
+              port: VIOLA_PORT, path: '/run?' + encodeURI(viola_params) };
+          console.log('submit_run: sending viola request for run ' + run_id);
+          http.get(viola_options, function(viola_res) {
+              var bodyChunks = [];
+              viola_res.on('data', function(chunk) {
+                  bodyChunks.push(chunk);
+              });
+              viola_res.on('end', function() {
+                  var body = Buffer.concat(bodyChunks);
+                  var result = JSON.parse(body);
+                  if (result.status === 'Success') {
+                      return res.redirect('/overview');
+                  } else {
+                      return res.render('overview.html',
+                          { err_msg: 'Viola error: ' + result.msg });
+                  }
+              });
+          }).on('error', function(err) {
+              console.log('VIOLA err="' + err + '"');
+              return res.render('overview.html',
+                  { err_msg: 'An error occurred launching the local tests' });
+          });
+        }
+      });
+    }
+  });
+}
+
 app.post('/submit_run', upload.single('zip'), function(req, res, next) {
     var assignment_name = req.body.assignment;
     var correctness_only = false;
@@ -968,8 +1023,9 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
     if (req.file && req.body.svn_url && req.body.svn_url.length > 0) {
       return res.render('overview.html', { err_msg: 'Please provide either a ZIP file or SVN URL for your assignment, not both.' });
     }
+    var use_zip = true;
     if (!req.file && req.body.svn_url && req.body.svn_url.length > 0) {
-      return res.render('overview.html', { err_msg: 'Sorry, run submission via SVN is not fully supported yet.' });
+      use_zip = false;
     }
 
     pgclient(function(client, done) {
@@ -1030,50 +1086,44 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                               'An error occurred backing up your submission' });
                           } else {
                             // Move submitted file into newly created local SVN working copy
-                            fs.renameSync(req.file.path, run_dir + '/student.zip');
-                            svn_client.cmd(['add', run_dir + '/student.zip'], function(err, data) {
-                              if (is_actual_svn_err(err)) {
-                                return res.render('overview.html', { err_msg:
-                                  'An error occurred backing up your submission' });
-                              } else {
-                                var commit_msg = '"add ' + req.session.username + ' ' + assignment_name + ' ' + run_id + '"';
-                                svn_client.cmd(['commit', '--message', commit_msg, run_dir], function(err, data) {
+                            if (use_zip) {
+                              fs.renameSync(req.file.path, run_dir + '/student.zip');
+                              return trigger_viola_run(run_dir,
+                                  assignment_name, run_id, done_token,
+                                  assignment_id, jvm_args, correctness_timeout, req, res);
+                            } else {
+                              temp.mkdir('conductor', function(err, temp_dir) {
+                                if (err) {
+                                  return res.render('overview.html',
+                                      {err_msg: 'Internal error creating temporary directory'});
+                                }
+
+                                svn_client.cmd(['export', req.body.svn_url,
+                                    temp_dir + '/submission_svn_folder'], function(err, data) {
                                   if (is_actual_svn_err(err)) {
                                     return res.render('overview.html', { err_msg:
-                                      'An error occurred backing up your submission' });
-                                  } else {
-                                    var viola_params = 'done_token=' + done_token +
-                                        '&user=' + req.session.username +
-                                        '&assignment=' + assignment_name + '&run=' +
-                                        run_id + '&assignment_id=' + assignment_id + '&jvm_args=' + jvm_args + '&timeout=' + correctness_timeout;
-                                    var viola_options = { host: VIOLA_HOST,
-                                        port: VIOLA_PORT, path: '/run?' + encodeURI(viola_params) };
-                                    console.log('submit_run: sending viola ' +
-                                      'request for run ' + run_id);
-                                    http.get(viola_options, function(viola_res) {
-                                        var bodyChunks = [];
-                                        viola_res.on('data', function(chunk) {
-                                            bodyChunks.push(chunk);
-                                        });
-                                        viola_res.on('end', function() {
-                                            var body = Buffer.concat(bodyChunks);
-                                            var result = JSON.parse(body);
-                                            if (result.status === 'Success') {
-                                                return res.redirect('/overview');
-                                            } else {
-                                                return res.render('overview.html',
-                                                    { err_msg: 'Viola error: ' + result.msg });
-                                            }
-                                        });
-                                    }).on('error', function(err) {
-                                        console.log('VIOLA err="' + err + '"');
-                                        return res.render('overview.html',
-                                            { err_msg: 'An error occurred launching the local tests' });
-                                    });
-                                  }
+                                      'An error occurred exporting from "' + req.body.svn_url + '"' });
+                                  } 
+
+                                  var output = fs.createWriteStream(run_dir + '/student.zip');
+                                  var archive = archiver('zip');
+                                  output.on('close', function() {
+                                    temp.cleanupSync();
+                                    return trigger_viola_run(run_dir,
+                                        assignment_name, run_id, done_token,
+                                        assignment_id, jvm_args, correctness_timeout, req, res);
+                                  });
+                                  archive.on('error', function(err){
+                                    return res.render('overview.html', { err_msg:
+                                      'An error occurred zipping your submission.' });
+                                  });
+                                  archive.pipe(output);
+                                  archive.bulk([{expand: true, cwd: temp_dir, src: ["**/*"], dot: true }
+                                        ]);
+                                  archive.finalize();
                                 });
-                              }
-                            });
+                              });
+                            }
                           }
                         });
                       }
