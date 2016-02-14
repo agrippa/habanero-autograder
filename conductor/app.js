@@ -14,6 +14,7 @@ var scp = require('scp2')
 var child_process = require('child_process');
 var nodemailer = require('nodemailer');
 var url = require('url');
+var moment = require('moment');
 
 var permissionDenied = 'Permission denied. But you should shoot me an e-mail at jmaxg3@gmail.com. If you like playing around with systems, we have interesting research for you in the Habanero group.';
 
@@ -1217,7 +1218,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
 
 function failed_starting_perf_tests(res, failure_msg, done, client, run_id) {
   query = client.query(
-      "UPDATE runs SET status='FAILED' WHERE run_id=($1)",
+      "UPDATE runs SET status='FAILED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
       [run_id]);
   query.on('row', function(row, result) { result.addRow(row); }); // unnecessary?
   query.on('error', function(err, result) {
@@ -1325,7 +1326,7 @@ app.post('/local_run_finished', function(req, res, next) {
 
                     if (correctness_only) {
                         query = client.query(
-                            "UPDATE runs SET status='FINISHED',viola_msg=$1 WHERE run_id=($2)",
+                            "UPDATE runs SET status='FINISHED',viola_msg=$1,finish_time=CURRENT_TIMESTAMP WHERE run_id=($2)",
                             [viola_err_msg, run_id]);
                         register_query_helpers(query, res, done, 'unknown');
                         query.on('end', function(result) {
@@ -1976,6 +1977,34 @@ app.get('/run/:run_id', function(req, res, next) {
             var passed_checkstyle = result.rows[0].passed_checkstyle;
             var compiled = result.rows[0].compiled;
             var passed_all_correctness = result.rows[0].passed_all_correctness;
+            // e.g. 2016-02-13 18:30:20.028665
+            var start_time = moment(result.rows[0].start_time);
+            var elapsed_time = null;
+            var diff_ms = null;
+            var finished = false;
+            if (result.rows[0].finish_time) {
+              diff_ms = moment(result.rows[0].finish_time).diff(start_time);
+              finished = true;
+            } else {
+              diff_ms = moment().diff(start_time);
+            }
+            var minutes = Math.floor(diff_ms / 60000);
+            var seconds = Math.floor(diff_ms / 1000) - (minutes * 60);
+            var milliseconds = diff_ms - (minutes * 60000) - (seconds * 1000);
+            var started = false;
+            if (minutes > 0) {
+              elapsed_time = elapsed_time + minutes + 'm';
+              started = true;
+            }
+            if (seconds > 0) {
+              if (started) elapsed_time = elapsed_time + ', ';
+              elapsed_time = elapsed_time + seconds + 's';
+              started = true;
+            }
+            if (milliseconds > 0) {
+              if (started) elapsed_time = elapsed_time + ', ';
+              elapsed_time = elapsed_time + milliseconds + 'ms';
+            }
 
             if (!req.session.is_admin && user_id != req.session.user_id) {
                 done();
@@ -2009,7 +2038,8 @@ app.get('/run/:run_id', function(req, res, next) {
                   var render_vars = { run_id: run_id, log_files: log_files, viola_err: viola_err_msg,
                                       passed_checkstyle: passed_checkstyle,
                                       compiled: compiled,
-                                      passed_all_correctness: passed_all_correctness };
+                                      passed_all_correctness: passed_all_correctness,
+                                      elapsed_time: elapsed_time, finished: finished };
                   if (score) {
                     render_vars['score'] = score;
                   } else {
@@ -2139,6 +2169,7 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                               email = 'jmg3@rice.edu';
                             }
                             var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
+// TODO add finish time
                             send_email(email_for_user(username), subject, '', function(err) {
                               if (err) {
                                 return abort_and_reset_perf_tests(err, done, conn,
@@ -2185,12 +2216,12 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                 if (stdout === 'FAILED' || stdout === 'TIMEOUT' || stdout == 'CANCELLED+') {
                     console.log('check_cluster_helper: marking ' + run.run_id + ' FAILED');
                     query = client.query(
-                        "UPDATE runs SET status='FAILED' WHERE run_id=($1)",
+                        "UPDATE runs SET status='FAILED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
                         [run.run_id]);
                 } else if (stdout === 'COMPLETED') {
                     console.log('check_cluster_helper: marking ' + run.run_id + ' FINISHED');
                     query = client.query(
-                        "UPDATE runs SET status='FINISHED' WHERE run_id=($1)",
+                        "UPDATE runs SET status='FINISHED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
                         [run.run_id]);
                 }
 
@@ -2207,7 +2238,7 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
             } else {
                 console.log('check_cluster_helper: marking ' + run.run_id + ' FINISHED');
                 var query = client.query(
-                    "UPDATE runs SET status='FINISHED' WHERE run_id=($1)",
+                    "UPDATE runs SET status='FINISHED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
                     [run.run_id]);
                 finish_perf_tests(query, run, conn, done, client, perf_runs, i);
             }
@@ -2246,7 +2277,7 @@ pgclient(function(client, done) {
   /*
    * Mark any in-progress tests as failed on reboot.
    */
-  var query = client.query("UPDATE runs SET status='FAILED' WHERE " +
+  var query = client.query("UPDATE runs SET status='FAILED',finish_time=CURRENT_TIMESTAMP WHERE " +
     "status='TESTING CORRECTNESS' OR status='TESTING PERFORMANCE'");
   query.on('row', function(row, result) { result.addRow(row); });
   query.on('error', function(err, result) {

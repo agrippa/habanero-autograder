@@ -19,6 +19,12 @@
     <div class="row" style="width:100%">
       <div class="col-md-8 col-md-offset-2">
         <h4>Score: <%= score.total %> / <%= score.total_possible %> (<%= (100.0 * score.total / score.total_possible).toFixed(2) %>%)</h4>
+        <% if (finished) { %>
+          <h4 style="float:right">Time to complete: <%= elapsed_time %></h4>
+        <% } else { %>
+          <h4 style="float:right">Execution time so far: <%= elapsed_time %></h4>
+        <% } %>
+        
         <div class="col-md-offset-1">
           <% for (var iter = 0; iter < score.breakdown.length; iter++) { %>
           <h5><%= score.breakdown[iter].name %>: <%= score.breakdown[iter].points %> / <%= score.breakdown[iter].total %></h5>
