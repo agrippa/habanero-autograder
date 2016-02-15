@@ -531,8 +531,32 @@ app.get('/overview', function(req, res, next) {
   res.render('overview.html');
 });
 
-app.get('/leaderboard', function(req, res, next) {
-  res.render('leaderboard.html');
+app.get('/leaderboard/:assignment_id?', function(req, res, next) {
+  var target_assignment_id = req.params.assignment_id;
+  console.log('leaderboard: username=' + req.session.username);
+
+  pgclient(function(client, done) {
+    var query = client.query("SELECT assignment_id,name FROM assignments WHERE visible=true;");
+    register_query_helpers(query, res, done, req.session.username);
+    query.on('end', function(result) {
+      var render_vars = {assignments: result.rows};
+
+      if (target_assignment_id) {
+        var query = client.query(
+          "SELECT run_id,status,passed_checkstyle,compiled,passed_all_correctness " +
+          "FROM runs WHERE assignment_id=($1) ORDER BY run_id DESC", [target_assignment_id]);
+        register_query_helpers(query, res, done, req.session.username);
+        query.on('end', function(result) {
+          done();
+          render_vars['runs'] = result.rows;
+          return res.render('leaderboard.html', render_vars);
+        });
+      } else {
+        done();
+        return res.render('leaderboard.html', render_vars);
+      }
+    });
+  });
 });
 
 app.get('/comments', function(req, res, next) {
@@ -1631,12 +1655,14 @@ app.get('/anonymous_runs', function(req, res, next) {
   var assignment_name = req.query.assignment_name;
 
   pgclient(function(client, done) {
-    var query = client.query("SELECT assignment_id FROM assignments WHERE name=($1)", [assignment_name]);
+    var query = client.query("SELECT assignment_id FROM assignments WHERE " +
+        "name=($1)", [assignment_name]);
     register_query_helpers(query, res, done, req.session.username);
     query.on('end', function(result) {
       if (result.rows.length != 1) {
         done();
-        return res.send(JSON.stringify({ status: 'Failure', msg: "That assignment name doesn't seem to exist" }));
+        return res.send(JSON.stringify({ status: 'Failure',
+            msg: "That assignment name doesn't seem to exist" }));
       }
       var assignment_id = result.rows[0].assignment_id;
 
