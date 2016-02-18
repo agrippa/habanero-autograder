@@ -783,16 +783,7 @@ app.post('/update_jvm_args/:assignment_id', function(req, res, next) {
   }
 });
 
-app.post('/update_correctness_timeout/:assignment_id', function(req, res, next) {
-  console.log('update_correctness_timeout: is_admin=' + req.session.is_admin + ', new timeout=' + req.body.correctness_timeout);
-  if (!req.session.is_admin) {
-    return res.render('admin.html', {err_msg: permissionDenied});
-  } else {
-    if (!req.body.correctness_timeout) {
-      return res.render('admin.html', {err_msg: 'Malformed request, missing correctness timeout field?'});
-    }
-    var assignment_id = req.params.assignment_id;
-
+function update_timeout(timeout_val, column_name, assignment_id, res, req) {
     pgclient(function(client, done) {
       var query = client.query(
         "SELECT * FROM assignments WHERE assignment_id=($1)", [assignment_id]);
@@ -803,8 +794,9 @@ app.post('/update_correctness_timeout/:assignment_id', function(req, res, next) 
           return res.render('admin.html',
             {err_msg: 'That assignment doesn\'t seem to exist'});
         } else {
-          var query = client.query("UPDATE assignments SET correctness_timeout_ms=($1) WHERE assignment_id=($2);",
-              [req.body.correctness_timeout, assignment_id]);
+          var query = client.query("UPDATE assignments SET " +
+              column_name + "=" + timeout_val + " WHERE assignment_id=($1);",
+              [assignment_id]);
           register_query_helpers(query, res, done, req.session.username);
           query.on('end', function(result) {
             done();
@@ -813,6 +805,41 @@ app.post('/update_correctness_timeout/:assignment_id', function(req, res, next) 
         }
       });
     });
+}
+
+app.post('/update_correctness_timeout/:assignment_id', function(req, res, next) {
+  console.log('update_correctness_timeout: is_admin=' + req.session.is_admin +
+      ', new timeout=' + req.body.correctness_timeout);
+  if (!req.session.is_admin) {
+    return res.render('admin.html', {err_msg: permissionDenied});
+  } else {
+    if (!req.body.correctness_timeout) {
+      return res.render('admin.html',
+          {err_msg: 'Malformed request, missing correctness timeout field?'});
+    }
+    var assignment_id = req.params.assignment_id;
+    var correctness_timeout = req.body.correctness_timeout;
+
+    return update_timeout(correctness_timeout, 'correctness_timeout_ms',
+        assignment_id, res, req);
+  }
+});
+
+app.post('/update_performance_timeout/:assignment_id', function(req, res, next) {
+  console.log('update_performance_timeout: is_admin=' + req.session.is_admin +
+      ', new timeout=' + req.body.performance_timeout);
+  if (!req.session.is_admin) {
+    return res.render('admin.html', {err_msg: permissionDenied});
+  } else {
+    if (!req.body.performance_timeout) {
+      return res.render('admin.html',
+          {err_msg: 'Malformed request, missing performance timeout field?'});
+    }
+    var assignment_id = req.params.assignment_id;
+    var performance_timeout = req.body.performance_timeout;
+
+    return update_timeout("'" + performance_timeout + "'", 'performance_timeout_str',
+        assignment_id, res, req);
   }
 });
 
@@ -1166,6 +1193,9 @@ function get_cello_work_dir(home_dir, run_id) {
 
 function get_scalability_tests(ncores) {
   var tests = [];
+  tests.push(1);
+  tests.push(ncores);
+  /*
   var curr_cores = 1;
   while (curr_cores < ncores) {
     tests.push(curr_cores);
@@ -1174,6 +1204,7 @@ function get_scalability_tests(ncores) {
   if (curr_cores / 2 != ncores) {
     tests.push(ncores);
   }
+  */
   return tests;
 }
 
@@ -1191,16 +1222,18 @@ function loop_over_all_perf_tests(cmd) {
 
 function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     assignment_name, java_profiler_dir, os, ncores, junit_jar, hamcrest_jar, hj_jar,
-    asm_jar, rr_agent_jar, rr_runtime_jar, assignment_jvm_args) {
+    asm_jar, rr_agent_jar, rr_runtime_jar, assignment_jvm_args, timeout_str) {
   var slurmFileContents =
     "#!/bin/bash\n" +
     "\n" +
     "#SBATCH --job-name=habanero-autograder-" + run_id + "\n" +
-    "#SBATCH --cpus-per-task=" + ncores + "\n" +
-    "#SBATCH --exclusive\n" +
     "#SBATCH --nodes=1\n" +
-    "#SBATCH --time=00:10:00\n" +
-    "#SBATCH --partition=interactive\n" +
+    "#SBATCH --ntasks-per-node=1\n" +
+    "#SBATCH --cpus-per-task=" + ncores + "\n" +
+    "#SBATCH --mem=16000m\n" +
+    "#SBATCH --time=" + timeout_str + "\n" +
+    "#SBATCH --export=ALL\n" +
+    "#SBATCH --partition=commons\n" +
     "#SBATCH --output=" + home_dir + "/autograder/" + run_id + "/stdout.txt\n" +
     "#SBATCH --error=" + home_dir + "/autograder/" + run_id + "/stderr.txt\n" +
     "\n" +
@@ -1258,40 +1291,41 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   }
   slurmFileContents += '\n';
 
-  var profiler_output = '$CELLO_WORK_DIR/profiler.txt';
-  slurmFileContents += 'touch ' + profiler_output + '\n';
-  slurmFileContents += loop_over_all_perf_tests(
-    'java ' + securityFlags + ' -Dhj.numWorkers=' + ncores +
-    ' -agentpath:' + java_profiler_dir + '/liblagent.so ' +
-    '-javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
-    'org.junit.runner.JUnitCore $CLASSNAME >> ' + profiler_output + ' 2>&1 ; ' +
-    'echo ===== Profiling test $CLASSNAME ===== >> $CELLO_WORK_DIR/traces.txt; ' +
-    'cat $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/traces.txt >> ' +
-    '$CELLO_WORK_DIR/traces.txt');
-  slurmFileContents += 'awk \'BEGIN { doPrint = 1; } /Profiling/ { ' +
-    'doPrint = 0; print $0; } /Total trace count/ { doPrint = 1; } { ' +
-    'if (doPrint) print $0; }\' $CELLO_WORK_DIR/traces.txt > ' +
-    '$CELLO_WORK_DIR/traces.filtered.txt\n';
-  slurmFileContents += 'mv $CELLO_WORK_DIR/traces.filtered.txt ' +
-    '$CELLO_WORK_DIR/traces.txt\n';
-  slurmFileContents += '\n';
+  // var profiler_output = '$CELLO_WORK_DIR/profiler.txt';
+  // slurmFileContents += 'touch ' + profiler_output + '\n';
+  // slurmFileContents += loop_over_all_perf_tests(
+  //   'java ' + securityFlags + ' -Dhj.numWorkers=' + ncores +
+  //   ' -agentpath:' + java_profiler_dir + '/liblagent.so ' +
+  //   '-javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
+  //   'org.junit.runner.JUnitCore $CLASSNAME >> ' + profiler_output + ' 2>&1 ; ' +
+  //   'echo ===== Profiling test $CLASSNAME ===== >> $CELLO_WORK_DIR/traces.txt; ' +
+  //   'cat $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/traces.txt >> ' +
+  //   '$CELLO_WORK_DIR/traces.txt');
+  // slurmFileContents += 'awk \'BEGIN { doPrint = 1; } /Profiling/ { ' +
+  //   'doPrint = 0; print $0; } /Total trace count/ { doPrint = 1; } { ' +
+  //   'if (doPrint) print $0; }\' $CELLO_WORK_DIR/traces.txt > ' +
+  //   '$CELLO_WORK_DIR/traces.filtered.txt\n';
+  // slurmFileContents += 'mv $CELLO_WORK_DIR/traces.filtered.txt ' +
+  //   '$CELLO_WORK_DIR/traces.txt\n';
+  // slurmFileContents += '\n';
+
   /*
    * A bug in JDK 8 [1] leads to the FastTrack data race detector crashing on
    * Mac OS.
    *
    * [1] http://bugs.java.com/bugdatabase/view_bug.do?bug_id=8022291
    */
-  if (os !== 'Darwin') {
-    var rr_output = '$CELLO_WORK_DIR/datarace.txt';
-    slurmFileContents += loop_over_all_perf_tests('java ' +
-      assignment_jvm_args + ' ' + securityFlags + ' -cp ' +
-      classpath.join(':') + ' -Dhj.numWorkers=' + ncores + ' -javaagent:' +
-      hj_jar + ' -javaagent:' + rr_agent_jar + ' -Xbootclasspath/p:' +
-      rr_runtime_jar + ' rr.RRMain -toolpath= -maxTid=80 -tool=FT_CHECKER ' +
-      '-noWarn=+edu.rice.hj.runtime.* -classpath=' + classpath.join(':') +
-      ' -maxWarn=20 -quiet org.junit.runner.JUnitCore $CLASSNAME >> ' +
-      rr_output + ' 2>&1');
-  }
+  // if (os !== 'Darwin') {
+  //   var rr_output = '$CELLO_WORK_DIR/datarace.txt';
+  //   slurmFileContents += loop_over_all_perf_tests('java ' +
+  //     assignment_jvm_args + ' ' + securityFlags + ' -cp ' +
+  //     classpath.join(':') + ' -Dhj.numWorkers=' + ncores + ' -javaagent:' +
+  //     hj_jar + ' -javaagent:' + rr_agent_jar + ' -Xbootclasspath/p:' +
+  //     rr_runtime_jar + ' rr.RRMain -toolpath= -maxTid=80 -tool=FT_CHECKER ' +
+  //     '-noWarn=+edu.rice.hj.runtime.* -classpath=' + classpath.join(':') +
+  //     ' -maxWarn=20 -quiet org.junit.runner.JUnitCore $CLASSNAME >> ' +
+  //     rr_output + ' 2>&1');
+  // }
 
   return slurmFileContents;
 }
@@ -1452,6 +1486,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                   query.on('end', function(result) {
                                     var assignment_name = result.rows[0].name; 
                                     var assignment_jvm_args = result.rows[0].jvm_args;
+                                    var timeout_str = result.rows[0].performance_timeout_str;
 
                                     console.log('local_run_finished: Connecting to ' +
                                         CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
@@ -1553,7 +1588,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                                               username, assignment_id, assignment_name,
                                                               java_profiler_dir, os, ncores, junit,
                                                               hamcrest, hj, asm, rr_agent_jar, rr_runtime_jar,
-                                                              assignment_jvm_args));
+                                                              assignment_jvm_args, timeout_str));
 
                                                           var copies = [{src: run_dir + '/cello.slurm',
                                                                          dst: 'autograder/' + run_id + '/cello.slurm'},
@@ -1954,7 +1989,8 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
 
   // Compute performance score based on performance of each test
   var performance = total_performance_possible;
-  if ('performance.1.txt' in log_files && 'performance.' + ncores + '.txt' in log_files) {
+  if (run_status !== 'FAILED' && 'performance.1.txt' in log_files &&
+          'performance.' + ncores + '.txt' in log_files) {
     var single_thread_content = log_files['performance.1.txt'].toString('utf8');
     var multi_thread_content = log_files['performance.' + ncores + '.txt'].toString('utf8');
 
@@ -1969,6 +2005,8 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
         var testname = tokens[2];
         var t = parseInt(tokens[3]);
         single_thread_perf[testname] = t;
+        console.log('calculate_score: found single thread perf for test=' +
+                testname + ', time=' + t);
       }
     }
 
@@ -1978,6 +2016,9 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
         var tokens = line.split(' ');
         var testname = tokens[2];
         var t = parseInt(tokens[3]);
+
+        console.log('calculate_score: found multi thread perf for test=' +
+                testname + ', time=' + t);
 
         if (testname in single_thread_perf) {
           var test = find_performance_test_with_name(testname, rubric);
