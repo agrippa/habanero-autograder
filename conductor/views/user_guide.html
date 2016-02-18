@@ -19,8 +19,28 @@
     <div class="row" style="width:100%">
       <div class="col-md-8 col-md-offset-2">
         <hr/>
-        <h4>Submitting a test</h4>
+        <h4>Submitting a job</h4>
         <hr/>
+        <p>There are two ways to submit a test job to the autograder: ZIP upload
+        or SVN export.</p>
+
+        <p>In both workflows, the first step is to select the assignment name
+        from the Overview page by clicking <b>Select Assignment</b> and then
+        selecting the assignment in the dropdown.</p>
+
+        <p>For ZIP upload, you should then select the <b>Browse...</b> button
+        from the right side of the top of the Overview page, and select a ZIP
+        containing your submission from your local machine. This ZIP should be
+        created from the top-level assignment directory (e.g. hw_2) and should
+        contain a valid Maven project (e.g. with first-level child src/,
+        second-level child src/main/, third-level child src/main/java/, etc).</p>
+
+        <p>For SVN export submission, you can instead choose to enter an SVN URL
+        which points to a valid Maven project. Enter this URL in the field
+        marked <b>SVN URL</b>.</p>
+
+        <p>Finally, whether you chose ZIP upload or SVN export, click <b>Run</b>
+        and your job will be started!</p>
       </div>
     </div>
 
