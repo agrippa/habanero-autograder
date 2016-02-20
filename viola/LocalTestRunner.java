@@ -455,7 +455,7 @@ public class LocalTestRunner implements Runnable {
             /*
              * Compile the full application and testing suite
              */
-            String[] cmd = new String[]{"mvn", "clean", "compile", "test-compile"};
+            String[] cmd = new String[]{"mvn", "-Dcheckstyle.skip=true", "clean", "compile", "test-compile"};
             ProcessResults mvn_results = runInProcess(cmd, unzipped_code_dir);
             writer = new PrintWriter(code_dir.getAbsolutePath() + "/compile.txt", "UTF-8");
             writer.println("======= STDOUT =======");

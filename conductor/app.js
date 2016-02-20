@@ -1784,7 +1784,7 @@ function validate_instructor_pom(pom_file) {
   }
   var version_str = xml.substring(version_index, end_version);
   var split = version_str.split('.');
-  if (split.length != 3 || isNaN(split[0]) || isNaN(split[1]) || isNaN(split[2])) {
+  if (split.length != 3 || isNaN(split[0]) || isNaN(split[1])) {
     return failed_validation('The provided instructor POM does not seem to ' +
         'contain a valid hjlib.version property, expected a version number ' +
         'separated with two periods');
