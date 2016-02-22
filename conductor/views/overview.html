@@ -77,32 +77,33 @@
         <hr/>
         <h3>Submit Test Run</h3>
         <hr/>
-        <div class="col-md-8 col-md-offset-1">
 
-          <div class="dropdown col-md-5" style="float:left; padding-right: 30px;">
-            <button style="width=100%" id='dropdown-button' class="btn btn-primary btn-block dropdown-toggle" type="button" data-toggle="dropdown">Select Assignment</button>
-            <ul class="dropdown-menu" id="assignment-dropdown">
-              <li><a href="#">Loading...</a></li>
-            </ul>
-          </div>
+        <form action="/submit_run" method="post" enctype="multipart/form-data">
 
-          <div class="col-md-7">
-          <form action="/submit_run" method="post" enctype="multipart/form-data">
-            <div align="center" width="100%" style="padding: 5px 5px 5px 5px; margin: 5px 5px 5px 5px; border: 1px solid gray;">
-              <input name="zip" type="file"/>
-              </p>
-              <p><b>OR</b></p>
-              <input name="svn_url" style="width: 100%" type="text" placeholder="SVN URL" id="svn_url"/>
-              </p>
+          <div class="col-md-12;" align="center">
+            <div class="dropdown col-md-3 col-md-offset-2" style="float:left; padding-right: 30px;">
+              <button id='dropdown-button' class="btn btn-primary btn-block dropdown-toggle" type="button" data-toggle="dropdown" style="width: 100%">Select Assignment</button>
+              <ul class="dropdown-menu" role="menu" id="assignment-dropdown" style="width: 100%">
+                <li><a href="#">Loading...</a></li>
+              </ul>
             </div>
-            <div>
-              <input type="checkbox" name="correctness_only" defaultValue="off" defaultChecked="on">&nbsp;&nbsp;Correctness Tests Only</input>
-              <input value="Run" name="submit" type="submit" class="btn btn-primary" style="float:right"/>
+
+            <div class="col-md-6" style="padding-right: 30px">
+              <div align="center" width="100%" style="padding: 5px 5px 5px 5px; margin: 5px 5px 5px 5px; border: 1px solid gray;">
+                <input name="zip" type="file"/>
+                </p>
+                <p><b>OR</b></p>
+                <input name="svn_url" style="width: 100%" type="text" placeholder="SVN URL" id="svn_url"/>
+                </p>
+                <input type="checkbox" name="correctness_only" defaultValue="off" defaultChecked="on">&nbsp;&nbsp;Correctness Tests Only</input>
+              </div>
             </div>
-            <input name="assignment" type="hidden" value="" id="assignment_id"/>
-          </form>
           </div>
-        </div>
+          <div class="col-md-12" style="padding-top: 10px">
+            <input style="width: 40%; margin:0 auto; display:block;" value="Run" name="submit" type="submit" class="btn btn-primary" style="float:right"/>
+          </div>
+          <input name="assignment" type="hidden" value="" id="assignment_id"/>
+        </form>
       </div>
     </div>
 
@@ -111,7 +112,7 @@
       <hr/>
       <h3>Past Runs</h3>
       <hr/>
-      <table id="past-runs" style="width:100%" border="1">
+      <table id="past-runs" style="width:100%;" class="table table-hover table-bordered table-condensed">
       <!-- TODO -->
       <tr><td bgcolor="#AAAAAA"><center><b>Run ID</b></center></td><td bgcolor="#AAAAAA"><center><b>Assignment</b></center></td><td bgcolor="#AAAAAA"><center><b>Status</b></center></td></tr>
       </table>

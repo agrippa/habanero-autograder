@@ -34,7 +34,7 @@
           <h4><font color="red">Correctness tests reported error: <%= viola_err %></font></h4>
         <% } %>
         <h4>
-      <table style="width:100%" border="1" bordercolor='#ffffff'><tr>
+      <table style="width:100%" border="1" bordercolor='#ffffff' class="table table-bordered table-condensed"><tr>
         <td bgcolor=<%= (!passed_checkstyle ? '#FF3333' : '#00FF00') %> ><center><b>Checkstyle</b></center></td>
         <td bgcolor=<%= (!compiled ? '#FF3333' : '#00FF00') %> ><center><b>Compilation</b></center></td>
         <td bgcolor=<%= (!passed_all_correctness ? '#FF3333' : '#00FF00') %> ><center><b>Correctness</b></center></td>
