@@ -547,9 +547,15 @@ app.get('/leaderboard/:assignment_id?', function(req, res, next) {
           "FROM runs WHERE assignment_id=($1) ORDER BY run_id DESC", [target_assignment_id]);
         register_query_helpers(query, res, done, req.session.username);
         query.on('end', function(result) {
-          done();
           render_vars['runs'] = result.rows;
-          return res.render('leaderboard.html', render_vars);
+          var query = client.query('SELECT name FROM assignments where ' +
+              'assignment_id=($1)', [target_assignment_id]);
+          register_query_helpers(query, res, done, req.session.username);
+          query.on('end', function(result) {
+            render_vars['assignment_name'] = result.rows[0].name;
+            done();
+            return res.render('leaderboard.html', render_vars);
+          });
         });
       } else {
         done();
