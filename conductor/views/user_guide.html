@@ -54,6 +54,39 @@
         tests, performance tests, elapsed time, and the final grade the
         autograder assigned it. You can navigate to this page from the Overview
         page via the individual links in the leftmost column of the Runs table.</p>
+
+        <p>The run page consists of a header followed by several text sections.</p>
+
+        <p>The header of the run page lists the score assigned to the run, the
+        elapsed time for the run, and a color-coded status bar for the run. The
+        score is calculated based on the correctness, performance, and style
+        tests that the submission passed using an instructor-provided rubric.
+        The header may also include a red error message if this run failed at an
+        unexpected point with information on the command that was running at the
+        point-of-failure.<p>
+
+        <p>The following text sections may also appear in each run page:</p>
+
+        <ol>
+            <li><b>Checkstyle</b>: This section shows the output of running
+            the Checkstyle tool on the user code using an instructor-provided
+            Checkstyle configuration.</li>
+            <li><b>Compile</b>: This section shows the output of compiling
+            the student-provided Maven project.</li>
+            <li><b>Correct</b>: This section shows the output of running all
+            correctness unit tests on the student-provided code. Correctness
+            tests are identified by files ending with *CorrectnessTest.java.
+            Note that before executing these tests, the instructor can choose to
+            replace any test files with reference copies.</li>
+            <li><b>Findbugs</b>: This section shows the output of running
+            the Findbugs static checking tool on the student-submitted code.
+            Information on Findbugs is available
+            <a target="_blank" href=http://findbugs.sourceforge.net/>here</a>.</li>
+        </ol>
+
+        <p>One or more of these sections may be missing if an earlier stage
+        failed. For example, if compilation fails then no correctness tests will
+        be displayed.</p>
       </div>
     </div>
 
