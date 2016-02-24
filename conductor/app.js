@@ -1085,6 +1085,13 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
       use_zip = false;
     }
 
+    var svn_url = req.body.svn_url;
+    if (svn_url.substring(0, 7) === 'http://') {
+      svn_url = 'https://' + svn_url.substring(7);
+    } else if (svn_url.substring(0, 8) !== 'https://') {
+      svn_url = 'https://' + svn_url;
+    }
+
     pgclient(function(client, done) {
       get_user_id_for_name(req.session.username, client, done, res,
         function(user_id, err) {
@@ -1155,11 +1162,11 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                                       {err_msg: 'Internal error creating temporary directory'});
                                 }
 
-                                svn_client.cmd(['export', req.body.svn_url,
+                                svn_client.cmd(['export', svn_url,
                                     temp_dir + '/submission_svn_folder'], function(err, data) {
                                   if (is_actual_svn_err(err)) {
                                     return res.render('overview.html', { err_msg:
-                                      'An error occurred exporting from "' + req.body.svn_url + '"' });
+                                      'An error occurred exporting from "' + svn_url + '"' });
                                   } 
 
                                   var output = fs.createWriteStream(run_dir + '/student.zip');
