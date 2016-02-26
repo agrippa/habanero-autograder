@@ -220,8 +220,8 @@ public class LocalTestRunner implements Runnable {
 
     private ProcessResults runInProcess(String[] cmd, File working_dir)
         throws IOException, InterruptedException {
-      ViolaUtil.log("runInProcess: working_dir=%s cmd=%s\n",
-          working_dir.getAbsolutePath(), String.join(" ", cmd));
+      ViolaUtil.log("runInProcess: run_id=%d working_dir=%s cmd=%s\n",
+          run_id, working_dir.getAbsolutePath(), String.join(" ", cmd));
       
       ProcessBuilder pb = new ProcessBuilder(Arrays.asList(cmd));
       pb.directory(working_dir);
