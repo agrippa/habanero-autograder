@@ -403,6 +403,32 @@ function string_ends_with(st, suffix) {
   return st.indexOf(suffix, st.length - suffix.length) !== -1;
 };
 
+function render_page(html_doc, res, req, render_vars) {
+    render_vars = typeof render_vars !== 'undefined' ? render_vars : {};
+    if ('err_msg' in req.session && req.session.err_msg !== null &&
+            !('err_msg' in render_vars)) {
+        render_vars.err_msg = req.session.err_msg;
+    }
+    req.session.err_msg = null;
+    if ('success_msg' in req.session && req.session.success_msg !== null &&
+            !('success_msg' in render_vars)) {
+        render_vars.success_msg = req.session.success_msg;
+    }
+    req.session.success_msg = null;
+
+    return res.render(html_doc, render_vars);
+}
+
+function redirect_with_err(target, res, req, err_msg) {
+    req.session.err_msg = err_msg;
+    return res.redirect(target);
+}
+
+function redirect_with_success(target, res, req, success_msg) {
+    req.session.success_msg = success_msg;
+    return res.redirect(target);
+}
+
 var app = express();
 app.use(bodyParser.urlencoded());
 app.use(session({secret: 'blarp', cookie:{maxAge: 7 * 24 * 3600 * 1000}}));
@@ -414,7 +440,7 @@ app.set('views', __dirname + "/views");
  * login/logout routes should always be the only routes above the wildcard '*' route
  */
 app.get('/login', function(req, res, next) {
-  res.render('login.html');
+    return render_page('login.html', res, req);
 });
 
 app.post('/login', function(req, res, next) {
@@ -462,7 +488,7 @@ app.get('/logout', function(req, res, next) {
   req.session.user_id = null;
   req.session.is_admin = false;
 
-  res.render('login.html');
+  return res.redirect('/login');
 });
 
 app.get('*', function(req, res, next) {
@@ -478,7 +504,7 @@ app.get('*', function(req, res, next) {
         res.locals.username = null;
         res.locals.is_admin = false;
 
-        res.redirect('/login');
+        return res.redirect('/login');
     }
   }
 });
@@ -494,7 +520,8 @@ app.get('/profile', function(req, res, next) {
     query.on('end', function(result) {
       if (result.rowCount != 1) {
         done();
-        return res.render('overview.html', {err_msg: 'User "' + username + '" does not exist'});
+        return redirect_with_err('/overview', res, req,
+            'User "' + username + '" does not exist');
       } else {
         var user_id = result.rows[0].user_id;
         var has_notifications_enabled = result.rows[0].receive_email_notifications;
@@ -506,7 +533,7 @@ app.get('/profile', function(req, res, next) {
           var render_vars = {username: req.session.username,
                              nruns: result.rows[0].count,
                              notifications_enabled: has_notifications_enabled};
-          res.render('profile.html', render_vars);
+          return render_page('profile.html', res, req, render_vars);
         });
       }
     });
@@ -530,7 +557,7 @@ app.post('/notifications/', function(req, res, next) {
 });
 
 app.get('/overview', function(req, res, next) {
-  res.render('overview.html');
+  return render_page('overview.html', res, req);
 });
 
 app.get('/leaderboard/:assignment_id?', function(req, res, next) {
@@ -556,23 +583,23 @@ app.get('/leaderboard/:assignment_id?', function(req, res, next) {
           query.on('end', function(result) {
             render_vars['assignment_name'] = result.rows[0].name;
             done();
-            return res.render('leaderboard.html', render_vars);
+            return render_page('leaderboard.html', res, req, render_vars);
           });
         });
       } else {
         done();
-        return res.render('leaderboard.html', render_vars);
+        return render_page('leaderboard.html', res, req, render_vars);
       }
     });
   });
 });
 
 app.get('/comments', function(req, res, next) {
-  res.render('comments.html');
+  return render_page('comments.html', res, req);
 });
 
 app.get('/user_guide', function(req, res, next) {
-  res.render('user_guide.html');
+  return render_page('user_guide.html', res, req);
 });
 
 
@@ -581,17 +608,17 @@ app.post('/comments', function(req, res, next) {
   send_email('jmg3@rice.edu', 'AUTOGRADER COMMENT', comment, function(err) {
     if (err) {
       console.log('comments: err=' + err);
-      return res.render('comments.html', {err_msg: 'Error submitting comment' });
+      return render_page('comments.html', res, req, {err_msg: 'Error submitting comment' });
     }
-    return res.render('overview.html', {success_msg: 'Thank you for your comment!'});
+    return redirect_with_success('/overview', res, req, 'Thank you for your comment!');
   });
 });
 
 app.get('/admin', function(req, res, next) {
   if (req.session.is_admin) {
-    res.render('admin.html');
+    return render_page('admin.html', res, req);
   } else {
-    res.redirect('/overview');
+    return res.redirect('/overview');
   }
 });
 
@@ -613,24 +640,24 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
   } else {
     var assignment_name = req.body.assignment_name;
     if (assignment_name.length == 0) {
-      return res.render('admin.html',
+      return render_page('admin.html', res, req,
         {err_msg: 'Please provide a non-empty assignment name'});
     }
 
     if (!req.files.zip) {
-      return res.render('admin.html',
+      return render_page('admin.html', res, req,
         {err_msg: 'Please provide test files for the assignment'});
     }
     if (!req.files.instructor_pom) {
-      return res.render('admin.html',
+      return render_page('admin.html', res, req,
         {err_msg: 'Please provide an instructor pom for the assignment'});
     }
     if (!req.files.rubric) {
-      return res.render('admin.html',
+      return render_page('admin.html', res, req,
         {err_msg: 'Please provide a rubric for the assignment'});
     }
     if (!req.files.checkstyle_config) {
-      return res.render('admin.html',
+      return render_page('admin.html', res, req,
         {err_msg: 'Please provide a checkstyle configuration for the assignment'});
     }
 
@@ -639,13 +666,13 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
           var rubric_validated = load_and_validate_rubric(req.files.rubric[0].path);
           if (!rubric_validated.success) {
               done();
-              return res.render('admin.html', {err_msg: 'Error in rubric: ' + rubric_validated.msg});
+              return render_page('admin.html', res, req, {err_msg: 'Error in rubric: ' + rubric_validated.msg});
           }
 
           var pom_validated = validate_instructor_pom(req.files.instructor_pom[0].path);
           if (!pom_validated.success) {
               done();
-              return res.render('admin.html', {err_msg: 'Error in POM: ' + pom_validated.msg});
+              return render_page('admin.html', res, req, {err_msg: 'Error in POM: ' + pom_validated.msg});
           }
 
           var query = client.query(
@@ -663,12 +690,12 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
               svn_client.cmd(['mkdir', '--parents', '--message', mkdir_msg, dst_dir],
                 function(err, data) {
                   if (is_actual_svn_err(err)) {
-                    return res.render('admin.html',
+                    return render_page('admin.html', res, req,
                       {err_msg: 'Error creating assignment directory'});
                   } else {
                     svn_client.cmd(['checkout', dst_dir, assignment_dir], function(err, data) {
                       if (is_actual_svn_err(err)) {
-                        return res.render('admin.html',
+                        return render_page('admin.html', res, req,
                           {err_msg: 'Error checking out assignment directory'});
                       } else {
                         fs.renameSync(req.files.zip[0].path,
@@ -686,14 +713,14 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
                           assignment_dir + '/rubric.json',
                           assignment_dir + '/checkstyle.xml'], function(err, data) {
                             if (is_actual_svn_err(err)) {
-                              return res.render('admin.html',
+                              return render_page('admin.html', res, req,
                                 {err_msg: 'Error adding files to assignment repo'});
                             } else {
                               var commit_msg = 'initial commit for assignment ' + assignment_id;
                               svn_client.cmd(['commit', '--message', commit_msg, assignment_dir],
                                 function(err, data) {
                                   if (is_actual_svn_err(err)) {
-                                    return res.render('admin.html',
+                                    return render_page('admin.html', res, req,
                                       {err_msg: 'Error committing files to assignment repo'});
                                   } else {
                                     return res.redirect('/admin');
@@ -712,12 +739,12 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
 
 function handle_reupload(req, res, missing_msg, target_filename) {
   if (!req.session.is_admin) {
-    return res.render('admin.html', {err_msg: permissionDenied});
+    return redirect_with_err('/overview', res, req, permissionDenied);
   } else {
     var assignment_id = req.params.assignment_id;
 
     if (!req.file) {
-      return res.render('admin.html', {err_msg: missing_msg});
+      return render_page('admin.html', res, req, {err_msg: missing_msg});
     }
 
     pgclient(function(client, done) {
@@ -727,7 +754,7 @@ function handle_reupload(req, res, missing_msg, target_filename) {
       query.on('end', function(result) {
         done();
         if (result.rows.length != 1) {
-          return res.render('admin.html',
+          return render_page('admin.html', res, req,
             {err_msg: 'That assignment doesn\'t seem to exist'});
         } else {
           var assignment_dir = __dirname + '/instructor-tests/' + assignment_id;
@@ -738,7 +765,7 @@ function handle_reupload(req, res, missing_msg, target_filename) {
            */
           svn_client.cmd(['update', '--accept', 'theirs-full', assignment_dir], function(err, data) {
             if (is_actual_svn_err(err)) {
-              return res.render('admin.html', {err_msg: 'Error updating file in the repo'});
+              return render_page('admin.html', res, req, {err_msg: 'Error updating file in the repo'});
             }
 
             fs.renameSync(req.file.path, assignment_dir + '/' + target_filename);
@@ -746,7 +773,7 @@ function handle_reupload(req, res, missing_msg, target_filename) {
             svn_client.cmd(['commit', '--message', commit_msg, assignment_dir],
               function(err, data) {
                 if (is_actual_svn_err(err)) {
-                  return res.render('admin.html', {err_msg: 'Error updating file in the repo'});
+                  return render_page('admin.html', res, req, {err_msg: 'Error updating file in the repo'});
                 } else {
                   return res.redirect('/admin');
                 }
@@ -761,10 +788,10 @@ function handle_reupload(req, res, missing_msg, target_filename) {
 app.post('/update_jvm_args/:assignment_id', function(req, res, next) {
   console.log('update_jvm_args: is_admin=' + req.session.is_admin + ', jvm_args=' + req.body.jvm_args);
   if (!req.session.is_admin) {
-    return res.render('admin.html', {err_msg: permissionDenied});
+    return render_page('admin.html', res, req, {err_msg: permissionDenied});
   } else {
     if (!req.body.jvm_args) {
-      return res.render('admin.html', {err_msg: 'Malformed request, missing JVM args field?'});
+      return render_page('admin.html', res, req, {err_msg: 'Malformed request, missing JVM args field?'});
     }
     var assignment_id = req.params.assignment_id;
 
@@ -775,7 +802,7 @@ app.post('/update_jvm_args/:assignment_id', function(req, res, next) {
       query.on('end', function(result) {
         if (result.rows.length != 1) {
           done();
-          return res.render('admin.html',
+          return render_page('admin.html', res, req,
             {err_msg: 'That assignment doesn\'t seem to exist'});
         } else {
           var query = client.query("UPDATE assignments SET jvm_args=($1) WHERE assignment_id=($2);",
@@ -799,7 +826,7 @@ function update_timeout(timeout_val, column_name, assignment_id, res, req) {
       query.on('end', function(result) {
         if (result.rows.length != 1) {
           done();
-          return res.render('admin.html',
+          return render_page('admin.html', res, req,
             {err_msg: 'That assignment doesn\'t seem to exist'});
         } else {
           var query = client.query("UPDATE assignments SET " +
@@ -819,10 +846,10 @@ app.post('/update_correctness_timeout/:assignment_id', function(req, res, next) 
   console.log('update_correctness_timeout: is_admin=' + req.session.is_admin +
       ', new timeout=' + req.body.correctness_timeout);
   if (!req.session.is_admin) {
-    return res.render('admin.html', {err_msg: permissionDenied});
+    return render_page('admin.html', res, req, {err_msg: permissionDenied});
   } else {
     if (!req.body.correctness_timeout) {
-      return res.render('admin.html',
+      return render_page('admin.html', res, req,
           {err_msg: 'Malformed request, missing correctness timeout field?'});
     }
     var assignment_id = req.params.assignment_id;
@@ -837,10 +864,10 @@ app.post('/update_performance_timeout/:assignment_id', function(req, res, next) 
   console.log('update_performance_timeout: is_admin=' + req.session.is_admin +
       ', new timeout=' + req.body.performance_timeout);
   if (!req.session.is_admin) {
-    return res.render('admin.html', {err_msg: permissionDenied});
+    return render_page('admin.html', res, req, {err_msg: permissionDenied});
   } else {
     if (!req.body.performance_timeout) {
-      return res.render('admin.html',
+      return render_page('admin.html', res, req,
           {err_msg: 'Malformed request, missing performance timeout field?'});
     }
     var assignment_id = req.params.assignment_id;
@@ -862,12 +889,12 @@ app.post('/upload_instructor_pom/:assignment_id', upload.single('pom'),
       console.log('upload_instructor_pom: is_admin=' + req.session.is_admin);
 
       if (!req.file) {
-          return res.render('admin.html', {err_msg: 'No POM provided'});
+          return render_page('admin.html', res, req, {err_msg: 'No POM provided'});
       }
 
       var validated = validate_instructor_pom(req.file.path);
       if (!validated.success) {
-          return res.render('admin.html', {err_msg: 'Error in POM: ' + validated.msg});
+          return render_page('admin.html', res, req, {err_msg: 'Error in POM: ' + validated.msg});
       }
 
       return handle_reupload(req, res, 'Please provide an instructor pom.xml',
@@ -879,12 +906,12 @@ app.post('/upload_rubric/:assignment_id', upload.single('rubric'),
       console.log('upload_rubric: is_admin=' + req.session.is_admin);
 
       if (!req.file) {
-          return res.render('admin.html', {err_msg: 'No rubric provided'});
+          return render_page('admin.html', res, req, {err_msg: 'No rubric provided'});
       }
 
       var validated = load_and_validate_rubric(req.file.path);
       if (!validated.success) {
-          return res.render('admin.html', {err_msg: 'Error in rubric: ' + validated.msg});
+          return render_page('admin.html', res, req, {err_msg: 'Error in rubric: ' + validated.msg});
       }
 
       return handle_reupload(req, res, 'Please provide a rubric', 'rubric.json');
@@ -1021,14 +1048,14 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
       assignment_id, jvm_args, correctness_timeout, req, res) {
   svn_client.cmd(['add', run_dir + '/student.zip'], function(err, data) {
     if (is_actual_svn_err(err)) {
-      return res.render('overview.html', { err_msg:
-        'An error occurred backing up your submission' });
+      return redirect_with_err('/overview', res, req,
+        'An error occurred backing up your submission');
     } else {
       var commit_msg = '"add ' + req.session.username + ' ' + assignment_name + ' ' + run_id + '"';
       svn_client.cmd(['commit', '--message', commit_msg, run_dir], function(err, data) {
         if (is_actual_svn_err(err)) {
-          return res.render('overview.html',
-              { err_msg: 'An error occurred backing up your submission' });
+          return redirect_with_err('/overview', res, req,
+              'An error occurred backing up your submission');
         } else {
           var viola_params = 'done_token=' + done_token +
               '&user=' + req.session.username +
@@ -1048,14 +1075,14 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
                   if (result.status === 'Success') {
                       return res.redirect('/overview');
                   } else {
-                      return res.render('overview.html',
-                          { err_msg: 'Viola error: ' + result.msg });
+                      return redirect_with_err('/overview', res, req,
+                          'Viola error: ' + result.msg);
                   }
               });
           }).on('error', function(err) {
               console.log('VIOLA err="' + err + '"');
-              return res.render('overview.html',
-                  { err_msg: 'An error occurred launching the local tests' });
+              return redirect_with_err('/overview', res, req,
+                  'An error occurred launching the local tests');
           });
         }
       });
@@ -1073,14 +1100,14 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
       ' assignment="' + assignment_name + '"');
 
     if (assignment_name.length === 0) {
-      return res.render('overview.html', { err_msg: 'Please select an assignment' });
+      return redirect_with_err('/overview', res, req, 'Please select an assignment');
     }
 
     if (!req.file && (!req.body.svn_url || req.body.svn_url.length === 0)) {
-      return res.render('overview.html', { err_msg: 'Please provide a ZIP file or SVN URL for your assignment.' });
+      return redirect_with_err('/overview', res, req, 'Please provide a ZIP file or SVN URL for your assignment.');
     }
     if (req.file && req.body.svn_url && req.body.svn_url.length > 0) {
-      return res.render('overview.html', { err_msg: 'Please provide either a ZIP file or SVN URL for your assignment, not both.' });
+      return redirect_with_err('/overview', res, req, 'Please provide either a ZIP file or SVN URL for your assignment, not both.');
     }
     var use_zip = true;
     if (!req.file && req.body.svn_url && req.body.svn_url.length > 0) {
@@ -1099,7 +1126,7 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
         function(user_id, err) {
           if (err) {
             done();
-            return res.render('overview.html', { err_msg: err });
+            return redirect_with_err('/overview', res, req, err);
           }
           var query = client.query("SELECT * FROM assignments WHERE name=($1)",
             [assignment_name]);
@@ -1107,12 +1134,12 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
           query.on('end', function(result) {
             if (result.rowCount == 0) {
               done();
-              return res.render('overview.html',
-                { err_msg: 'Assignment ' + assignment_name + ' does not seem to exist' });
+              return redirect_with_err('/overview', res, req,
+                'Assignment ' + assignment_name + ' does not seem to exist');
             } else if (result.rowCount > 1) {
               done();
-              return res.render('overview.html',
-                { err_msg: 'There appear to be duplicate assignments ' + assignment_name });
+              return redirect_with_err('/overview', res, req,
+                'There appear to be duplicate assignments ' + assignment_name);
             } else {
               var assignment_id = result.rows[0].assignment_id;
               var jvm_args = result.rows[0].jvm_args;
@@ -1143,13 +1170,13 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                     svn_client.cmd(['mkdir', '--parents', '--message', mkdir_msg, dst_dir], function(err, data) {
                       // Special-case an error message from the Habanero repo that we can safely ignore
                       if (is_actual_svn_err(err)) {
-                        return res.render('overview.html', { err_msg:
-                          'An error occurred backing up your submission' });
+                        return redirect_with_err('/overview', res, req,
+                          'An error occurred backing up your submission');
                       } else {
                         svn_client.cmd(['checkout', dst_dir, run_dir], function(err, data) {
                           if (is_actual_svn_err(err)) {
-                            return res.render('overview.html', { err_msg:
-                              'An error occurred backing up your submission' });
+                            return redirect_with_err('/overview', res, req,
+                              'An error occurred backing up your submission');
                           } else {
                             // Move submitted file into newly created local SVN working copy
                             if (use_zip) {
@@ -1160,15 +1187,15 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                             } else {
                               temp.mkdir('conductor', function(err, temp_dir) {
                                 if (err) {
-                                  return res.render('overview.html',
-                                      {err_msg: 'Internal error creating temporary directory'});
+                                  return redirect_with_err('/overview', res, req,
+                                      'Internal error creating temporary directory');
                                 }
 
                                 svn_client.cmd(['export', svn_url,
                                     temp_dir + '/submission_svn_folder'], function(err, data) {
                                   if (is_actual_svn_err(err)) {
-                                    return res.render('overview.html', { err_msg:
-                                      'An error occurred exporting from "' + svn_url + '"' });
+                                    return redirect_with_err('/overview', res, req,
+                                      'An error occurred exporting from "' + svn_url + '"');
                                   } 
 
                                   var output = fs.createWriteStream(run_dir + '/student.zip');
@@ -1180,8 +1207,8 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                                         assignment_id, jvm_args, correctness_timeout, req, res);
                                   });
                                   archive.on('error', function(err){
-                                    return res.render('overview.html', { err_msg:
-                                      'An error occurred zipping your submission.' });
+                                    return redirect_with_err('/overview', res, req,
+                                      'An error occurred zipping your submission.');
                                   });
                                   archive.pipe(output);
                                   archive.bulk([{expand: true, cwd: temp_dir, src: ["**/*"], dot: true }
@@ -2116,7 +2143,7 @@ app.get('/run/:run_id', function(req, res, next) {
         query.on('end', function(result) {
             if (result.rows.length == 0) {
                 done();
-                return res.render('overview.html', { err_msg: 'Unknown run' });
+                return render_page('overview.html', res, req, { err_msg: 'Unknown run' });
             }
             var user_id = result.rows[0].user_id;
             var run_status = result.rows[0].status;
@@ -2173,7 +2200,7 @@ app.get('/run/:run_id', function(req, res, next) {
                  */
                 if (!fs.existsSync(run_dir)) {
                   var render_vars = { run_id: run_id };
-                  return res.render('missing_run.html', render_vars);
+                  return render_page('missing_run.html', res, req, render_vars);
                 } else {
                   var log_files = {};
                   fs.readdirSync(run_dir).forEach(function(file) {
@@ -2195,7 +2222,7 @@ app.get('/run/:run_id', function(req, res, next) {
                     render_vars['err_msg'] = 'Error calculating score';
                   }
 
-                  return res.render('run.html', render_vars);
+                  return render_page('run.html', res, req, render_vars);
                 }
             });
         });
@@ -2205,8 +2232,8 @@ app.get('/run/:run_id', function(req, res, next) {
 app.post('/cancel/:run_id', function(req, res, next) {
     console.log('cancel: run_id=' + req.params.run_id + ' user=' + req.session.username);
     if (!req.params.run_id) {
-        return res.render('overview.html',
-            { err_msg: 'No run ID was provided for cancellation' });
+        return redirect_with_err('/overview', res, req,
+            'No run ID was provided for cancellation');
     }
 
     // Check permission to cancel this run
@@ -2218,15 +2245,16 @@ app.post('/cancel/:run_id', function(req, res, next) {
         query.on('end', function(result) {
             if (result.rowCount != 1) {
                 done();
-                return res.render('overview.html',
-                    {err_msg: 'You do not appear to have permission to cancel that run'});
+                return redirect_with_err('/overview', res, req,
+                    'You do not appear to have permission to cancel that run');
             }
             var correctness_only = result.rows[0].correctness_only;
             var run_status = result.rows[0].status;
 
             if (run_status === 'FINISHED' || run_status === 'CANCELLED' || run_status === 'FAILED') {
                 done();
-                return res.render('overview.html', {success_msg: 'That run has already completed'});
+                return redirect_with_success('/overview', res, req,
+                    'That run has already completed');
             }
 
             var viola_params = 'done_token=' + result.rows[0].done_token;
@@ -2247,8 +2275,8 @@ app.post('/cancel/:run_id', function(req, res, next) {
                             // We can be confident the run was killed or completed on Viola before reaching the cluster
                             console.log('cancel: run ' + req.params.run_id + ' successfully cancelled on Viola');
                             done();
-                            return res.render('overview.html',
-                                {success_msg: cancellationSuccessMsg});
+                            return redirect_with_success('/overview', res, req,
+                                cancellationSuccessMsg);
                         } else {
                             // At some point in the future, the local_run_finished endpoint will try to create a cluster job for this run. If it doesn't seem to have happened yet, report an error message to the user to try again in the future.
                             console.log('cancel: run cancellation did not find run ' + req.params.run_id + ' on Viola');
@@ -2260,36 +2288,36 @@ app.post('/cancel/:run_id', function(req, res, next) {
                                 if (result.rows[0].job_id && result.rows[0].job_id.length > 0) {
                                     var job_id = result.rows[0].job_id;
                                     if (job_id === LOCAL_JOB_ID) {
-                                        return res.render('overview.html', {success_msg: cancellationSuccessMsg});
+                                        return redirect_with_success('/overview',
+                                            res, req, cancellationSuccessMsg);
                                     } else {
                                         connect_to_cluster(function(conn, err) {
                                             if (err) {
-                                                return res.render('overview.html', {err_msg: 'Failed connecting to cluster for cancellation.'});
+                                                return redirect_with_err('/overview', res, req, 'Failed connecting to cluster for cancellation.');
                                             }
                                             run_cluster_cmd(conn, 'job cancellation', 'scancel ' + job_id, function(err, conn, stdout, stderr) {
                                                 disconnect_from_cluster(conn);
                                                 if (err) {
-                                                    return res.render('overview.html', {err_msg: 'Failed cancelling job on cluster'});
+                                                    return redirect_with_err('/overview', res, req, 'Failed cancelling job on cluster');
                                                 }
-                                                return res.render('overview.html', {success_msg: cancellationSuccessMsg});
+                                                return redirect_with_success('/overview', res, req, cancellationSuccessMsg);
                                             });
                                         });
                                     }
                                 } else {
-                                    return res.render('overview.html',
-                                        { err_msg: 'Failed cancelling job on cluster. Please try again.' });
+                                    return redirect_with_err('/overview', res, req,
+                                        'Failed cancelling job on cluster. Please try again.');
                                 }
                             });
                         }
                     } else {
-                        return res.render('overview.html',
-                            { err_msg: 'Viola error: ' + result.msg });
+                        return redirect_with_err('/overview', res, req, 'Viola error: ' + result.msg);
                     }
                 });
             }).on('error', function(err) {
                 console.log('VIOLA err="' + err + '"');
-                return res.render('overview.html',
-                    { err_msg: 'An error occurred cancelling run ' + req.params.run_id });
+                return redirect_with_err('/overview', res, req,
+                    'An error occurred cancelling run ' + req.params.run_id);
             });
         });
     });
@@ -2412,7 +2440,7 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                               email = 'jmg3@rice.edu';
                             }
                             var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
-// TODO add finish time
+                            // TODO add finish time
                             send_email(email_for_user(username), subject, '', function(err) {
                               if (err) {
                                 return abort_and_reset_perf_tests(err, done, conn,
