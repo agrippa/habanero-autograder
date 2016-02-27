@@ -41,10 +41,12 @@ import org.tmatesoft.svn.core.wc.SVNWCUtil;
 import org.tmatesoft.svn.core.auth.ISVNAuthenticationManager;
 import org.tmatesoft.svn.core.wc.ISVNOptions;
 
+import org.apache.commons.io.FileUtils;
+
 /*
  * Logic for actually running single-threaded tests.
  */
-public class LocalTestRunner implements Runnable {
+public class LocalTestRunner {
     private static final long TIMEOUT_CHECK_INTERVAL = 5 * 1000;
 
     private final String done_token;
@@ -55,6 +57,9 @@ public class LocalTestRunner implements Runnable {
     private final String[] jvm_args;
     private final int timeout;
     private final ViolaEnv env;
+
+    private final List<String> createdDirectories = new LinkedList<String>();
+    private final List<Process> createdProcesses = new LinkedList<Process>();
 
     public LocalTestRunner(String done_token, String user,
             String assignment_name, int run_id, int assignment_id,
@@ -80,6 +85,10 @@ public class LocalTestRunner implements Runnable {
 
     public int getRunId() {
       return run_id;
+    }
+
+    public String getDoneToken() {
+        return done_token;
     }
 
     /*
@@ -128,12 +137,12 @@ public class LocalTestRunner implements Runnable {
         }
     }
 
-    private void delete_dir(File dir) {
-        for (String filename : dir.list()) {
-            File curr = new File(dir.getAbsolutePath(), filename);
-            curr.delete();
+    private void deleteDir(File dir) {
+        try {
+            FileUtils.deleteDirectory(dir);
+        } catch (IOException io) {
+            // ignore
         }
-        dir.delete();
     }
 
     private void merge_dirs(File dst, File src) {
@@ -162,6 +171,8 @@ public class LocalTestRunner implements Runnable {
 
     private File getTempDirectory() throws IOException {
         final File code_dir = File.createTempFile("temp", Long.toString(System.nanoTime()));
+        createdDirectories.add(code_dir.getAbsolutePath());
+
         if(!(code_dir.delete())) {
             throw new IOException("Could not delete temp file: " +
                     code_dir.getAbsolutePath());
@@ -226,11 +237,16 @@ public class LocalTestRunner implements Runnable {
       ProcessBuilder pb = new ProcessBuilder(Arrays.asList(cmd));
       pb.directory(working_dir);
       Process p = pb.start();
+      createdProcesses.add(p);
 
       final long startTime = System.currentTimeMillis();
       while (System.currentTimeMillis() - startTime < this.timeout &&
-          !processIsFinished(p)) {
-        Thread.sleep(TIMEOUT_CHECK_INTERVAL);
+              !processIsFinished(p)) {
+
+          if (Thread.interrupted()) {
+              throw new InterruptedException();
+          }
+          Thread.sleep(TIMEOUT_CHECK_INTERVAL);
       }
 
       if (!processIsFinished(p)) {
@@ -272,8 +288,7 @@ public class LocalTestRunner implements Runnable {
         }
     }
 
-    @Override
-    public void run() {
+    public void run() throws InterruptedException {
         ViolaUtil.log("Running local tests for user=%s assignment=%s run=%d " +
                 "jvm_args length=%d\n", user, assignment_name, run_id,
                 jvm_args.length);
@@ -296,8 +311,7 @@ public class LocalTestRunner implements Runnable {
             SVNUpdateClient updateClient = env.ourClientManager.getUpdateClient();
             updateClient.setIgnoreExternals(false);
 
-            final String svnLoc = env.svnRepo + "/" + user + "/" +
-                assignment_name + "/" + run_id;
+            final String svnLoc = env.svnRepo + "/" + user + "/" + assignment_name + "/" + run_id;
             ViolaUtil.log("Checking student code out to %s from %s\n", code_dir.getAbsolutePath(), svnLoc);
             updateClient.doCheckout(SVNURL.parseURIDecoded(svnLoc), code_dir,
                     SVNRevision.HEAD, SVNRevision.HEAD, SVNDepth.INFINITY, false);
@@ -319,14 +333,13 @@ public class LocalTestRunner implements Runnable {
             String[] unzip_instructor = new String[]{"unzip", instructor_dir.getAbsolutePath() + "/instructor.zip",
               "-d", extract_instructor_dir.getAbsolutePath()};
 
-            final Process unzip_code_process = Runtime.getRuntime().exec(unzip_code);
-            final int unzip_code_exit = unzip_code_process.waitFor();
-            if (unzip_code_exit != 0) {
+            final ProcessResults unzip_code_results = runInProcess(unzip_code, code_dir);
+            if (unzip_code_results.code != 0) {
                 throw new TestRunnerException("Error unzipping code");
             }
-            final Process unzip_instructor_process = Runtime.getRuntime().exec(unzip_instructor);
-            final int unzip_instructor_exit = unzip_instructor_process.waitFor();
-            if (unzip_instructor_exit != 0) {
+
+            final ProcessResults unzip_instructor_results = runInProcess(unzip_instructor, instructor_dir);
+            if (unzip_instructor_results.code != 0) {
                 throw new TestRunnerException("Error unzipping instructor");
             }
 
@@ -532,8 +545,6 @@ public class LocalTestRunner implements Runnable {
             ViolaUtil.log("Filled correctness log file\n");
         } catch (IOException io) {
             io.printStackTrace();
-        } catch (InterruptedException ie) {
-            ie.printStackTrace();
         } catch (SVNException svn) {
             svn.printStackTrace();
         } catch (TestRunnerException tr) {
@@ -572,10 +583,7 @@ public class LocalTestRunner implements Runnable {
              * Clean up the test directory. This assumes that no directories
              * are created in the process of testing.
              */
-            if (code_dir != null) delete_dir(code_dir);
-            if (instructor_dir != null) delete_dir(instructor_dir);
-            if (extract_code_dir != null) delete_dir(extract_code_dir);
-            if (extract_instructor_dir != null) delete_dir(extract_instructor_dir);
+            cancel();
 
             ViolaUtil.log("Done with local testing\n");
         }
@@ -583,6 +591,16 @@ public class LocalTestRunner implements Runnable {
         notifyConductor(err_msg);
         ViolaUtil.log("Finished local tests for user=%s assignment=%s run=%d\n", user,
                 assignment_name, run_id);
+    }
+
+    public void cancel() {
+        for (String path : createdDirectories) {
+            deleteDir(new File(path));
+        }
+
+        for (Process p : createdProcesses) {
+            p.destroy();
+        }
     }
 }
 

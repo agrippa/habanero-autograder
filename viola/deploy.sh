@@ -10,7 +10,7 @@ fi
 CONDUCTOR_HOST=$1
 CONDUCTOR_PORT=$2
 
-JARS="."
+JARS=".:commons-io-2.4.jar"
 for F in $(ls lib/svnkit-1.8.11/lib/*.jar); do
     JARS="$JARS:$F"
 done

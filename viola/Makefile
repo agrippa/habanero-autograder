@@ -1,22 +1,24 @@
 all: ViolaEnv.class TestRunnerException.class ViolaUtil.class LocalTestRunner.class FairViolaTaskExecutor.class Viola.class
 
+FLAGS=-Xlint:deprecation -classpath .:lib/svnkit-1.8.11/lib/svnkit-1.8.11.jar:commons-io-2.4.jar
+
 ViolaEnv.class: ViolaEnv.java
-	javac -Xlint:deprecation -classpath .:lib/svnkit-1.8.11/lib/svnkit-1.8.11.jar ViolaEnv.java
+	javac ${FLAGS} ViolaEnv.java
 
 TestRunnerException.class: TestRunnerException.java
-	javac -Xlint:deprecation -classpath .:lib/svnkit-1.8.11/lib/svnkit-1.8.11.jar TestRunnerException.java
+	javac ${FLAGS} TestRunnerException.java
 
 ViolaUtil.class: ViolaUtil.java
-	javac -Xlint:deprecation -classpath .:lib/svnkit-1.8.11/lib/svnkit-1.8.11.jar ViolaUtil.java
+	javac ${FLAGS} ViolaUtil.java
 
 Viola.class: Viola.java
-	javac -Xlint:deprecation -classpath .:lib/svnkit-1.8.11/lib/svnkit-1.8.11.jar Viola.java
+	javac ${FLAGS} Viola.java
 
 FairViolaTaskExecutor.class: FairViolaTaskExecutor.java
-	javac -Xlint:deprecation -classpath .:lib/svnkit-1.8.11/lib/svnkit-1.8.11.jar FairViolaTaskExecutor.java
+	javac ${FLAGS} FairViolaTaskExecutor.java
 
 LocalTestRunner.class: LocalTestRunner.java
-	javac -Xlint:deprecation -classpath .:lib/svnkit-1.8.11/lib/svnkit-1.8.11.jar LocalTestRunner.java
+	javac ${FLAGS} LocalTestRunner.java
 
 clean:
 	rm -f *.class

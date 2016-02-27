@@ -108,14 +108,37 @@ public class Viola {
 
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/run", new RunHandler());
+        server.createContext("/cancel", new CancelHandler());
         // Executor for handling incoming connections
         server.setExecutor(serverExecutor);
         server.start();
     }
 
+    static class CancelHandler implements HttpHandler {
+        public void handle(HttpExchange t) throws IOException {
+            ViolaUtil.log("Received cancel request - %s\n", t.getRequestURI().getQuery());
+            Map <String, String> parms = Viola.queryToMap(t.getRequestURI().getQuery());
+            String err_msg = null;
+            if (!parms.containsKey("done_token")) {
+                err_msg = "Missing done token";
+            }
+
+            if (err_msg != null) {
+                ViolaUtil.log("Error - %s\n", err_msg);
+                writeResponse(t, "{ \"status\": \"Failure\", \"msg\": \"" +
+                        err_msg + "\" }");
+            } else {
+                final String done_token = parms.get("done_token");
+                ViolaUtil.log("trying to cancel run with done_token=%s\n", done_token);
+                executor.cancel(done_token);
+                writeResponse(t, "{ \"status\": \"Success\" }");
+            }
+        }
+    }
+
     static class RunHandler implements HttpHandler {
         public void handle(HttpExchange t) throws IOException {
-            ViolaUtil.log("Received request - %s\n", t.getRequestURI().getQuery());
+            ViolaUtil.log("Received run request - %s\n", t.getRequestURI().getQuery());
 
             Map <String, String> parms = Viola.queryToMap(t.getRequestURI().getQuery());
             String err_msg = null;

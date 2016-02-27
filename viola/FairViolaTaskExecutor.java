@@ -9,7 +9,7 @@ import java.util.HashMap;
 import java.util.PriorityQueue;
 import java.util.concurrent.Executor;
 
-public class FairViolaTaskExecutor implements Executor {
+public class FairViolaTaskExecutor {
   private final long windowSizeMilliseconds = 120 * 60 * 1000; // 2 hours
   private final LinkedList<TaskExecution> executedTaskWindow =
     new LinkedList<TaskExecution>();
@@ -22,11 +22,13 @@ public class FairViolaTaskExecutor implements Executor {
   private int nPending = 0;
 
   private final Thread[] workerThreads;
+  private final String[] runningTasks;
 
   public FairViolaTaskExecutor(int nthreads) {
     this.workerThreads = new Thread[nthreads];
+    this.runningTasks = new String[nthreads];
     for (int t = 0; t < nthreads; t++) {
-      this.workerThreads[t] = new Thread(new ViolaRunner());
+      this.workerThreads[t] = new Thread(new ViolaRunner(t));
       this.workerThreads[t].start();
     }
   }
@@ -48,7 +50,7 @@ public class FairViolaTaskExecutor implements Executor {
     }
   }
 
-  private Runnable getPendingTask() {
+  private LocalTestRunner getPendingTask(int tid) {
     LocalTestRunner result = null;
 
     synchronized(this) {
@@ -89,24 +91,74 @@ public class FairViolaTaskExecutor implements Executor {
 
       assert result != null;
       nPending--;
+
+      runningTasks[tid] = result.getDoneToken();
     }
     return result;
   }
 
-  @Override
-  public void execute(Runnable command) {
-    LocalTestRunner actual = (LocalTestRunner)command;
-    newPendingTask(actual, actual.getUser());
+  public void execute(LocalTestRunner command) {
+    newPendingTask(command, command.getUser());
+  }
+
+  public void cancel(String done_token) {
+      synchronized (this) {
+
+          for (Map.Entry<String, LinkedList<LocalTestRunner>> entry : pendingTasks.entrySet()) {
+              LocalTestRunner found = null;
+              for (LocalTestRunner runner : entry.getValue()) {
+                  if (runner.getDoneToken().equals(done_token)) {
+                      found = runner;
+                      break;
+                  }
+              }
+
+              if (found != null) {
+                  final boolean removed = entry.getValue().remove(found);
+                  assert removed;
+                  return;
+              }
+          }
+
+          for (int i = 0; i < runningTasks.length; i++) {
+              if (runningTasks[i].equals(done_token)) {
+                  workerThreads[i].interrupt();
+
+                  while (runningTasks[i].equals(done_token)) {
+                      try {
+                          this.wait();
+                      } catch (InterruptedException ie) {
+                      }
+                  }
+              }
+          }
+      }
   }
 
   class ViolaRunner implements Runnable {
-    @Override
-    public void run() {
-      while (true) {
-        Runnable r = getPendingTask();
-        r.run();
+      private final int tid;
+
+      public ViolaRunner(int tid) {
+          this.tid = tid;
       }
-    }
+
+      @Override
+      public void run() {
+          while (true) {
+              LocalTestRunner r = null;
+              try {
+                  r = getPendingTask(tid);
+                  r.run();
+              } catch (InterruptedException ie) {
+                  if (r != null) r.cancel();
+              } finally {
+                  synchronized(this) {
+                      runningTasks[tid] = null;
+                      this.notifyAll();
+                  }
+              }
+          }
+      }
   }
 
   class TaskExecution implements Comparable<TaskExecution> {

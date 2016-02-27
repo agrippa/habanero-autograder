@@ -1906,6 +1906,10 @@ function check_for_empty_stderr(lines) {
   return any_nonempty_lines;
 }
 
+function run_completed(run_status) {
+  return run_status !== 'FAILED' && run_status !== 'CANCELLED';
+}
+
 function calculate_score(assignment_id, log_files, ncores, run_status) {
   var rubric_file = __dirname + '/instructor-tests/' + assignment_id + '/rubric.json';
 
@@ -1932,7 +1936,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
 
   // Compute correctness score based on test failures
   var correctness = total_correctness_possible;
-  if (run_status !== 'FAILED' && 'correct.txt' in log_files) {
+  if (run_completed(run_status) && 'correct.txt' in log_files) {
     var content = log_files['correct.txt'].toString('utf8');
     var lines = content.split('\n');
 
@@ -2002,7 +2006,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
 
   // Compute performance score based on performance of each test
   var performance = total_performance_possible;
-  if (run_status !== 'FAILED' && 'performance.1.txt' in log_files &&
+  if (run_completed(run_status) && 'performance.1.txt' in log_files &&
           'performance.' + ncores + '.txt' in log_files) {
     var single_thread_content = log_files['performance.1.txt'].toString('utf8');
     var multi_thread_content = log_files['performance.' + ncores + '.txt'].toString('utf8');
@@ -2349,10 +2353,15 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                 stdout = stdout.trim();
 
                 var query = null;
-                if (stdout === 'FAILED' || stdout === 'TIMEOUT' || stdout == 'CANCELLED+') {
+                if (stdout === 'FAILED' || stdout === 'TIMEOUT') {
                     console.log('check_cluster_helper: marking ' + run.run_id + ' FAILED');
                     query = client.query(
                         "UPDATE runs SET status='FAILED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
+                        [run.run_id]);
+                } else if (string_starts_with(stdout, 'CANCELLED')) {
+                    console.log('check_cluster_helper: marking ' + run.run_id + ' CANCELLED');
+                    query = client.query(
+                        "UPDATE runs SET status='CANCELLED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
                         [run.run_id]);
                 } else if (stdout === 'COMPLETED') {
                     console.log('check_cluster_helper: marking ' + run.run_id + ' FINISHED');

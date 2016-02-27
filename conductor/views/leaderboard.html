@@ -44,7 +44,7 @@
           <%   var success_color = '#00FF00'; %>
           <%   for (r in runs) { %>
           <%     var status = runs[r].status %>
-          <%     var status_color = status === 'FINISHED' ? 'green' : (status === 'FAILED' ? 'red' : 'orange'); %>
+          <%     var status_color = status === 'FINISHED' ? 'green' : ((status === 'FAILED' || status === 'CANCELLED') ? 'red' : 'orange'); %>
           <%     var checkstyle_color = runs[r].passed_checkstyle ? success_color : failed_color; %>
           <%     var compiled_color = runs[r].compiled ? success_color : failed_color; %>
           <%     var correctness_color = runs[r].passed_all_correctness ? success_color : failed_color; %>
