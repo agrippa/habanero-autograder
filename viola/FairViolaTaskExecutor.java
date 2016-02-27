@@ -22,11 +22,11 @@ public class FairViolaTaskExecutor {
   private int nPending = 0;
 
   private final Thread[] workerThreads;
-  private final String[] runningTasks;
+  private final LocalTestRunner[] runningTasks;
 
   public FairViolaTaskExecutor(int nthreads) {
     this.workerThreads = new Thread[nthreads];
-    this.runningTasks = new String[nthreads];
+    this.runningTasks = new LocalTestRunner[nthreads];
     for (int t = 0; t < nthreads; t++) {
       this.workerThreads[t] = new Thread(new ViolaRunner(t));
       this.workerThreads[t].start();
@@ -92,7 +92,7 @@ public class FairViolaTaskExecutor {
       assert result != null;
       nPending--;
 
-      runningTasks[tid] = result.getDoneToken();
+      runningTasks[tid] = result;
     }
     return result;
   }
@@ -101,9 +101,8 @@ public class FairViolaTaskExecutor {
     newPendingTask(command, command.getUser());
   }
 
-  public void cancel(String done_token) {
+  public boolean cancel(String done_token) {
       synchronized (this) {
-
           for (Map.Entry<String, LinkedList<LocalTestRunner>> entry : pendingTasks.entrySet()) {
               LocalTestRunner found = null;
               for (LocalTestRunner runner : entry.getValue()) {
@@ -114,25 +113,35 @@ public class FairViolaTaskExecutor {
               }
 
               if (found != null) {
+                  ViolaUtil.log("found run to cancel in pending tasks list, removing.\n");
                   final boolean removed = entry.getValue().remove(found);
                   assert removed;
-                  return;
+                  return true;
               }
           }
 
           for (int i = 0; i < runningTasks.length; i++) {
-              if (runningTasks[i].equals(done_token)) {
+              if (runningTasks[i] != null && runningTasks[i].getDoneToken().equals(done_token)) {
+                  ViolaUtil.log("signaling thread %d to cancel run.\n", i);
+                  runningTasks[i].setBeingCancelled();
                   workerThreads[i].interrupt();
 
-                  while (runningTasks[i].equals(done_token)) {
+                  while (runningTasks[i] != null && runningTasks[i].getDoneToken().equals(done_token)) {
                       try {
+                          ViolaUtil.log("waiting on running task to complete\n");
                           this.wait();
                       } catch (InterruptedException ie) {
+                          ViolaUtil.log("cancellation thread got interrupted exception\n");
                       }
                   }
+
+                  ViolaUtil.log("finished waiting on running task to complete\n");
+                  return true;
               }
           }
       }
+
+      return false;
   }
 
   class ViolaRunner implements Runnable {
@@ -149,12 +158,11 @@ public class FairViolaTaskExecutor {
               try {
                   r = getPendingTask(tid);
                   r.run();
-              } catch (InterruptedException ie) {
-                  if (r != null) r.cancel();
               } finally {
-                  synchronized(this) {
+                  ViolaUtil.log("thread %d notifying of completion of run\n", tid);
+                  synchronized(FairViolaTaskExecutor.this) {
                       runningTasks[tid] = null;
-                      this.notifyAll();
+                      FairViolaTaskExecutor.this.notifyAll();
                   }
               }
           }

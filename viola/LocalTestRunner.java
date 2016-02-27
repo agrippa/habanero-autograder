@@ -57,6 +57,9 @@ public class LocalTestRunner {
     private final String[] jvm_args;
     private final int timeout;
     private final ViolaEnv env;
+    private volatile boolean beingCancelled = false;
+
+    private final SVNClientManager ourClientManager;
 
     private final List<String> createdDirectories = new LinkedList<String>();
     private final List<Process> createdProcesses = new LinkedList<Process>();
@@ -77,6 +80,9 @@ public class LocalTestRunner {
         }
         this.timeout = timeout;
         this.env = env;
+
+        this.ourClientManager = SVNClientManager.newInstance(
+                SVNWCUtil.createDefaultOptions(true), env.svnUser, env.svnPassword);
     }
     
     public String getUser() {
@@ -91,6 +97,10 @@ public class LocalTestRunner {
         return done_token;
     }
 
+    public void setBeingCancelled() {
+        beingCancelled = true;
+    }
+
     /*
      * Partially taken from http://stackoverflow.com/questions/4205980/java-sending-http-parameters-via-post-method-easily
      * TODO Problem here is we could fail silently to succeed.
@@ -102,7 +112,7 @@ public class LocalTestRunner {
             int postDataLength = postData.length;
             String request = "http://" + env.conductorHost + ":" +
               env.conductorPort + "/local_run_finished";
-            ViolaUtil.log("Notifying conductor at " + request + " of run completion");
+            ViolaUtil.log("Notifying conductor at " + request + " of run completion\n");
 
             URL url = new URL(request);
             HttpURLConnection conn = (HttpURLConnection)url.openConnection();
@@ -129,8 +139,8 @@ public class LocalTestRunner {
             }
             in.close();
 
-            ViolaUtil.log("Conductor notification response for done_token=%s: %s\n",
-                    done_token, response.toString());
+            ViolaUtil.log("Conductor notification response for err_msg=%s " +
+                    "done_token=%s: %s\n", err_msg, done_token, response.toString());
 
         } catch (Exception ex) {
             ex.printStackTrace();
@@ -243,9 +253,6 @@ public class LocalTestRunner {
       while (System.currentTimeMillis() - startTime < this.timeout &&
               !processIsFinished(p)) {
 
-          if (Thread.interrupted()) {
-              throw new InterruptedException();
-          }
           Thread.sleep(TIMEOUT_CHECK_INTERVAL);
       }
 
@@ -280,7 +287,7 @@ public class LocalTestRunner {
     private void svnAddIfExists(File f) {
         if (f.exists()) {
             try {
-                env.ourClientManager.getWCClient().doAdd(f, false, false, false,
+                ourClientManager.getWCClient().doAdd(f, false, false, false,
                         SVNDepth.INFINITY, false, false);
             } catch (SVNException svn) {
                 svn.printStackTrace();
@@ -288,7 +295,7 @@ public class LocalTestRunner {
         }
     }
 
-    public void run() throws InterruptedException {
+    public void run() {
         ViolaUtil.log("Running local tests for user=%s assignment=%s run=%d " +
                 "jvm_args length=%d\n", user, assignment_name, run_id,
                 jvm_args.length);
@@ -308,7 +315,7 @@ public class LocalTestRunner {
              * Check out the student code from SVN. This should check out a
              * single directory with a single ZIP file inside.
              */
-            SVNUpdateClient updateClient = env.ourClientManager.getUpdateClient();
+            SVNUpdateClient updateClient = ourClientManager.getUpdateClient();
             updateClient.setIgnoreExternals(false);
 
             final String svnLoc = env.svnRepo + "/" + user + "/" + assignment_name + "/" + run_id;
@@ -543,14 +550,15 @@ public class LocalTestRunner {
             writer.close();
 
             ViolaUtil.log("Filled correctness log file\n");
-        } catch (IOException io) {
-            io.printStackTrace();
-        } catch (SVNException svn) {
-            svn.printStackTrace();
         } catch (TestRunnerException tr) {
             err_msg = tr.getMessage();
             tr.printStackTrace();
+        } catch (Exception e) {
+            e.printStackTrace();
         } finally {
+            if (beingCancelled) {
+                err_msg = "Cancelled by user";
+            }
             // Add the generated files to the repo
             if (code_dir != null) {
                 svnAddIfExists(new File(code_dir.getAbsolutePath(), "compile.txt"));
@@ -566,7 +574,7 @@ public class LocalTestRunner {
                 final String commitMessage =
                     user + " " + assignment_name + " " + run_id + " local-runs";
                 try {
-                    env.ourClientManager.getCommitClient().doCommit(wc, false,
+                    ourClientManager.getCommitClient().doCommit(wc, false,
                             commitMessage, false, true);
                 } catch (SVNException svn) {
                     /*
@@ -583,17 +591,14 @@ public class LocalTestRunner {
              * Clean up the test directory. This assumes that no directories
              * are created in the process of testing.
              */
-            cancel();
+            cancel(err_msg);
 
-            ViolaUtil.log("Done with local testing\n");
+            ViolaUtil.log("Finished local tests for user=%s assignment=%s run=%d\n", user,
+                    assignment_name, run_id);
         }
-
-        notifyConductor(err_msg);
-        ViolaUtil.log("Finished local tests for user=%s assignment=%s run=%d\n", user,
-                assignment_name, run_id);
     }
 
-    public void cancel() {
+    public void cancel(final String err_msg) {
         for (String path : createdDirectories) {
             deleteDir(new File(path));
         }
@@ -601,6 +606,10 @@ public class LocalTestRunner {
         for (Process p : createdProcesses) {
             p.destroy();
         }
+
+        ViolaUtil.log("Done with cleanup\n");
+
+        notifyConductor(err_msg);
     }
 }
 

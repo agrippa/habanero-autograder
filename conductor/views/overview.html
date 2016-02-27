@@ -54,7 +54,11 @@
                     $('#past-runs tr:last').after('<tr><td><center><a href=/run/' + curr.run_id + '>' +
                         curr.run_id + '</a></center></td><td><center>' +
                         curr.assignment_name + '</center></td><td><center><font color="' + status_color + '">' +
-                        curr.status + '</font></td></center></tr>');
+                        curr.status + '</font></center></td><td><center>' +
+                        '<form action="/cancel/' + curr.run_id + '" method="post" ' +
+                        'enctype="multipart/form-data"><button ' +
+                        'type="submit" class="button btn-primary btn-block" ' +
+                        'type="button" style="width: 100%">Cancel</button></form></center></td></tr>');
                   }
                 } else {
                   show_error(data.msg);
@@ -115,7 +119,7 @@
       <hr/>
       <table id="past-runs" style="width:100%;" class="table table-hover table-bordered table-condensed">
       <!-- TODO -->
-      <tr><td bgcolor="#AAAAAA"><center><b>Run ID</b></center></td><td bgcolor="#AAAAAA"><center><b>Assignment</b></center></td><td bgcolor="#AAAAAA"><center><b>Status</b></center></td></tr>
+      <tr><td bgcolor="#AAAAAA"><center><b>Run ID</b></center></td><td bgcolor="#AAAAAA"><center><b>Assignment</b></center></td><td bgcolor="#AAAAAA"><center><b>Status</b></center></td><td bgcolor="#AAAAAA"></td></tr>
       </table>
       </div>
     </div>

@@ -87,9 +87,9 @@ public class Viola {
         final String autograderHome = getEnvVarOrFail("AUTOGRADER_HOME");
         final String checkstyle = getEnvVarOrFail("CHECKSTYLE_JAR");
 
-        final SVNClientManager ourClientManager =
-            SVNClientManager.newInstance(SVNWCUtil.createDefaultOptions(true),
-                    svnUser, svnPassword);
+        // final SVNClientManager ourClientManager =
+        //     SVNClientManager.newInstance(SVNWCUtil.createDefaultOptions(true),
+        //             svnUser, svnPassword);
 
         System.out.println("============== Viola ==============");
         System.out.printf("Viola port = %d\n", port);
@@ -103,8 +103,8 @@ public class Viola {
         System.out.printf("checkstyle = %s\n", checkstyle);
         System.out.println("===================================");
 
-        env = new ViolaEnv(conductorHost, conductorPort,
-            ourClientManager, svnRepo, junit, hamcrest, mavenRepo, asm, checkstyle, autograderHome);
+        env = new ViolaEnv(conductorHost, conductorPort, svnRepo, svnUser,
+                svnPassword, junit, hamcrest, mavenRepo, asm, checkstyle, autograderHome);
 
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/run", new RunHandler());
@@ -130,8 +130,13 @@ public class Viola {
             } else {
                 final String done_token = parms.get("done_token");
                 ViolaUtil.log("trying to cancel run with done_token=%s\n", done_token);
-                executor.cancel(done_token);
-                writeResponse(t, "{ \"status\": \"Success\" }");
+                boolean foundRun = false;
+                try {
+                    foundRun = executor.cancel(done_token);
+                } finally {
+                    writeResponse(t, "{ \"status\": \"Success\", \"found\": " +
+                            foundRun + " }");
+                }
             }
         }
     }

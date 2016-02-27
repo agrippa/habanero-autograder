@@ -110,6 +110,8 @@ console.log('Connecting to remote cluster at ' + CLUSTER_HOSTNAME +
 // TODO load this from JSON file
 var conString = "postgres://" + POSTGRES_USER_TOKEN + "@localhost/autograder";
 
+var cancellationSuccessMsg = 'Successfully cancelled. Please give the job status a few minutes to update.';
+
 temp.track();
 
 function pgclient(cb) {
@@ -1343,7 +1345,9 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   return slurmFileContents;
 }
 
-function failed_starting_perf_tests(res, failure_msg, done, client, run_id) {
+function failed_starting_perf_tests(res, failure_msg, done, client, run_id, conn) {
+  if (conn) disconnect_from_cluster(conn);
+
   query = client.query(
       "UPDATE runs SET status='FAILED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
       [run_id]);
@@ -1387,7 +1391,7 @@ app.post('/local_run_finished', function(req, res, next) {
         register_query_helpers(query, res, done, 'unknown');
         query.on('end', function(result) {
           if (result.rows.length != 1) {
-            return failed_starting_perf_tests(res, 'Unexpected # of rows', done, client, -1);
+            return failed_starting_perf_tests(res, 'Unexpected # of rows', done, client, -1, null);
           } else {
             var run_id = result.rows[0].run_id;
             var user_id = result.rows[0].user_id;
@@ -1401,7 +1405,7 @@ app.post('/local_run_finished', function(req, res, next) {
             register_query_helpers(query, res, done, 'unknown');
             query.on('end', function(result) {
               if (result.rows.length != 1) {
-                return failed_starting_perf_tests(res, 'Invalid user ID', done, client, run_id);
+                return failed_starting_perf_tests(res, 'Invalid user ID', done, client, run_id, null);
               } else {
                 var username = result.rows[0].user_name;
                 var wants_notification = result.rows[0].receive_email_notifications;
@@ -1409,7 +1413,7 @@ app.post('/local_run_finished', function(req, res, next) {
 
                 svn_client.cmd(['up', '--accept', 'theirs-full', run_dir], function(err, data) {
                   if (err) {
-                    return failed_starting_perf_tests(res, 'Failed updating repo', done, client, run_id);
+                    return failed_starting_perf_tests(res, 'Failed updating repo', done, client, run_id, null);
                   }
 
                   // Update the status of these tests in the 'runs' table for display in the leaderboard
@@ -1439,7 +1443,7 @@ app.post('/local_run_finished', function(req, res, next) {
                               any_failures = true;
                             }
                           }
-			  var any_nonempty_stderr_lines = check_for_empty_stderr(lines);
+                          var any_nonempty_stderr_lines = check_for_empty_stderr(lines);
                           correctness_tests_passed = !any_failures && !any_nonempty_stderr_lines;
                         }
                       }
@@ -1451,9 +1455,13 @@ app.post('/local_run_finished', function(req, res, next) {
                   register_query_helpers(query, res, done, 'unknown');
                   query.on('end', function(result) {
 
-                    if (correctness_only) {
+                    var run_status = 'FINISHED';
+                    if (viola_err_msg === 'Cancelled by user') {
+                        run_status = 'CANCELLED';
+                    }
+                    if (correctness_only || run_status === 'CANCELLED') {
                         query = client.query(
-                            "UPDATE runs SET status='FINISHED',viola_msg=$1,finish_time=CURRENT_TIMESTAMP WHERE run_id=($2)",
+                            "UPDATE runs SET status='" + run_status + "',viola_msg=$1,finish_time=CURRENT_TIMESTAMP WHERE run_id=($2)",
                             [viola_err_msg, run_id]);
                         register_query_helpers(query, res, done, 'unknown');
                         query.on('end', function(result) {
@@ -1462,7 +1470,7 @@ app.post('/local_run_finished', function(req, res, next) {
                               send_email(email_for_user(username), subject, '', function(err) {
                                 if (err) {
                                   return failed_starting_perf_tests(res,
-                                    'Failed sending notification e-mail, err=' + err, done, client, run_id);
+                                    'Failed sending notification e-mail, err=' + err, done, client, run_id, null);
                                 } else {
                                   done();
                                   return res.send(
@@ -1479,13 +1487,13 @@ app.post('/local_run_finished', function(req, res, next) {
                         connect_to_cluster(function(conn, err) {
                             if (err) {
                               return failed_starting_perf_tests(res,
-                                'Error connecting to cluster, err=' + err, done, client, run_id);
+                                'Error connecting to cluster, err=' + err, done, client, run_id, null);
                             }
 
                             get_cluster_cores(conn, function(err, ncores) {
                               if (err) {
                                 return failed_starting_perf_tests(res,
-                                  'Failed getting ncores from cluster', done, client, run_id);
+                                  'Failed getting ncores from cluster', done, client, run_id, conn);
                               }
 
                               var query = client.query(
@@ -1512,7 +1520,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                     batched_get_cluster_env_var(vars, conn, function(err, vals) {
                                       if (err) {
                                         return failed_starting_perf_tests(res,
-                                          'Error getting cluster env variables, err=' + err, done, client, run_id);
+                                          'Error getting cluster env variables, err=' + err, done, client, run_id, conn);
                                       }
 
                                       var home_dir = vals['HOME'];
@@ -1547,31 +1555,31 @@ app.post('/local_run_finished', function(req, res, next) {
                                       get_cluster_os(conn, function(err, os) {
                                         if (err) {
                                           return failed_starting_perf_tests(res,
-                                            'Failed getting cluster OS', done, client, run_id);
+                                            'Failed getting cluster OS', done, client, run_id, conn);
                                         }
 
                                         create_cluster_dir('autograder/' + run_id, conn,
                                             function(err, conn, stdout, stderr) {
                                               if (err) {
                                                 return failed_starting_perf_tests(res,
-                                                  'Failed creating autograder dir', done, client, run_id);
+                                                  'Failed creating autograder dir', done, client, run_id, conn);
                                               }
                                               run_cluster_cmd(conn, 'submission checkout', submission_checkout,
                                                 function(err, conn, stdout, stderr) {
                                                   if (err) {
                                                     return failed_starting_perf_tests(res,
-                                                         'Failed checking out student code', done, client, run_id);
+                                                         'Failed checking out student code', done, client, run_id, conn);
                                                   }
                                                   run_cluster_cmd(conn, 'assignment checkout', assignment_checkout,
                                                     function(err, conn, stdout, stderr) {
                                                       if (err) {
                                                         return failed_starting_perf_tests(res,
-                                                              'Failed checking out assignment code', done, client, run_id);
+                                                              'Failed checking out assignment code', done, client, run_id, conn);
                                                       }
                                                       run_cluster_cmd(conn, 'get dependencies', dependency_list_cmd,
                                                         function(err, conn, stdout, stderr) {
                                                           if (err) {
-                                                            return failed_starting_perf_tests(res, 'Failed getting dependencies', done, client, run_id);
+                                                            return failed_starting_perf_tests(res, 'Failed getting dependencies', done, client, run_id, conn);
                                                           }
                                                           var dependency_lines = stdout.split('\n');
                                                           var dependency_lines_index = 0;
@@ -1592,7 +1600,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                                             dependency_lines_index += 1;
                                                           }
                                                           if (hj === null) {
-                                                            return failed_starting_perf_tests(res, 'Unable to find HJ JAR on cluster', done, client, run_id);
+                                                            return failed_starting_perf_tests(res, 'Unable to find HJ JAR on cluster', done, client, run_id, conn);
                                                           }
 
 
@@ -1612,7 +1620,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                                                 if (!stat[i].success) {
                                                                   console.log('scp err copying to ' + stat[i].dst + ', ' + stat[i].err);
                                                                   return failed_starting_perf_tests(res,
-                                                                    'Failed scp-ing cello.slurm+security.policy', done, client, run_id);
+                                                                    'Failed scp-ing cello.slurm+security.policy', done, client, run_id, conn);
                                                                 }
                                                               }
 
@@ -1622,13 +1630,13 @@ app.post('/local_run_finished', function(req, res, next) {
                                                                       function(err, conn, stdout, stderr) {
                                                                           if (err) {
                                                                             return failed_starting_perf_tests(res,
-                                                                              'Failed submitting job', done, client, run_id);
+                                                                              'Failed submitting job', done, client, run_id, conn);
                                                                           }
                                                                           disconnect_from_cluster(conn);
                                                                           // stdout == Submitted batch job 474297
                                                                           if (stdout.search('Submitted batch job ') !== 0) {
                                                                               return failed_starting_perf_tests(res,
-                                                                                      'Failed submitting batch job', done, client, run_id);
+                                                                                      'Failed submitting batch job', done, client, run_id, conn);
                                                                           }
 
                                                                           // Close connection to outermost DB connection
@@ -1660,11 +1668,12 @@ app.post('/local_run_finished', function(req, res, next) {
 
                                                                       if (err) {
                                                                         return failed_starting_perf_tests(res,
-                                                                          'Failed running on local cluster', done, client, run_id);
+                                                                          'Failed running on local cluster', done, client, run_id, conn);
                                                                       }
 
                                                                       // Close connection to outermost DB connection
                                                                       done();
+                                                                      disconnect_from_cluster(conn);
 
                                                                       pgclient(function(client, done) {
                                                                           var query = client.query('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [LOCAL_JOB_ID, run_id]);
@@ -2193,6 +2202,100 @@ app.get('/run/:run_id', function(req, res, next) {
     });
 });
 
+app.post('/cancel/:run_id', function(req, res, next) {
+    console.log('cancel: run_id=' + req.params.run_id + ' user=' + req.session.username);
+    if (!req.params.run_id) {
+        return res.render('overview.html',
+            { err_msg: 'No run ID was provided for cancellation' });
+    }
+
+    // Check permission to cancel this run
+    pgclient(function(client, done) {
+        var query = client.query(
+            'SELECT * FROM runs WHERE (user_id=($1)) AND (run_id=($2))',
+            [req.session.user_id, req.params.run_id]);
+        register_query_helpers(query, res, done, req.session.username);
+        query.on('end', function(result) {
+            if (result.rowCount != 1) {
+                done();
+                return res.render('overview.html',
+                    {err_msg: 'You do not appear to have permission to cancel that run'});
+            }
+            var correctness_only = result.rows[0].correctness_only;
+            var run_status = result.rows[0].status;
+
+            if (run_status === 'FINISHED' || run_status === 'CANCELLED' || run_status === 'FAILED') {
+                done();
+                return res.render('overview.html', {success_msg: 'That run has already completed'});
+            }
+
+            var viola_params = 'done_token=' + result.rows[0].done_token;
+            var viola_options = { host: VIOLA_HOST,
+                port: VIOLA_PORT, path: '/cancel?' + encodeURI(viola_params) };
+            console.log('cancel: signaling Viola to cancel run ' + req.params.run_id);
+            http.get(viola_options, function(viola_res) {
+                var bodyChunks = [];
+                viola_res.on('data', function(chunk) {
+                    bodyChunks.push(chunk);
+                });
+                viola_res.on('end', function() {
+                    var body = Buffer.concat(bodyChunks);
+                    var result = JSON.parse(body);
+                    if (result.status === 'Success') {
+                        var found_run_on_viola = result.found;
+                        if (found_run_on_viola || correctness_only) {
+                            // We can be confident the run was killed or completed on Viola before reaching the cluster
+                            console.log('cancel: run ' + req.params.run_id + ' successfully cancelled on Viola');
+                            done();
+                            return res.render('overview.html',
+                                {success_msg: cancellationSuccessMsg});
+                        } else {
+                            // At some point in the future, the local_run_finished endpoint will try to create a cluster job for this run. If it doesn't seem to have happened yet, report an error message to the user to try again in the future.
+                            console.log('cancel: run cancellation did not find run ' + req.params.run_id + ' on Viola');
+                            var query = client.query(
+                                'SELECT * FROM runs WHERE run_id=($1)', [req.params.run_id]);
+                            register_query_helpers(query, res, done, req.session.username);
+                            query.on('end', function(result) {
+                                done();
+                                if (result.rows[0].job_id && result.rows[0].job_id.length > 0) {
+                                    var job_id = result.rows[0].job_id;
+                                    if (job_id === LOCAL_JOB_ID) {
+                                        return res.render('overview.html', {success_msg: cancellationSuccessMsg});
+                                    } else {
+                                        connect_to_cluster(function(conn, err) {
+                                            if (err) {
+                                                return res.render('overview.html', {err_msg: 'Failed connecting to cluster for cancellation.'});
+                                            }
+                                            run_cluster_cmd(conn, 'job cancellation', 'scancel ' + job_id, function(err, conn, stdout, stderr) {
+                                                disconnect_from_cluster(conn);
+                                                if (err) {
+                                                    return res.render('overview.html', {err_msg: 'Failed cancelling job on cluster'});
+                                                }
+                                                return res.render('overview.html', {success_msg: cancellationSuccessMsg});
+                                            });
+                                        });
+                                    }
+                                } else {
+                                    return res.render('overview.html',
+                                        { err_msg: 'Failed cancelling job on cluster. Please try again.' });
+                                }
+                            });
+                        }
+                    } else {
+                        return res.render('overview.html',
+                            { err_msg: 'Viola error: ' + result.msg });
+                    }
+                });
+            }).on('error', function(err) {
+                console.log('VIOLA err="' + err + '"');
+                return res.render('overview.html',
+                    { err_msg: 'An error occurred cancelling run ' + req.params.run_id });
+            });
+        });
+    });
+});
+
+// Should be the last route in this file
 app.get('/', function(req, res, next) {
   return res.redirect('overview');
 });
