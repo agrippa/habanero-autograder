@@ -1090,6 +1090,137 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
   });
 }
 
+function submit_run(user_id, username, assignment_name, correctness_only,
+        use_zip, svn_url, res, req) {
+    var user_id = req.session.user_id;
+    var username = req.session.username;
+
+    pgclient(function(client, done) {
+
+      var query = client.query("SELECT * FROM assignments WHERE name=($1)",
+        [assignment_name]);
+      register_query_helpers(query, res, done, username);
+      query.on('end', function(result) {
+        if (result.rowCount == 0) {
+          done();
+          return redirect_with_err('/overview', res, req,
+            'Assignment ' + assignment_name + ' does not seem to exist');
+        } else if (result.rowCount > 1) {
+          done();
+          return redirect_with_err('/overview', res, req,
+            'There appear to be duplicate assignments ' + assignment_name);
+        } else {
+          var assignment_id = result.rows[0].assignment_id;
+          var jvm_args = result.rows[0].jvm_args;
+          var correctness_timeout = result.rows[0].correctness_timeout_ms;
+          console.log('submit_run: found assignment_id=' + assignment_id +
+              ' jvm_args="' + jvm_args + '" correctness_timeout=' +
+              correctness_timeout);
+
+          // Allow assignment settings to override user-provided setting
+          var assignment_correctness_only = result.rows[0].correctness_only;
+          if (assignment_correctness_only) correctness_only = true;
+
+          crypto.randomBytes(48, function(ex, buf) {
+              console.log('submit_run: got random bytes');
+              var done_token = buf.toString('hex');
+
+              var query = client.query("INSERT INTO runs (user_id, " +
+                  "assignment_id, done_token, status, correctness_only) VALUES " +
+                  "($1,$2,$3,'TESTING CORRECTNESS',$4) RETURNING run_id",
+                  [user_id, assignment_id, done_token, correctness_only]);
+              register_query_helpers(query, res, done, username);
+              query.on('end', function(result) {
+                done();
+                var run_id = result.rows[0].run_id;
+                var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
+                var dst_dir = SVN_REPO + '/' + username + '/' + assignment_name + '/' + run_id;
+
+                // Create run directory to store information on this run
+                var mkdir_msg = '"mkdir ' + username + ' ' + assignment_name + ' ' + run_id + '"';
+                svn_client.cmd(['mkdir', '--parents', '--message', mkdir_msg, dst_dir], function(err, data) {
+                  // Special-case an error message from the Habanero repo that we can safely ignore
+                  if (is_actual_svn_err(err)) {
+                    return redirect_with_err('/overview', res, req,
+                      'An error occurred backing up your submission');
+                  } else {
+                    svn_client.cmd(['checkout', dst_dir, run_dir], function(err, data) {
+                      if (is_actual_svn_err(err)) {
+                        return redirect_with_err('/overview', res, req,
+                          'An error occurred backing up your submission');
+                      } else {
+                        // Move submitted file into newly created local SVN working copy
+                        if (use_zip) {
+                          fs.renameSync(req.file.path, run_dir + '/student.zip');
+                          return trigger_viola_run(run_dir,
+                              assignment_name, run_id, done_token,
+                              assignment_id, jvm_args, correctness_timeout, req, res);
+                        } else {
+                          temp.mkdir('conductor', function(err, temp_dir) {
+                            if (err) {
+                              return redirect_with_err('/overview', res, req,
+                                  'Internal error creating temporary directory');
+                            }
+
+                            svn_client.cmd(['export', svn_url,
+                                temp_dir + '/submission_svn_folder'], function(err, data) {
+                              if (is_actual_svn_err(err)) {
+                                return redirect_with_err('/overview', res, req,
+                                  'An error occurred exporting from "' + svn_url + '"');
+                              } 
+
+                              var output = fs.createWriteStream(run_dir + '/student.zip');
+                              var archive = archiver('zip');
+                              output.on('close', function() {
+                                temp.cleanupSync();
+                                return trigger_viola_run(run_dir,
+                                    assignment_name, run_id, done_token,
+                                    assignment_id, jvm_args, correctness_timeout, req, res);
+                              });
+                              archive.on('error', function(err){
+                                return redirect_with_err('/overview', res, req,
+                                  'An error occurred zipping your submission.');
+                              });
+                              archive.pipe(output);
+                              archive.bulk([{expand: true, cwd: temp_dir, src: ["**/*"], dot: true }
+                                    ]);
+                              archive.finalize();
+                            });
+                          });
+                        }
+                      }
+                    });
+                  }
+                });
+              });
+          });
+        }
+      });
+    });
+}
+
+app.post('/submit_run_as', function(req, res, next) {
+    if (!fs.existsSync(__dirname + '/enable_run_as')) {
+        return 'submit_run_as not enabled';
+    }
+
+    var username = req.body.username;
+    var svn_url = req.body.svn_url;
+    var assignment_name = req.body.assignment_name;
+    var correctness_only = req.body.correctness_only;
+
+    pgclient(function(client, done) {
+        get_user_id_for_name(username, client, done, res, function(user_id, err) {
+            done();
+            if (err) {
+                return 'Failed getting user ID for "' + username + '"';
+            }
+            return submit_run(user_id, username, assignment_name, correctness_only,
+                false, svn_url, res, req);
+        });
+    });
+});
+
 app.post('/submit_run', upload.single('zip'), function(req, res, next) {
     var assignment_name = req.body.assignment;
     var correctness_only = false;
@@ -1104,10 +1235,12 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
     }
 
     if (!req.file && (!req.body.svn_url || req.body.svn_url.length === 0)) {
-      return redirect_with_err('/overview', res, req, 'Please provide a ZIP file or SVN URL for your assignment.');
+      return redirect_with_err('/overview', res, req, 'Please provide a ZIP ' +
+          'file or SVN URL for your assignment.');
     }
     if (req.file && req.body.svn_url && req.body.svn_url.length > 0) {
-      return redirect_with_err('/overview', res, req, 'Please provide either a ZIP file or SVN URL for your assignment, not both.');
+      return redirect_with_err('/overview', res, req, 'Please provide either ' +
+          'a ZIP file or SVN URL for your assignment, not both.');
     }
     var use_zip = true;
     if (!req.file && req.body.svn_url && req.body.svn_url.length > 0) {
@@ -1121,112 +1254,11 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
       svn_url = 'https://' + svn_url;
     }
 
-    pgclient(function(client, done) {
-      get_user_id_for_name(req.session.username, client, done, res,
-        function(user_id, err) {
-          if (err) {
-            done();
-            return redirect_with_err('/overview', res, req, err);
-          }
-          var query = client.query("SELECT * FROM assignments WHERE name=($1)",
-            [assignment_name]);
-          register_query_helpers(query, res, done, req.session.username);
-          query.on('end', function(result) {
-            if (result.rowCount == 0) {
-              done();
-              return redirect_with_err('/overview', res, req,
-                'Assignment ' + assignment_name + ' does not seem to exist');
-            } else if (result.rowCount > 1) {
-              done();
-              return redirect_with_err('/overview', res, req,
-                'There appear to be duplicate assignments ' + assignment_name);
-            } else {
-              var assignment_id = result.rows[0].assignment_id;
-              var jvm_args = result.rows[0].jvm_args;
-              var correctness_timeout = result.rows[0].correctness_timeout_ms;
-              console.log('submit_run: found assignment_id=' + assignment_id + ' jvm_args="' + jvm_args + '" correctness_timeout=' + correctness_timeout);
+    var user_id = req.session.user_id;
+    var username = req.session.username;
 
-              // Allow assignment settings to override user-provided setting
-              var assignment_correctness_only = result.rows[0].correctness_only;
-              if (assignment_correctness_only) correctness_only = true;
-
-              crypto.randomBytes(48, function(ex, buf) {
-                  console.log('submit_run: got random bytes');
-                  var done_token = buf.toString('hex');
-
-                  var query = client.query("INSERT INTO runs (user_id, " +
-                      "assignment_id, done_token, status, correctness_only) VALUES " +
-                      "($1,$2,$3,'TESTING CORRECTNESS',$4) RETURNING run_id",
-                      [user_id, assignment_id, done_token, correctness_only]);
-                  register_query_helpers(query, res, done, req.session.username);
-                  query.on('end', function(result) {
-                    done();
-                    var run_id = result.rows[0].run_id;
-                    var run_dir = __dirname + '/submissions/' + req.session.username + '/' + run_id;
-                    var dst_dir = SVN_REPO + '/' + req.session.username + '/' +
-                        assignment_name + '/' + run_id;
-
-                    var mkdir_msg = '"mkdir ' + req.session.username + ' ' + assignment_name + ' ' + run_id + '"';
-                    svn_client.cmd(['mkdir', '--parents', '--message', mkdir_msg, dst_dir], function(err, data) {
-                      // Special-case an error message from the Habanero repo that we can safely ignore
-                      if (is_actual_svn_err(err)) {
-                        return redirect_with_err('/overview', res, req,
-                          'An error occurred backing up your submission');
-                      } else {
-                        svn_client.cmd(['checkout', dst_dir, run_dir], function(err, data) {
-                          if (is_actual_svn_err(err)) {
-                            return redirect_with_err('/overview', res, req,
-                              'An error occurred backing up your submission');
-                          } else {
-                            // Move submitted file into newly created local SVN working copy
-                            if (use_zip) {
-                              fs.renameSync(req.file.path, run_dir + '/student.zip');
-                              return trigger_viola_run(run_dir,
-                                  assignment_name, run_id, done_token,
-                                  assignment_id, jvm_args, correctness_timeout, req, res);
-                            } else {
-                              temp.mkdir('conductor', function(err, temp_dir) {
-                                if (err) {
-                                  return redirect_with_err('/overview', res, req,
-                                      'Internal error creating temporary directory');
-                                }
-
-                                svn_client.cmd(['export', svn_url,
-                                    temp_dir + '/submission_svn_folder'], function(err, data) {
-                                  if (is_actual_svn_err(err)) {
-                                    return redirect_with_err('/overview', res, req,
-                                      'An error occurred exporting from "' + svn_url + '"');
-                                  } 
-
-                                  var output = fs.createWriteStream(run_dir + '/student.zip');
-                                  var archive = archiver('zip');
-                                  output.on('close', function() {
-                                    temp.cleanupSync();
-                                    return trigger_viola_run(run_dir,
-                                        assignment_name, run_id, done_token,
-                                        assignment_id, jvm_args, correctness_timeout, req, res);
-                                  });
-                                  archive.on('error', function(err){
-                                    return redirect_with_err('/overview', res, req,
-                                      'An error occurred zipping your submission.');
-                                  });
-                                  archive.pipe(output);
-                                  archive.bulk([{expand: true, cwd: temp_dir, src: ["**/*"], dot: true }
-                                        ]);
-                                  archive.finalize();
-                                });
-                              });
-                            }
-                          }
-                        });
-                      }
-                    });
-                  });
-              });
-            }
-          });
-        });
-    });
+    return submit_run(user_id, username, assignment_name, correctness_only,
+            use_zip, svn_url, res, req);
 });
 
 function get_cello_work_dir(home_dir, run_id) {
