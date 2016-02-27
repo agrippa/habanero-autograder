@@ -1200,8 +1200,16 @@ function submit_run(user_id, username, assignment_name, correctness_only,
 }
 
 app.post('/submit_run_as', function(req, res, next) {
+    console.log('submit_run_as: enabled? ' + (fs.existsSync(__dirname + '/enable_run_as')));
     if (!fs.existsSync(__dirname + '/enable_run_as')) {
-        return 'submit_run_as not enabled';
+        return res.send('submit_run_as not enabled');
+    }
+
+    var required_fields = ['username', 'svn_url', 'assignment_name', 'correctness_only'];
+    for (field in required_fields) {
+        if (!(required_fields[field] in req.body)) {
+            return res.send('Missing "' + required_fields[field] + '" parameter to submit_run_as');
+        }
     }
 
     var username = req.body.username;
@@ -1213,7 +1221,7 @@ app.post('/submit_run_as', function(req, res, next) {
         get_user_id_for_name(username, client, done, res, function(user_id, err) {
             done();
             if (err) {
-                return 'Failed getting user ID for "' + username + '"';
+                return res.send('Failed getting user ID for "' + username + '"');
             }
             return submit_run(user_id, username, assignment_name, correctness_only,
                 false, svn_url, res, req);
