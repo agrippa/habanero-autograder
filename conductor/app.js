@@ -225,10 +225,12 @@ function cluster_scp(src_file, dst_file, is_upload, cb) {
     if (dst_file.trim().search('/') === 0) {
       throw 'All remote directories should be relative, but got ' + dst_file;
     }
+    console.log('cluster_scp: transferring ' + src_file + ' on local machine to ' + dst_file + ' on cluster');
   } else {
     if (src_file.trim().search('/') === 0) {
       throw 'All remote directories should be relative, but got ' + src_file;
     }
+    console.log('cluster_scp: transferring ' + src_file + ' on cluster to ' + dst_file + ' on local machine');
   }
 
   if (CLUSTER_TYPE === 'slurm') {
@@ -2490,97 +2492,98 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
           var LOCAL_STDERR = LOCAL_FOLDER + '/cluster-stderr.txt';
           var LOCAL_SLURM = LOCAL_FOLDER + '/cello.slurm';
 
-            get_cluster_os(conn, function(err, os) {
-              if (err) {
-                return abort_and_reset_perf_tests(err, done, conn, 'OS');
+          get_cluster_os(conn, function(err, os) {
+            if (err) {
+              return abort_and_reset_perf_tests(err, done, conn, 'OS');
+            }
+
+            var copies = [{ src: REMOTE_STDOUT, dst: LOCAL_STDOUT },
+                          { src: REMOTE_STDERR, dst: LOCAL_STDERR }];
+                          // { src: REMOTE_PROFILER, dst: LOCAL_PROFILER },
+                          // { src: REMOTE_TRACES, dst: LOCAL_TRACES }];
+            // if (os !== 'Darwin') {
+            //   copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
+            // }
+
+            var tests = get_scalability_tests(run.ncores);
+            for (var i = 0; i < tests.length; i++) {
+              var curr_cores = tests[i];
+              var local = LOCAL_FOLDER + '/performance.' + curr_cores + '.txt';
+              var remote = REMOTE_FOLDER + '/performance.' + curr_cores + '.txt';
+
+              copies.push({ src: remote, dst: local });
+            }
+
+            batched_cluster_scp(copies, false, function(stat) {
+              var any_missing_files = false;
+              var svn_add_cmd = ['add'];
+              for (var i = 0; i < stat.length; i++) {
+                if (stat[i].success) {
+                  console.log('finish_perf_tests: successfully copied back to ' + stat[i].dst);
+                  svn_add_cmd.push(stat[i].dst);
+                } else {
+                  console.log('finish_perf_tests: scp err copying to ' + stat[i].dst + ', err=' +
+                    stat[i].err);
+                  any_missing_files = true;
+                }
               }
 
-              var copies = [{ src: REMOTE_STDOUT, dst: LOCAL_STDOUT },
-                            { src: REMOTE_STDERR, dst: LOCAL_STDERR }];
-                            // { src: REMOTE_PROFILER, dst: LOCAL_PROFILER },
-                            // { src: REMOTE_TRACES, dst: LOCAL_TRACES }];
-              // if (os !== 'Darwin') {
-              //   copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
-              // }
-
-              var tests = get_scalability_tests(run.ncores);
-              for (var i = 0; i < tests.length; i++) {
-                var curr_cores = tests[i];
-                var local = LOCAL_FOLDER + '/performance.' + curr_cores + '.txt';
-                var remote = REMOTE_FOLDER + '/performance.' + curr_cores + '.txt';
-
-                copies.push({ src: remote, dst: local });
+              if (svn_add_cmd.length === 1) {
+                // No successful copies
+                return abort_and_reset_perf_tests(err, done, conn, 'svn-add');
               }
 
-              batched_cluster_scp(copies, false, function(stat) {
-                var any_missing_files = false;
-                var svn_add_cmd = ['add'];
-                for (var i = 0; i < stat.length; i++) {
-                  if (stat[i].success) {
-                    svn_add_cmd.push(stat[i].dst);
-                  } else {
-                    console.log('scp err copying to ' + stat[i].dst + ', err=' +
-                      stat[i].err);
-                    any_missing_files = true;
+              delete_cluster_dir('autograder/' + run.run_id, conn,
+                function(err, conn, stdout, stderr) {
+                  if (err) {
+                    return abort_and_reset_perf_tests(err, done, conn, 'delete');
                   }
-                }
-
-                if (svn_add_cmd.length === 1) {
-                  // No successful copies
-                  return abort_and_reset_perf_tests(err, done, conn, 'svn-add');
-                }
-
-                delete_cluster_dir('autograder/' + run.run_id, conn,
-                  function(err, conn, stdout, stderr) {
+                  svn_client.cmd(svn_add_cmd, function(err, data) {
                     if (err) {
-                      return abort_and_reset_perf_tests(err, done, conn, 'delete');
+                      return abort_and_reset_perf_tests(err, done, conn,
+                        'adding local files');
                     }
-                    svn_client.cmd(svn_add_cmd, function(err, data) {
-                      if (err) {
-                        return abort_and_reset_perf_tests(err, done, conn,
-                          'adding local files');
-                      }
-                      svn_client.cmd(['commit', '--message', 'add local files', LOCAL_FOLDER],
-                        function(err, data) {
-                          if (err) {
-                            return abort_and_reset_perf_tests(err, done, conn,
-                              'committing local files');
-                          }
+                    svn_client.cmd(['commit', '--message', 'add local files', LOCAL_FOLDER],
+                      function(err, data) {
+                        if (err) {
+                          return abort_and_reset_perf_tests(err, done, conn,
+                            'committing local files');
+                        }
 
-                          var query = client.query(
-                              'UPDATE runs SET passed_performance=($1) WHERE run_id=($2)',
-                              [!any_missing_files, run.run_id]);
-                          query.on('row', function(row, result) { result.addRow(row); });
-                          query.on('error', function(err, result) {
-                              console.log('Error updating performance run state: ' + err);
-                              done();
-                              disconnect_from_cluster(conn);
-                              setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
-                          });
-                          query.on('end', function(result) {
-                              if (wants_notification) {
-                                var email = username + '@rice.edu';
-                                if (username === 'admin') {
-                                  email = 'jmg3@rice.edu';
-                                }
-                                var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
-                                // TODO add finish time
-                                send_email(email_for_user(username), subject, '', function(err) {
-                                  if (err) {
-                                    return abort_and_reset_perf_tests(err, done, conn,
-                                      'sending notification email');
-                                  }
-                                  check_cluster_helper(perf_runs, i + 1, conn, client, done);
-                                });
-                              } else {
-                                check_cluster_helper(perf_runs, i + 1, conn, client, done);
-                              }
-                          });
+                        var query = client.query(
+                            'UPDATE runs SET passed_performance=($1) WHERE run_id=($2)',
+                            [!any_missing_files, run.run_id]);
+                        query.on('row', function(row, result) { result.addRow(row); });
+                        query.on('error', function(err, result) {
+                            console.log('Error updating performance run state: ' + err);
+                            done();
+                            disconnect_from_cluster(conn);
+                            setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
                         });
-                    });
+                        query.on('end', function(result) {
+                            if (wants_notification) {
+                              var email = username + '@rice.edu';
+                              if (username === 'admin') {
+                                email = 'jmg3@rice.edu';
+                              }
+                              var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
+                              // TODO add finish time
+                              send_email(email_for_user(username), subject, '', function(err) {
+                                if (err) {
+                                  return abort_and_reset_perf_tests(err, done, conn,
+                                    'sending notification email');
+                                }
+                                check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                              });
+                            } else {
+                              check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                            }
+                        });
+                      });
                   });
                 });
-            });
+              });
+          });
         }
       });
 
@@ -2652,7 +2655,7 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
 // Cluster functionality
 function check_cluster() {
     pgclient(function(client, done) {
-        var query = client.query("SELECT * FROM runs WHERE status='TESTING PERFORMANCE'");
+        var query = client.query("SELECT * FROM runs WHERE (job_id IS NOT NULL) AND (status='TESTING PERFORMANCE')");
         query.on('row', function(row, result) { result.addRow(row); });
         query.on('error', function(err, result) {
                 done();
