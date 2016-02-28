@@ -1230,7 +1230,7 @@ app.post('/submit_run_as', function(req, res, next) {
         return res.send('submit_run_as not enabled');
     }
 
-    var required_fields = ['username', 'svn_url', 'assignment_name'];
+    var required_fields = ['username', 'for_username', 'svn_url', 'assignment_name'];
     for (field in required_fields) {
         if (!(required_fields[field] in req.query)) {
             return res.send('Missing "' + required_fields[field] +
@@ -1239,20 +1239,39 @@ app.post('/submit_run_as', function(req, res, next) {
     }
 
     var username = req.query.username;
+    var for_username = req.query.for_username;
     var svn_url = req.query.svn_url;
     var assignment_name = req.query.assignment_name;
-    console.log('submit_run_as: username="' + username + '" svn_url="' +
-        svn_url + '" assignment_name="' + assignment_name + '"');
+    console.log('submit_run_as: username="' + username + '" for_username="' +
+        for_username + '" svn_url="' + svn_url + '" assignment_name="' +
+        assignment_name + '"');
 
     pgclient(function(client, done) {
         get_user_id_for_name(username, client, done, res, function(user_id, err) {
-            done();
             if (err) {
+                done();
                 return res.send('Failed getting user ID for "' + username + '"');
             }
-            return submit_run(user_id, username, assignment_name, false,
-                false, svn_url, res, req, function(run_id) {
-                    return res.send('submitted ' + run_id + ' for ' + username); });
+            get_user_id_for_name(for_username, client, done, res, function(for_user_id, err) {
+                done();
+                if (err) {
+                    return res.send('Failed getting user ID for "' + for_username + '"');
+                }
+                return submit_run(user_id, username, assignment_name, false,
+                    false, svn_url, res, req, function(run_id) {
+                        pgclient(function(client, done) {
+                            var query = client.query(
+                                "UPDATE runs SET on_behalf_of=($1) WHERE run_id=($2)",
+                                [for_user_id, run_id]);
+                            register_query_helpers(query, res, done, username);
+                            query.on('end', function(result) {
+                                done();
+                                return res.send('submitted ' + run_id + ' as ' +
+                                    username + ' on behalf of ' + for_username);
+                            });
+                        });
+                    });
+            });
         });
     });
 });
