@@ -1163,7 +1163,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
 
                 // Create run directory to store information on this run
                 var mkdir_msg = '"mkdir ' + username + ' ' + assignment_name + ' ' + run_id + '"';
-                svn_client.cmd(['mkdir', '--message', mkdir_msg, svn_dir], function(err, data) {
+                svn_client.cmd(['mkdir', '--parents', '--message', mkdir_msg, svn_dir], function(err, data) {
                   // Special-case an error message from the Habanero repo that we can safely ignore
                   if (is_actual_svn_err(err)) {
                       return run_setup_failed(run_id, res, req,
