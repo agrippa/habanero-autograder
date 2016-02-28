@@ -1045,20 +1045,20 @@ function get_user_id_for_name(username, client, done, res, cb) {
 }
 
 function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
-      assignment_id, jvm_args, correctness_timeout, req, res) {
+      assignment_id, jvm_args, correctness_timeout, username, req, res) {
   svn_client.cmd(['add', run_dir + '/student.zip'], function(err, data) {
     if (is_actual_svn_err(err)) {
       return redirect_with_err('/overview', res, req,
         'An error occurred backing up your submission');
     } else {
-      var commit_msg = '"add ' + req.session.username + ' ' + assignment_name + ' ' + run_id + '"';
+      var commit_msg = '"add ' + username + ' ' + assignment_name + ' ' + run_id + '"';
       svn_client.cmd(['commit', '--message', commit_msg, run_dir], function(err, data) {
         if (is_actual_svn_err(err)) {
           return redirect_with_err('/overview', res, req,
               'An error occurred backing up your submission');
         } else {
           var viola_params = 'done_token=' + done_token +
-              '&user=' + req.session.username +
+              '&user=' + username +
               '&assignment=' + assignment_name + '&run=' +
               run_id + '&assignment_id=' + assignment_id + '&jvm_args=' + jvm_args + '&timeout=' + correctness_timeout;
           var viola_options = { host: VIOLA_HOST,
@@ -1092,9 +1092,6 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
 
 function submit_run(user_id, username, assignment_name, correctness_only,
         use_zip, svn_url, res, req) {
-    var user_id = req.session.user_id;
-    var username = req.session.username;
-
     pgclient(function(client, done) {
 
       var query = client.query("SELECT * FROM assignments WHERE name=($1)",
@@ -1154,7 +1151,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                           fs.renameSync(req.file.path, run_dir + '/student.zip');
                           return trigger_viola_run(run_dir,
                               assignment_name, run_id, done_token,
-                              assignment_id, jvm_args, correctness_timeout, req, res);
+                              assignment_id, jvm_args, correctness_timeout, username, req, res);
                         } else {
                           temp.mkdir('conductor', function(err, temp_dir) {
                             if (err) {
@@ -1175,7 +1172,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                                 temp.cleanupSync();
                                 return trigger_viola_run(run_dir,
                                     assignment_name, run_id, done_token,
-                                    assignment_id, jvm_args, correctness_timeout, req, res);
+                                    assignment_id, jvm_args, correctness_timeout, username, req, res);
                               });
                               archive.on('error', function(err){
                                 return redirect_with_err('/overview', res, req,
@@ -1205,17 +1202,18 @@ app.post('/submit_run_as', function(req, res, next) {
         return res.send('submit_run_as not enabled');
     }
 
-    var required_fields = ['username', 'svn_url', 'assignment_name', 'correctness_only'];
+    var required_fields = ['username', 'svn_url', 'assignment_name'];
     for (field in required_fields) {
-        if (!(required_fields[field] in req.body)) {
+        if (!(required_fields[field] in req.query)) {
             return res.send('Missing "' + required_fields[field] + '" parameter to submit_run_as');
         }
     }
 
-    var username = req.body.username;
-    var svn_url = req.body.svn_url;
-    var assignment_name = req.body.assignment_name;
-    var correctness_only = req.body.correctness_only;
+    var username = req.query.username;
+    var svn_url = req.query.svn_url;
+    var assignment_name = req.query.assignment_name;
+    console.log('submit_run_as: username="' + username + '" svn_url="' +
+        svn_url + '" assignment_name="' + assignment_name + '"');
 
     pgclient(function(client, done) {
         get_user_id_for_name(username, client, done, res, function(user_id, err) {
@@ -1223,7 +1221,7 @@ app.post('/submit_run_as', function(req, res, next) {
             if (err) {
                 return res.send('Failed getting user ID for "' + username + '"');
             }
-            return submit_run(user_id, username, assignment_name, correctness_only,
+            return submit_run(user_id, username, assignment_name, false,
                 false, svn_url, res, req);
         });
     });
