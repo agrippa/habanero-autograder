@@ -2251,9 +2251,18 @@ app.get('/run/:run_id', function(req, res, next) {
               elapsed_time = elapsed_time + milliseconds + 'ms';
             }
 
-            if (!req.session.is_admin && user_id != req.session.user_id) {
-                done();
-                return res.send(401);
+            if (result.rows[0].on_behalf_of !== null) {
+                // If this is an instructor run using a student submission, that student can view this submission
+                if (!req.session.is_admin && result.rows[0].on_behalf_of != req.session.user_id) {
+                    done();
+                    return res.send(401);
+                }
+            } else {
+                // Instructors can view all submissions, students can only view their own submissions
+                if (!req.session.is_admin && user_id != req.session.user_id) {
+                    done();
+                    return res.send(401);
+                }
             }
             var query = client.query("SELECT * FROM users WHERE user_id=($1)", [user_id]);
             register_query_helpers(query, res, done, req.session.username);

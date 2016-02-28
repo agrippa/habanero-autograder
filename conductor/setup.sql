@@ -43,5 +43,6 @@ CREATE TABLE IF NOT EXISTS runs
  compiled BOOLEAN NOT NULL DEFAULT FALSE,
  passed_all_correctness BOOLEAN NOT NULL DEFAULT FALSE,
  start_time TIMESTAMP DEFAULT current_timestamp,
- finish_time TIMESTAMP
+ finish_time TIMESTAMP,
+ on_behalf_of INTEGER
 );
