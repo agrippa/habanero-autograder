@@ -1,0 +1,11 @@
+{
+  "name": "submit_run_as",
+  "private": true,
+  "version": "0.0.0",
+  "description": "submit_run_as",
+  "license": "MIT",
+  "repository": "https://bitbucket.org/max-grossman/habanero-autograder",
+  "dependencies": {
+      "request": "2.69.0"
+  }
+}
