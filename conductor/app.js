@@ -1224,7 +1224,7 @@ app.post('/submit_run_as', function(req, res, next) {
             }
             return submit_run(user_id, username, assignment_name, false,
                 false, svn_url, res, req, function(run_id) {
-                    return res.send('submitted ' + run_id); });
+                    return res.send('submitted ' + run_id + ' for ' + username); });
         });
     });
 });
