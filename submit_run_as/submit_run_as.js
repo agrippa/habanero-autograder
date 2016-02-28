@@ -14,6 +14,8 @@ request({
          '&username=' + username + '&assignment_name=' + assignment_name,
     method: "POST",
 }, function(err, response, body) {
-    console.log('err = ' + err);
-    console.log('body = ' + body);
+    if (err) {
+        console.log('err = ' + err);
+    }
+    console.log(body);
 });
