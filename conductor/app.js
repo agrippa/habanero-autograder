@@ -1093,8 +1093,9 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
   });
 }
 
-function run_setup_failed(run_id, res, req, err_msg) {
-    console.log('run_setup_failed: run_id=' + run_id + ' err_msg="' + err_msg + '"');
+function run_setup_failed(run_id, res, req, err_msg, svn_err) {
+    console.log('run_setup_failed: run_id=' + run_id + ' err_msg="' + err_msg +
+            '" err="' + svn_err + '"');
     pgclient(function(client, done) {
         var query = client.query("UPDATE runs SET status='FAILED'," +
             "finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)", [run_id]);
@@ -1166,12 +1167,12 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                   // Special-case an error message from the Habanero repo that we can safely ignore
                   if (is_actual_svn_err(err)) {
                       return run_setup_failed(run_id, res, req,
-                          'An error occurred backing up your submission, creating repo location for submission');
+                          'An error occurred backing up your submission, creating repo location for submission', err);
                   } else {
                     svn_client.cmd(['checkout', svn_dir, run_dir], function(err, data) {
                       if (is_actual_svn_err(err)) {
                           return run_setup_failed(run_id, res, req,
-                              'An error occurred backing up your submission, checking out repo location for submission');
+                              'An error occurred backing up your submission, checking out repo location for submission', err);
                       } else {
                         // Move submitted file into newly created local SVN working copy
                         if (use_zip) {
@@ -1183,14 +1184,14 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                           temp.mkdir('conductor', function(err, temp_dir) {
                             if (err) {
                                 return run_setup_failed(run_id, res, req,
-                                    'Internal error creating temporary directory');
+                                    'Internal error creating temporary directory', err);
                             }
 
                             svn_client.cmd(['export', svn_url,
                                 temp_dir + '/submission_svn_folder'], function(err, data) {
                               if (is_actual_svn_err(err)) {
                                   return run_setup_failed(run_id, res, req,
-                                      'An error occurred exporting from "' + svn_url + '"');
+                                      'An error occurred exporting from "' + svn_url + '"', err);
                               } 
 
                               var output = fs.createWriteStream(run_dir + '/student.zip');
@@ -1203,7 +1204,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                               });
                               archive.on('error', function(err){
                                   return run_setup_failed(run_id, res, req,
-                                      'An error occurred zipping your submission.');
+                                      'An error occurred zipping your submission.', err);
                               });
                               archive.pipe(output);
                               archive.bulk([{expand: true, cwd: temp_dir, src: ["**/*"], dot: true }
