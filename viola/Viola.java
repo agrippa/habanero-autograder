@@ -49,6 +49,7 @@ public class Viola {
           new LinkedBlockingQueue());
 
     private static ViolaEnv env = null;
+    private static final LinkedList<LocalTestRunner> toImport = new LinkedList<LocalTestRunner>();
 
     private static String getEnvVarOrFail(String varname) {
       String val = System.getenv(varname);
@@ -105,6 +106,10 @@ public class Viola {
 
         env = new ViolaEnv(conductorHost, conductorPort, svnRepo, svnUser,
                 svnPassword, junit, hamcrest, mavenRepo, asm, checkstyle, autograderHome);
+
+        final SVNImportRunnable importRunner = new SVNImportRunnable(toImport);
+        final Thread importThread = new Thread(importRunner);
+        importThread.start();
 
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/run", new RunHandler());
@@ -180,7 +185,8 @@ public class Viola {
                         run_id, assignment_id, jvm_args, timeout);
 
                 final LocalTestRunner runnable = new LocalTestRunner(done_token,
-                        user, assignment_name, run_id, assignment_id, jvm_args, timeout, env);
+                        user, assignment_name, run_id, assignment_id, jvm_args,
+                        timeout, env, toImport);
                 executor.execute(runnable);
                 writeResponse(t, "{ \"status\": \"Success\" }");
             }

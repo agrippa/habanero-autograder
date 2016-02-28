@@ -59,14 +59,20 @@ public class LocalTestRunner {
     private final ViolaEnv env;
     private volatile boolean beingCancelled = false;
 
-    private final SVNClientManager ourClientManager;
+    private final SVNClientManager svnClientManager;
 
     private final List<String> createdDirectories = new LinkedList<String>();
     private final List<Process> createdProcesses = new LinkedList<Process>();
 
+    private File logDir = null;
+    private String errMsg = "";
+    private final String svnLoc;
+
+    private final LinkedList<LocalTestRunner> toImport;
+
     public LocalTestRunner(String done_token, String user,
             String assignment_name, int run_id, int assignment_id,
-            String jvm_args, int timeout, ViolaEnv env) {
+            String jvm_args, int timeout, ViolaEnv env, LinkedList<LocalTestRunner> toImport) {
         this.done_token = done_token;
         this.user = user;
         this.assignment_name = assignment_name;
@@ -81,21 +87,20 @@ public class LocalTestRunner {
         this.timeout = timeout;
         this.env = env;
 
-        this.ourClientManager = SVNClientManager.newInstance(
+        this.svnClientManager = SVNClientManager.newInstance(
                 SVNWCUtil.createDefaultOptions(true), env.svnUser, env.svnPassword);
+        this.svnLoc = env.svnRepo + "/" + user + "/" + run_id;
+        this.toImport = toImport;
     }
     
-    public String getUser() {
-      return user;
-    }
-
-    public int getRunId() {
-      return run_id;
-    }
-
-    public String getDoneToken() {
-        return done_token;
-    }
+    public String getUser() {  return user; }
+    public int getRunId() {  return run_id; }
+    public String getDoneToken() { return done_token; }
+    public String getAssignmentName() { return assignment_name; }
+    public File getLogDir() { return logDir; }
+    public String getErrMsg() { return errMsg; }
+    public String getSVNLoc() { return svnLoc; }
+    public SVNClientManager getSVNClientManager() { return svnClientManager; }
 
     public void setBeingCancelled() {
         beingCancelled = true;
@@ -284,24 +289,11 @@ public class LocalTestRunner {
       }
     }
 
-    private void svnAddIfExists(File f) {
-        if (f.exists()) {
-            try {
-                ourClientManager.getWCClient().doAdd(f, false, false, false,
-                        SVNDepth.INFINITY, false, false);
-            } catch (SVNException svn) {
-                svn.printStackTrace();
-            }
-        }
-    }
-
     public void run() {
         ViolaUtil.log("Running local tests for user=%s assignment=%s run=%d " +
                 "jvm_args length=%d\n", user, assignment_name, run_id,
                 jvm_args.length);
-        final String svnLoc = env.svnRepo + "/" + user + "/" + assignment_name + "/" + run_id;
 
-        String err_msg = "";
         File code_dir = null;
         File instructor_dir = null;
         File extract_code_dir = null;
@@ -311,12 +303,13 @@ public class LocalTestRunner {
             instructor_dir = getTempDirectory();
             extract_code_dir = getTempDirectory();
             extract_instructor_dir = getTempDirectory();
+            logDir = getTempDirectory();
 
             /*
              * Check out the student code from SVN. This should check out a
              * single directory with a single ZIP file inside.
              */
-            SVNUpdateClient updateClient = ourClientManager.getUpdateClient();
+            SVNUpdateClient updateClient = svnClientManager.getUpdateClient();
             updateClient.setIgnoreExternals(false);
 
             ViolaUtil.log("Checking student code out to %s from %s\n", code_dir.getAbsolutePath(), svnLoc);
@@ -329,6 +322,7 @@ public class LocalTestRunner {
 
             extract_code_dir.mkdir();
             extract_instructor_dir.mkdir();
+            logDir.mkdir();
 
             ViolaUtil.log("Target code directory = " + extract_code_dir.getAbsolutePath() + "\n");
             ViolaUtil.log("Target instructor directory = " + extract_instructor_dir.getAbsolutePath() + "\n");
@@ -421,7 +415,7 @@ public class LocalTestRunner {
             ProcessResults checkstyle_results = runInProcess(checkstyle_cmd,
                 unzipped_code_dir);
             PrintWriter writer = new PrintWriter(
-                code_dir.getAbsolutePath() + "/checkstyle.txt", "UTF-8");
+                logDir.getAbsolutePath() + "/checkstyle.txt", "UTF-8");
             writer.println(checkstyle_results.stdout);
             writer.close();
 
@@ -432,7 +426,7 @@ public class LocalTestRunner {
               "-low", mainCodeFolder.getAbsolutePath()};
             ProcessResults findbugs_results = runInProcess(findbugs_cmd, unzipped_code_dir);
             writer = new PrintWriter(
-                code_dir.getAbsolutePath() + "/findbugs.txt", "UTF-8");
+                logDir.getAbsolutePath() + "/findbugs.txt", "UTF-8");
             writer.println(findbugs_results.stdout);
             writer.close();
 
@@ -475,7 +469,7 @@ public class LocalTestRunner {
              */
             String[] cmd = new String[]{"mvn", "-Dcheckstyle.skip=true", "clean", "compile", "test-compile"};
             ProcessResults mvn_results = runInProcess(cmd, unzipped_code_dir);
-            writer = new PrintWriter(code_dir.getAbsolutePath() + "/compile.txt", "UTF-8");
+            writer = new PrintWriter(logDir.getAbsolutePath() + "/compile.txt", "UTF-8");
             writer.println("======= STDOUT =======");
             writer.println(mvn_results.stdout);
             writer.println("\n======= STDERR =======");
@@ -540,7 +534,7 @@ public class LocalTestRunner {
             }
 
             writer = new PrintWriter(
-                    code_dir.getAbsolutePath() + "/correct.txt", "UTF-8");
+                    logDir.getAbsolutePath() + "/correct.txt", "UTF-8");
             writer.println("======= STDOUT =======");
             writer.println(stdout.toString());
             writer.println("\n======= STDERR =======");
@@ -549,53 +543,23 @@ public class LocalTestRunner {
 
             ViolaUtil.log("Filled correctness log file\n");
         } catch (TestRunnerException tr) {
-            err_msg = tr.getMessage();
+            errMsg = tr.getMessage();
             tr.printStackTrace();
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
             if (beingCancelled) {
-                err_msg = "Cancelled by user";
-            }
-            // Add the generated files to the repo
-            if (code_dir != null) {
-                FileUtils.deleteQuietly(new File(code_dir.getAbsolutePath(), "student.zip"));
-
-                ViolaUtil.log("Added log files to repo\n");
-
-                // Commit the added files to the repo
-                File[] wc = new File[1];
-                wc[0] = new File(code_dir.getAbsolutePath());
-                final String commitMessage =
-                    user + " " + assignment_name + " " + run_id + " local-runs";
-                try {
-                    ourClientManager.getCommitClient().doImport(new File(code_dir.getAbsolutePath()),
-                            SVNURL.parseURIDecoded(svnLoc), commitMessage, null, true, false, SVNDepth.INFINITY);
-                    // ourClientManager.getCommitClient().doCommit(wc, false,
-                    //         commitMessage, false, true);
-                } catch (SVNException svn) {
-                    /*
-                     * For now (while the Habanero repo is still misconfigured)
-                     * we ignore commit failures.
-                     */
-                    svn.printStackTrace();
-                }
+                errMsg = "Cancelled by user";
             }
 
-            ViolaUtil.log("Committed log file to repo\n");
-
-            /*
-             * Clean up the test directory. This assumes that no directories
-             * are created in the process of testing.
-             */
-            cancel(err_msg);
-
-            ViolaUtil.log("Finished local tests for user=%s assignment=%s run=%d\n", user,
-                    assignment_name, run_id);
+            synchronized(toImport) {
+                toImport.push(this);
+                toImport.notifyAll();
+            }
         }
     }
 
-    public void cancel(final String err_msg) {
+    public void cleanup(String errMsg) {
         for (String path : createdDirectories) {
             deleteDir(new File(path));
         }
@@ -606,7 +570,9 @@ public class LocalTestRunner {
 
         ViolaUtil.log("Done with cleanup\n");
 
-        notifyConductor(err_msg);
+        notifyConductor(errMsg);
+
+        svnClientManager.dispose();
     }
 }
 

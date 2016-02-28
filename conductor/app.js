@@ -1038,6 +1038,8 @@ function get_user_id_for_name(username, client, done, res, cb) {
     } else {
       // Got the user ID, time to get the assignment ID
       var user_id = result.rows[0].user_id;
+      console.log('get_user_id_for_name: got user_id=' + user_id +
+          ' for username=' + username);
 
       return cb(user_id, null);
     }
@@ -1049,13 +1051,13 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
   svn_client.cmd(['add', run_dir + '/student.zip'], function(err, data) {
     if (is_actual_svn_err(err)) {
       return redirect_with_err('/overview', res, req,
-        'An error occurred backing up your submission');
+        'An error occurred backing up your submission, adding submission');
     } else {
       var commit_msg = '"add ' + username + ' ' + assignment_name + ' ' + run_id + '"';
       svn_client.cmd(['commit', '--message', commit_msg, run_dir], function(err, data) {
         if (is_actual_svn_err(err)) {
           return redirect_with_err('/overview', res, req,
-              'An error occurred backing up your submission');
+              'An error occurred backing up your submission, committing submission');
         } else {
           var viola_params = 'done_token=' + done_token + '&user=' + username +
             '&assignment=' + assignment_name + '&run=' + run_id +
@@ -1091,6 +1093,27 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
   });
 }
 
+function run_setup_failed(run_id, res, req, err_msg) {
+    console.log('run_setup_failed: run_id=' + run_id + ' err_msg="' + err_msg + '"');
+    pgclient(function(client, done) {
+        var query = client.query("UPDATE runs SET status='FAILED'," +
+            "finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)", [run_id]);
+        query.on('row', function(row, result) { result.addRow(row); }); // unnecessary?
+        query.on('error', function(err, result) {
+            console.log('Error storing failure setting up tests for run_id=' +
+                run_id + ': ' + err);
+            done();
+            return redirect_with_err('/overview', res, req, err_msg);
+        });
+        query.on('end', function(result) {
+            done();
+            console.log('Failure initiating tests for run_id=' + run_id + ': ' +
+                err_msg);
+            return redirect_with_err('/overview', res, req, err_msg);
+        });
+    });
+}
+
 function submit_run(user_id, username, assignment_name, correctness_only,
         use_zip, svn_url, res, req, success_cb) {
     pgclient(function(client, done) {
@@ -1113,7 +1136,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
           var correctness_timeout = result.rows[0].correctness_timeout_ms;
           console.log('submit_run: found assignment_id=' + assignment_id +
               ' jvm_args="' + jvm_args + '" correctness_timeout=' +
-              correctness_timeout);
+              correctness_timeout + ' for user_id=' + user_id);
 
           // Allow assignment settings to override user-provided setting
           var assignment_correctness_only = result.rows[0].correctness_only;
@@ -1131,21 +1154,24 @@ function submit_run(user_id, username, assignment_name, correctness_only,
               query.on('end', function(result) {
                 done();
                 var run_id = result.rows[0].run_id;
+                console.log('submit_run: got run_id=' + run_id +
+                    ' for user_id=' + user_id + ' on assignment_id=' +
+                    assignment_id);
                 var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
-                var dst_dir = SVN_REPO + '/' + username + '/' + assignment_name + '/' + run_id;
+                var svn_dir = SVN_REPO + '/' + username + '/' + run_id;
 
                 // Create run directory to store information on this run
                 var mkdir_msg = '"mkdir ' + username + ' ' + assignment_name + ' ' + run_id + '"';
-                svn_client.cmd(['mkdir', '--parents', '--message', mkdir_msg, dst_dir], function(err, data) {
+                svn_client.cmd(['mkdir', '--message', mkdir_msg, svn_dir], function(err, data) {
                   // Special-case an error message from the Habanero repo that we can safely ignore
                   if (is_actual_svn_err(err)) {
-                    return redirect_with_err('/overview', res, req,
-                      'An error occurred backing up your submission');
+                      return run_setup_failed(run_id, res, req,
+                          'An error occurred backing up your submission, creating repo location for submission');
                   } else {
-                    svn_client.cmd(['checkout', dst_dir, run_dir], function(err, data) {
+                    svn_client.cmd(['checkout', svn_dir, run_dir], function(err, data) {
                       if (is_actual_svn_err(err)) {
-                        return redirect_with_err('/overview', res, req,
-                          'An error occurred backing up your submission');
+                          return run_setup_failed(run_id, res, req,
+                              'An error occurred backing up your submission, checking out repo location for submission');
                       } else {
                         // Move submitted file into newly created local SVN working copy
                         if (use_zip) {
@@ -1156,15 +1182,15 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                         } else {
                           temp.mkdir('conductor', function(err, temp_dir) {
                             if (err) {
-                              return redirect_with_err('/overview', res, req,
-                                  'Internal error creating temporary directory');
+                                return run_setup_failed(run_id, res, req,
+                                    'Internal error creating temporary directory');
                             }
 
                             svn_client.cmd(['export', svn_url,
                                 temp_dir + '/submission_svn_folder'], function(err, data) {
                               if (is_actual_svn_err(err)) {
-                                return redirect_with_err('/overview', res, req,
-                                  'An error occurred exporting from "' + svn_url + '"');
+                                  return run_setup_failed(run_id, res, req,
+                                      'An error occurred exporting from "' + svn_url + '"');
                               } 
 
                               var output = fs.createWriteStream(run_dir + '/student.zip');
@@ -1176,8 +1202,8 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                                     assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb);
                               });
                               archive.on('error', function(err){
-                                return redirect_with_err('/overview', res, req,
-                                  'An error occurred zipping your submission.');
+                                  return run_setup_failed(run_id, res, req,
+                                      'An error occurred zipping your submission.');
                               });
                               archive.pipe(output);
                               archive.bulk([{expand: true, cwd: temp_dir, src: ["**/*"], dot: true }
@@ -1206,7 +1232,8 @@ app.post('/submit_run_as', function(req, res, next) {
     var required_fields = ['username', 'svn_url', 'assignment_name'];
     for (field in required_fields) {
         if (!(required_fields[field] in req.query)) {
-            return res.send('Missing "' + required_fields[field] + '" parameter to submit_run_as');
+            return res.send('Missing "' + required_fields[field] +
+                '" parameter to submit_run_as');
         }
     }
 
@@ -1601,7 +1628,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                         '--username ' + SVN_USERNAME +
                                         ' --password ' + SVN_PASSWORD + ' ' +
                                         SVN_REPO + '/' + username + '/' +
-                                        assignment_name + '/' + run_id + ' ' +
+                                        run_id + ' ' +
                                         cello_work_dir + '/submission';
                                       var assignment_checkout = 'svn checkout ' +
                                         '--username ' + SVN_USERNAME +
@@ -2233,8 +2260,7 @@ app.get('/run/:run_id', function(req, res, next) {
                 done();
 
                 var username = result.rows[0].user_name;
-                var run_dir = __dirname + '/submissions/' +
-                    username + '/' + run_id;
+                var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
                 /*
                  * If bugs cause submissions to fail, their storage may not exist.
                  * This shouldn't happen in a bugless AutoGrader.

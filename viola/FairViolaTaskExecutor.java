@@ -92,6 +92,9 @@ public class FairViolaTaskExecutor {
       assert result != null;
       nPending--;
 
+      ViolaUtil.log("thread %d got run %d to process, %d remaining pending " +
+              "tasks\n", tid, result.getRunId(), nPending);
+
       runningTasks[tid] = result;
     }
     return result;

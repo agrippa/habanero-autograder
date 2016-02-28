@@ -24,6 +24,11 @@ if [[ -z "$GMAIL_PASS" ]]; then
     exit 1
 fi
 
+if [[ -z "$SVN_REPO" ]]; then
+    echo SVN_REPO must be a defined environment variable
+    exit 1
+fi
+
 if [[ $EXISTS == 0 ]]; then
     HASH=$(node password_hash.js $PW)
     SQL_CMD="INSERT INTO users (user_name, password_hash, is_admin) VALUES \
@@ -33,6 +38,7 @@ if [[ $EXISTS == 0 ]]; then
 
     mkdir -p submissions/$NETID
     mkdir -p logs/$NETID
+    svn mkdir --message "set up SVN directory for $NETID" $SVN_REPO/$NETID
 
     echo $NETID $PW >> passwords
     echo $NETID $PW
