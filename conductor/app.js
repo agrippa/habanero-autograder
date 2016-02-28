@@ -1390,10 +1390,12 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
 
   slurmFileContents += 'mkdir $CELLO_WORK_DIR/submission/student\n';
   slurmFileContents += 'unzip -qq $CELLO_WORK_DIR/submission/student.zip -d $CELLO_WORK_DIR/submission/student/\n';
+  slurmFileContents += 'rm -f -r $CELLO_WORK_DIR/submission/student/.svn\n';
+  slurmFileContents += 'rm -f -r $CELLO_WORK_DIR/submission/student/__MACOSX\n';
   slurmFileContents += 'NSTUDENT_FILES=$(ls -l $CELLO_WORK_DIR/submission/student/ | grep -v total | wc -l)\n';
   slurmFileContents += 'NSTUDENT_FILES=${NSTUDENT_FILES//[[:blank:]]/}\n';
   slurmFileContents += 'if [[ $NSTUDENT_FILES != 1 ]]; then\n';
-  slurmFileContents += '    echo "Unexpected number of student files: $NSTUDENT_FILES"\n';
+  slurmFileContents += '    echo "AUTOGRADER-ERROR Unexpected number of student files: $NSTUDENT_FILES"\n';
   slurmFileContents += '    exit 1\n';
   slurmFileContents += 'fi\n';
   slurmFileContents += 'STUDENT_DIR=$(ls $CELLO_WORK_DIR/submission/student/)\n';
@@ -1403,7 +1405,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   slurmFileContents += 'NINSTRUCTOR_FILES=$(ls -l $CELLO_WORK_DIR/assignment/instructor/ | grep -v total | wc -l);\n';
   slurmFileContents += 'NINSTRUCTOR_FILES=${NINSTRUCTOR_FILES//[[:blank:]]/}\n';
   slurmFileContents += 'if [[ $NINSTRUCTOR_FILES != 1 ]]; then\n';
-  slurmFileContents += '    echo "Unexpected number of instructor files: $NINSTRUCTOR_FILES"\n';
+  slurmFileContents += '    echo "AUTOGRADER-ERROR Unexpected number of instructor files: $NINSTRUCTOR_FILES"\n';
   slurmFileContents += '    exit 1\n';
   slurmFileContents += 'fi\n';
   slurmFileContents += 'INSTRUCTOR_DIR=$(ls $CELLO_WORK_DIR/assignment/instructor/)\n';
@@ -2314,22 +2316,35 @@ app.get('/run/:run_id', function(req, res, next) {
                   var render_vars = { run_id: run_id };
                   return render_page('missing_run.html', res, req, render_vars);
                 } else {
+                  var cello_err = null;
                   var log_files = {};
                   fs.readdirSync(run_dir).forEach(function(file) {
                     if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 &&
                           !arr_contains(file, dont_display)) {
-                        log_files[file] = fs.readFileSync(run_dir + '/' + file);
+                        var contents = fs.readFileSync(run_dir + '/' + file, 'utf8');
+                        log_files[file] = contents;
+
+                        if (cello_err === null && file === 'cluster-stdout.txt') {
+                            var lines = contents.split('\n');
+                            for (var i = 0; i < lines.length; i++) {
+                                if (string_starts_with(lines[i], 'AUTOGRADER-ERROR')) {
+                                    cello_err = lines[i].substring(17);
+                                    break;
+                                }
+                            }
+                        }
                     }
                   });
 
                   var score = calculate_score(assignment_id, log_files, ncores, run_status);
-                  var render_vars = { run_id: run_id, log_files: log_files, viola_err: viola_err_msg,
-                                      passed_checkstyle: passed_checkstyle,
-                                      compiled: compiled,
-                                      passed_all_correctness: passed_all_correctness,
-                                      elapsed_time: elapsed_time, finished: finished,
-                                      has_performance_tests: !correctness_only,
-                                      passed_performance: passed_performance};
+                  var render_vars = {run_id: run_id, log_files: log_files, viola_err: viola_err_msg, cello_err: cello_err,
+                                     passed_checkstyle: passed_checkstyle,
+                                     compiled: compiled,
+                                     passed_all_correctness: passed_all_correctness,
+                                     elapsed_time: elapsed_time, finished: finished,
+                                     has_performance_tests: !correctness_only,
+                                     passed_performance: passed_performance,
+                                     run_status: run_status};
                   if (score) {
                     render_vars['score'] = score;
                   } else {

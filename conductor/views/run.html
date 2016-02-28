@@ -34,7 +34,9 @@
         <% if (viola_err && viola_err.length > 0) { %>
             <h4><center><font color="red">Correctness tests reported error: <%= viola_err %></font></center></h4>
         <% } %>
-        <h4>
+        <% if (cello_err && cello_err.length > 0) { %>
+            <h4><center><font color="red">Performance tests reported error: <%= cello_err %></font></center></h4>
+        <% } %>
       <table style="width:100%" border="1" bordercolor='#ffffff' class="table table-bordered table-condensed"><tr>
         <td bgcolor=<%= (!passed_checkstyle ? '#FF3333' : '#00FF00') %> ><center><b>Checkstyle</b></center></td>
         <td bgcolor=<%= (!compiled ? '#FF3333' : '#00FF00') %> ><center><b>Compilation</b></center></td>
