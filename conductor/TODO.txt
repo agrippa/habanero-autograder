@@ -1,0 +1,6 @@
+1. Using SVN as a content management system has its benefits in terms of
+   consistency, accessibility, simplicity but it also seems to not respond well
+   to heavy loads, e.g. if 100 submissions occur simultaneously either it or the
+   svn-spawn library I am using tend to simply hang while creating the SVN
+   directories to store the submissions. Should consider a restructuring around
+   some alternative.
