@@ -299,6 +299,7 @@ public class LocalTestRunner {
         ViolaUtil.log("Running local tests for user=%s assignment=%s run=%d " +
                 "jvm_args length=%d\n", user, assignment_name, run_id,
                 jvm_args.length);
+        final String svnLoc = env.svnRepo + "/" + user + "/" + assignment_name + "/" + run_id;
 
         String err_msg = "";
         File code_dir = null;
@@ -318,16 +319,13 @@ public class LocalTestRunner {
             SVNUpdateClient updateClient = ourClientManager.getUpdateClient();
             updateClient.setIgnoreExternals(false);
 
-            final String svnLoc = env.svnRepo + "/" + user + "/" + assignment_name + "/" + run_id;
             ViolaUtil.log("Checking student code out to %s from %s\n", code_dir.getAbsolutePath(), svnLoc);
-            updateClient.doCheckout(SVNURL.parseURIDecoded(svnLoc), code_dir,
-                    SVNRevision.HEAD, SVNRevision.HEAD, SVNDepth.INFINITY, false);
+            updateClient.doExport(SVNURL.parseURIDecoded(svnLoc), code_dir,
+                    SVNRevision.HEAD, SVNRevision.HEAD, null, false, SVNDepth.INFINITY);
 
             ViolaUtil.log("Checking instructor code out to %s\n", instructor_dir.getAbsolutePath());
-            updateClient.doCheckout(SVNURL.parseURIDecoded(env.svnRepo +
-                  "/assignments/" + assignment_id), instructor_dir,
-                SVNRevision.HEAD, SVNRevision.HEAD, SVNDepth.INFINITY,
-                false);
+            updateClient.doExport(SVNURL.parseURIDecoded(env.svnRepo +  "/assignments/" + assignment_id),
+                    instructor_dir, SVNRevision.HEAD, SVNRevision.HEAD, null, false, SVNDepth.INFINITY);
 
             extract_code_dir.mkdir();
             extract_instructor_dir.mkdir();
@@ -561,10 +559,7 @@ public class LocalTestRunner {
             }
             // Add the generated files to the repo
             if (code_dir != null) {
-                svnAddIfExists(new File(code_dir.getAbsolutePath(), "compile.txt"));
-                svnAddIfExists(new File(code_dir.getAbsolutePath(), "correct.txt"));
-                svnAddIfExists(new File(code_dir.getAbsolutePath(), "checkstyle.txt"));
-                svnAddIfExists(new File(code_dir.getAbsolutePath(), "findbugs.txt"));
+                FileUtils.deleteQuietly(new File(code_dir.getAbsolutePath(), "student.zip"));
 
                 ViolaUtil.log("Added log files to repo\n");
 
@@ -574,8 +569,10 @@ public class LocalTestRunner {
                 final String commitMessage =
                     user + " " + assignment_name + " " + run_id + " local-runs";
                 try {
-                    ourClientManager.getCommitClient().doCommit(wc, false,
-                            commitMessage, false, true);
+                    ourClientManager.getCommitClient().doImport(new File(code_dir.getAbsolutePath()),
+                            SVNURL.parseURIDecoded(svnLoc), commitMessage, null, true, false, SVNDepth.INFINITY);
+                    // ourClientManager.getCommitClient().doCommit(wc, false,
+                    //         commitMessage, false, true);
                 } catch (SVNException svn) {
                     /*
                      * For now (while the Habanero repo is still misconfigured)
