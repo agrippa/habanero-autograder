@@ -1314,7 +1314,7 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
 
     return submit_run(user_id, username, assignment_name, correctness_only,
             use_zip, svn_url, res, req, function(run_id) {
-                    return res.redirect('/overview'); });
+                return redirect_with_success('/overview', res, req, 'Successfully launched run #' + run_id); });
 });
 
 function get_cello_work_dir(home_dir, run_id) {

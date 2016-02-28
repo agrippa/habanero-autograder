@@ -162,7 +162,11 @@ public class FairViolaTaskExecutor {
                   r = getPendingTask(tid);
                   r.run();
               } finally {
-                  ViolaUtil.log("thread %d notifying of completion of run\n", tid);
+                  if (r == null) {
+                      ViolaUtil.log("thread %d notifying of completion of null run\n", tid);
+                  } else {
+                      ViolaUtil.log("thread %d notifying of completion of run %d\n", tid, r.getRunId());
+                  }
                   synchronized(FairViolaTaskExecutor.this) {
                       runningTasks[tid] = null;
                       FairViolaTaskExecutor.this.notifyAll();

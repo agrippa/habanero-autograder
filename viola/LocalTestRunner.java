@@ -545,8 +545,9 @@ public class LocalTestRunner {
         } catch (TestRunnerException tr) {
             errMsg = tr.getMessage();
             tr.printStackTrace();
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (Throwable t) {
+            errMsg = "An internal error occurred running the correctness tests.";
+            t.printStackTrace();
         } finally {
             if (beingCancelled) {
                 errMsg = "Cancelled by user";
