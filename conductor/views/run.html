@@ -39,6 +39,9 @@
         <td bgcolor=<%= (!passed_checkstyle ? '#FF3333' : '#00FF00') %> ><center><b>Checkstyle</b></center></td>
         <td bgcolor=<%= (!compiled ? '#FF3333' : '#00FF00') %> ><center><b>Compilation</b></center></td>
         <td bgcolor=<%= (!passed_all_correctness ? '#FF3333' : '#00FF00') %> ><center><b>Correctness</b></center></td>
+        <% if (has_performance_tests) { %>
+            <td bgcolor=<%= (!passed_performance ? '#FF3333' : '#00FF00') %> ><center><b>Performance</b></center></td>
+        <% } %>
       </tr></table>
 
       </div>

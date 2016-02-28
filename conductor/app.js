@@ -565,14 +565,25 @@ app.get('/leaderboard/:assignment_id?', function(req, res, next) {
   console.log('leaderboard: username=' + req.session.username);
 
   pgclient(function(client, done) {
-    var query = client.query("SELECT assignment_id,name FROM assignments WHERE visible=true;");
+    var query = client.query("SELECT assignment_id,name,correctness_only FROM assignments WHERE visible=true;");
     register_query_helpers(query, res, done, req.session.username);
     query.on('end', function(result) {
       var render_vars = {assignments: result.rows};
 
       if (target_assignment_id) {
+        var has_performance_tests = false;
+        for (var i = 0; i < result.rows.length; i++) {
+            if (result.rows[i].assignment_id === target_assignment_id) {
+                if (!result.rows[i].correctness_only) {
+                    has_performance_tests = true;
+                }
+                break;
+            }
+        }
+        render_vars['has_performance_tests'] = has_performance_tests;
+
         var query = client.query(
-          "SELECT run_id,status,passed_checkstyle,compiled,passed_all_correctness " +
+          "SELECT run_id,status,passed_checkstyle,compiled,passed_all_correctness,passed_performance " +
           "FROM runs WHERE assignment_id=($1) ORDER BY run_id DESC", [target_assignment_id]);
         register_query_helpers(query, res, done, req.session.username);
         query.on('end', function(result) {
@@ -1395,7 +1406,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   slurmFileContents += 'fi\n';
   slurmFileContents += 'INSTRUCTOR_DIR=$(ls $CELLO_WORK_DIR/assignment/instructor/)\n';
 
-  slurmFileContents += 'cp -r $CELLO_WORK_DIR/assignment/instructor/$INSTRUCTOR_DIR/* $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/\n';
+  slurmFileContents += 'cp -r $CELLO_WORK_DIR/assignment/instructor/$INSTRUCTOR_DIR/src/test/* $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/src/test/\n';
   slurmFileContents += 'cp $CELLO_WORK_DIR/assignment/instructor_pom.xml $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml\n';
 
   slurmFileContents += 'for F in $(find $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/ -name "*CorrectnessTest.java"); do\n';
@@ -2129,7 +2140,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
   }
 
   // Compute performance score based on performance of each test
-  var performance = total_performance_possible;
+  var performance = 0.0;
   if (run_completed(run_status) && 'performance.1.txt' in log_files &&
           'performance.' + ncores + '.txt' in log_files) {
     var single_thread_content = log_files['performance.1.txt'].toString('utf8');
@@ -2168,21 +2179,21 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
             var multi_thread_time = t;
             var speedup = single_thread_time / multi_thread_time;
             var grading = test.grading;
+            var test_score = test.points_worth;
             var matched = false;
             for (var g = 0; g < grading.length && !matched; g++) {
               var top_exclusive = grading[g].top_exclusive;
               if (grading[g].bottom_inclusive <= speedup &&
                   (top_exclusive < 0.0 || top_exclusive > speedup)) {
                 matched = true;
-                performance -= grading[g].points_off;
+                test_score -= grading[g].points_off;
               }
             }
+            performance += test_score;
           }
         }
       }
     }
-  } else {
-    performance = 0.0;
   }
 
   // Compute style score based on number of style violations
@@ -2243,6 +2254,9 @@ app.get('/run/:run_id', function(req, res, next) {
             var passed_all_correctness = result.rows[0].passed_all_correctness;
             // e.g. 2016-02-13 18:30:20.028665
             var start_time = moment(result.rows[0].start_time);
+            var correctness_only = result.rows[0].correctness_only;
+            var passed_performance = result.rows[0].passed_performance;
+
             var elapsed_time = null;
             var diff_ms = null;
             var finished = false;
@@ -2311,7 +2325,9 @@ app.get('/run/:run_id', function(req, res, next) {
                                       passed_checkstyle: passed_checkstyle,
                                       compiled: compiled,
                                       passed_all_correctness: passed_all_correctness,
-                                      elapsed_time: elapsed_time, finished: finished };
+                                      elapsed_time: elapsed_time, finished: finished,
+                                      has_performance_tests: !correctness_only,
+                                      passed_performance: passed_performance};
                   if (score) {
                     render_vars['score'] = score;
                   } else {
@@ -2480,12 +2496,12 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
               }
 
               var copies = [{ src: REMOTE_STDOUT, dst: LOCAL_STDOUT },
-                            { src: REMOTE_STDERR, dst: LOCAL_STDERR },
-                            { src: REMOTE_PROFILER, dst: LOCAL_PROFILER },
-                            { src: REMOTE_TRACES, dst: LOCAL_TRACES }];
-              if (os !== 'Darwin') {
-                copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
-              }
+                            { src: REMOTE_STDERR, dst: LOCAL_STDERR }];
+                            // { src: REMOTE_PROFILER, dst: LOCAL_PROFILER },
+                            // { src: REMOTE_TRACES, dst: LOCAL_TRACES }];
+              // if (os !== 'Darwin') {
+              //   copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
+              // }
 
               var tests = get_scalability_tests(run.ncores);
               for (var i = 0; i < tests.length; i++) {
@@ -2497,6 +2513,7 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
               }
 
               batched_cluster_scp(copies, false, function(stat) {
+                var any_missing_files = false;
                 var svn_add_cmd = ['add'];
                 for (var i = 0; i < stat.length; i++) {
                   if (stat[i].success) {
@@ -2504,6 +2521,7 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                   } else {
                     console.log('scp err copying to ' + stat[i].dst + ', err=' +
                       stat[i].err);
+                    any_missing_files = true;
                   }
                 }
 
@@ -2522,31 +2540,42 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                         return abort_and_reset_perf_tests(err, done, conn,
                           'adding local files');
                       }
-                      svn_client.cmd(['commit', '--message', 'add local files',
-                        LOCAL_FOLDER],
+                      svn_client.cmd(['commit', '--message', 'add local files', LOCAL_FOLDER],
                         function(err, data) {
                           if (err) {
                             return abort_and_reset_perf_tests(err, done, conn,
                               'committing local files');
                           }
 
-                          if (wants_notification) {
-                            var email = username + '@rice.edu';
-                            if (username === 'admin') {
-                              email = 'jmg3@rice.edu';
-                            }
-                            var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
-                            // TODO add finish time
-                            send_email(email_for_user(username), subject, '', function(err) {
-                              if (err) {
-                                return abort_and_reset_perf_tests(err, done, conn,
-                                  'sending notification email');
+                          var query = client.query(
+                              'UPDATE runs SET passed_performance=($1) WHERE run_id=($2)',
+                              [!any_missing_files, run.run_id]);
+                          query.on('row', function(row, result) { result.addRow(row); });
+                          query.on('error', function(err, result) {
+                              console.log('Error updating performance run state: ' + err);
+                              done();
+                              disconnect_from_cluster(conn);
+                              setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+                          });
+                          query.on('end', function(result) {
+                              if (wants_notification) {
+                                var email = username + '@rice.edu';
+                                if (username === 'admin') {
+                                  email = 'jmg3@rice.edu';
+                                }
+                                var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
+                                // TODO add finish time
+                                send_email(email_for_user(username), subject, '', function(err) {
+                                  if (err) {
+                                    return abort_and_reset_perf_tests(err, done, conn,
+                                      'sending notification email');
+                                  }
+                                  check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                                });
+                              } else {
+                                check_cluster_helper(perf_runs, i + 1, conn, client, done);
                               }
-                              check_cluster_helper(perf_runs, i + 1, conn, client, done);
-                            });
-                          } else {
-                            check_cluster_helper(perf_runs, i + 1, conn, client, done);
-                          }
+                          });
                         });
                     });
                   });
@@ -2578,6 +2607,8 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                   return;
                 }
                 stdout = stdout.trim();
+
+                console.log('check_cluster_helper: got status "' + stdout + '" back from cluster for job ' + run.job_id);
 
                 var query = null;
                 if (stdout === 'FAILED' || stdout === 'TIMEOUT') {

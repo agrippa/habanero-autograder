@@ -83,6 +83,16 @@
             the Findbugs static checking tool on the student-submitted code.
             Information on Findbugs is available
             <a target="_blank" href=http://findbugs.sourceforge.net/>here</a>.</li>
+            <li><b>Cluster-stderr</b>: The prints to stderr while compiling a
+            submission on the compute cluster.</li>
+            <li><b>Cluster-stdout</b>: The prints to stdout while compiling a
+            submission on the compute cluster.</li>
+            <li><b>Performance.1</b>: Prints performed while running a
+            single-threaded performance experiment on the cluster. These results
+            are used to calculate speedup of the parallel version.</li>
+            <li><b>Performance.N</b>: Prints performed while running a
+            multi-threaded performance experiment on the cluster. N can be any
+            integer, and indicates the number of threads used.</li>
         </ol>
 
         <p>One or more of these sections may be missing if an earlier stage

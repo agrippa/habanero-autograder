@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS runs
  passed_checkstyle BOOLEAN NOT NULL DEFAULT FALSE,
  compiled BOOLEAN NOT NULL DEFAULT FALSE,
  passed_all_correctness BOOLEAN NOT NULL DEFAULT FALSE,
+ passed_performance BOOLEAN NOT NULL DEFAULT FALSE,
  start_time TIMESTAMP DEFAULT current_timestamp,
  finish_time TIMESTAMP,
  on_behalf_of INTEGER
