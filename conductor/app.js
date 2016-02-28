@@ -1714,7 +1714,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                                           batched_cluster_scp(copies, true, function(stat) {
                                                               for (var i = 0; i < stat.length; i++) {
                                                                 if (!stat[i].success) {
-                                                                  console.log('scp err copying to ' + stat[i].dst + ', ' + stat[i].err);
+                                                                  console.log('scp err copying to ' + stat[i].dst + ' from ' + stat[i].src + ', ' + stat[i].err);
                                                                   return failed_starting_perf_tests(res,
                                                                     'Failed scp-ing cello.slurm+security.policy', done, client, run_id, conn);
                                                                 }
