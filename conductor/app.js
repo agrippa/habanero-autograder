@@ -1045,7 +1045,7 @@ function get_user_id_for_name(username, client, done, res, cb) {
 }
 
 function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
-      assignment_id, jvm_args, correctness_timeout, username, req, res) {
+      assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb) {
   svn_client.cmd(['add', run_dir + '/student.zip'], function(err, data) {
     if (is_actual_svn_err(err)) {
       return redirect_with_err('/overview', res, req,
@@ -1057,10 +1057,10 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
           return redirect_with_err('/overview', res, req,
               'An error occurred backing up your submission');
         } else {
-          var viola_params = 'done_token=' + done_token +
-              '&user=' + username +
-              '&assignment=' + assignment_name + '&run=' +
-              run_id + '&assignment_id=' + assignment_id + '&jvm_args=' + jvm_args + '&timeout=' + correctness_timeout;
+          var viola_params = 'done_token=' + done_token + '&user=' + username +
+            '&assignment=' + assignment_name + '&run=' + run_id +
+            '&assignment_id=' + assignment_id + '&jvm_args=' + jvm_args +
+            '&timeout=' + correctness_timeout;
           var viola_options = { host: VIOLA_HOST,
               port: VIOLA_PORT, path: '/run?' + encodeURI(viola_params) };
           console.log('submit_run: sending viola request for run ' + run_id);
@@ -1073,6 +1073,7 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
                   var body = Buffer.concat(bodyChunks);
                   var result = JSON.parse(body);
                   if (result.status === 'Success') {
+                      return success_cb(run_id);
                       return res.redirect('/overview');
                   } else {
                       return redirect_with_err('/overview', res, req,
@@ -1091,7 +1092,7 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
 }
 
 function submit_run(user_id, username, assignment_name, correctness_only,
-        use_zip, svn_url, res, req) {
+        use_zip, svn_url, res, req, success_cb) {
     pgclient(function(client, done) {
 
       var query = client.query("SELECT * FROM assignments WHERE name=($1)",
@@ -1151,7 +1152,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                           fs.renameSync(req.file.path, run_dir + '/student.zip');
                           return trigger_viola_run(run_dir,
                               assignment_name, run_id, done_token,
-                              assignment_id, jvm_args, correctness_timeout, username, req, res);
+                              assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb);
                         } else {
                           temp.mkdir('conductor', function(err, temp_dir) {
                             if (err) {
@@ -1172,7 +1173,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                                 temp.cleanupSync();
                                 return trigger_viola_run(run_dir,
                                     assignment_name, run_id, done_token,
-                                    assignment_id, jvm_args, correctness_timeout, username, req, res);
+                                    assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb);
                               });
                               archive.on('error', function(err){
                                 return redirect_with_err('/overview', res, req,
@@ -1222,7 +1223,8 @@ app.post('/submit_run_as', function(req, res, next) {
                 return res.send('Failed getting user ID for "' + username + '"');
             }
             return submit_run(user_id, username, assignment_name, false,
-                false, svn_url, res, req);
+                false, svn_url, res, req, function(run_id) {
+                    return res.send('submitted ' + run_id); });
         });
     });
 });
@@ -1264,7 +1266,8 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
     var username = req.session.username;
 
     return submit_run(user_id, username, assignment_name, correctness_only,
-            use_zip, svn_url, res, req);
+            use_zip, svn_url, res, req, function(run_id) {
+                    return res.redirect('/overview'); });
 });
 
 function get_cello_work_dir(home_dir, run_id) {
