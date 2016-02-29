@@ -2324,13 +2324,17 @@ app.get('/run/:run_id', function(req, res, next) {
                         var contents = fs.readFileSync(run_dir + '/' + file, 'utf8');
                         log_files[file] = contents;
 
-                        if (cello_err === null && file === 'cluster-stdout.txt') {
-                            var lines = contents.split('\n');
-                            for (var i = 0; i < lines.length; i++) {
-                                if (string_starts_with(lines[i], 'AUTOGRADER-ERROR')) {
-                                    cello_err = lines[i].substring(17);
-                                    break;
+                        if (cello_err === null) {
+                            if (file === 'cluster-stdout.txt') {
+                                var lines = contents.split('\n');
+                                for (var i = 0; i < lines.length; i++) {
+                                    if (string_starts_with(lines[i], 'AUTOGRADER-ERROR')) {
+                                        cello_err = lines[i].substring(17);
+                                        break;
+                                    }
                                 }
+                            } else if (file === 'cluster-stderr.txt') {
+                                cello_err = contents;
                             }
                         }
                     }
