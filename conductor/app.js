@@ -27,6 +27,8 @@ var VERBOSE = false;
 
 var LOCAL_JOB_ID = 'LOCAL';
 
+var PAGE_SIZE = 50;
+
 function check_env(varname) {
   if (!(varname in process.env)) {
     console.log('The ' + varname + ' environment variable must be set');
@@ -523,8 +525,27 @@ app.post('/notifications/', function(req, res, next) {
   });
 });
 
-app.get('/overview', function(req, res, next) {
-  return render_page('overview.html', res, req);
+app.get('/overview/:page?', function(req, res, next) {
+  var page = req.params.page;
+  if (!page) page = 0;
+
+  console.log('overview: user=' + req.session.username + ' page=' + page);
+
+  get_runs_for_username(req.session.username, function(runs, err) {
+      if (err) {
+          return render_page('overview.html', res, req,
+              {err_msg: 'Error gathering runs', runs: [], page: 0, npages: 1});
+      } else {
+          var subsetted_runs = [];
+          var limit = (page + 1) * PAGE_SIZE;
+          if (limit > runs.length) limit = runs.length;
+          for (var i = page * PAGE_SIZE; i < limit; i++) {
+              subsetted_runs.push(runs[i]);
+          }
+          return render_page('overview.html', res, req, {runs: subsetted_runs,
+              page: page, npages: (runs.length + PAGE_SIZE - 1) / PAGE_SIZE});
+      }
+  });
 });
 
 app.get('/leaderboard/:assignment_id?', function(req, res, next) {
@@ -1614,7 +1635,7 @@ app.post('/local_run_finished', function(req, res, next) {
                               var ncores = result.rows[0].ncores;
 
                               var query = client.query(
-                                  "UPDATE runs SET status='TESTING PERFORMANCE',viola_msg=$1,ncores=$2 WHERE run_id=($3)", [viola_err_msg, ncores, run_id]);
+                                  "UPDATE runs SET status='IN CLUSTER QUEUE',viola_msg=$1,ncores=$2 WHERE run_id=($3)", [viola_err_msg, ncores, run_id]);
                               register_query_helpers(query, res, done, username);
                               query.on('end', function(result) {
 
@@ -1846,42 +1867,62 @@ app.get('/anonymous_runs', function(req, res, next) {
   });
 });
 
-app.get('/runs', function(req, res, next) {
+function get_runs_for_username(username, cb) {
   pgclient(function(client, done) {
-    get_user_id_for_name(req.session.username, client, done, res,
-      function(user_id, err) {
-        if (err) {
-          done();
-          return res.send(JSON.stringify({ status: 'Failure', msg: err }));
-        } else {
-          var query = client.query(
+    var query = client.query("SELECT * FROM users WHERE user_name=($1)",
+        [username]);
+    query.on('row', function(row, result) { result.addRow(row); });
+    query.on('error', function(err, result) {
+            done();
+            cb(null, err);
+    });
+    query.on('end', function(result) {
+      var user_id = result.rows[0].user_id;
+      var query = client.query(
               "SELECT * FROM runs WHERE user_id=($1) ORDER BY run_id DESC",
               [user_id]);
-          register_query_helpers(query, res, done, req.session.username);
-          query.on('end', function(result) {
-            var runs = result.rows;
-
-            var query = client.query("SELECT * FROM assignments");
-            register_query_helpers(query, res, done, req.session.username);
-            query.on('end', function(result) {
-                done();
-                var assignment_mapping = {};
-                for (var i = 0; i < result.rows.length; i++) {
-                    assignment_mapping[result.rows[i].assignment_id] = result.rows[i].name;
-                }
-                var translated_runs = [];
-                for (var i = 0; i < runs.length; i++) {
-                    var name = assignment_mapping[runs[i].assignment_id];
-                    translated_runs.push({run_id: runs[i].run_id,
-                                          assignment_name: name,
-                                          status: runs[i].status });
-                }
-                return res.send(JSON.stringify({ status: 'Success', runs: translated_runs }));
-            });
-          });
-        }
+      query.on('row', function(row, result) { result.addRow(row); });
+      query.on('error', function(err, result) {
+              done();
+              cb(null, err);
       });
+      query.on('end', function(result) {
+          var runs = result.rows;
+
+          var query = client.query("SELECT * FROM assignments");
+          query.on('row', function(row, result) { result.addRow(row); });
+          query.on('error', function(err, result) {
+                  done();
+                  cb(null, err);
+          });
+          query.on('end', function(result) {
+              done();
+              var assignment_mapping = {};
+              for (var i = 0; i < result.rows.length; i++) {
+                  assignment_mapping[result.rows[i].assignment_id] = result.rows[i].name;
+              }
+              var translated_runs = [];
+              for (var i = 0; i < runs.length; i++) {
+                  var name = assignment_mapping[runs[i].assignment_id];
+                  translated_runs.push({run_id: runs[i].run_id,
+                                        assignment_name: name,
+                                        status: runs[i].status });
+              }
+              cb(translated_runs, null);
+          });
+      });
+    });
   });
+}
+
+app.get('/runs', function(req, res, next) {
+    get_runs_for_username(req.session.username, function(runs, err) {
+        if (err) {
+            return res.send(JSON.stringify({ status: 'Failure', msg: err }));
+        } else {
+            return res.send(JSON.stringify({ status: 'Success', runs: runs }));
+        }
+    });
 });
 
 var dont_display = ['profiler.txt'];
@@ -2009,7 +2050,7 @@ function find_correctness_test_with_name(name, rubric) {
 }
 
 function find_performance_test_with_name(name, rubric) {
-  for (var p = 0; p < rubric.performance.length; p++) {
+  for (var p = 0; p < rubric.performance.tests.length; p++) {
     if (rubric.performance.tests[p].testname === name) {
       return rubric.performance.tests[p];
     }
@@ -2151,7 +2192,8 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
         var parallel_time = parseInt(tokens[4]);
 
         console.log('calculate_score: found multi thread perf for test=' +
-                testname + ', time=' + t);
+                testname + ', seq_time=' + seq_time + ', parallel_time=' +
+                parallel_time);
 
         var test = find_performance_test_with_name(testname, rubric);
         if (test) {
@@ -2160,13 +2202,19 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
           var test_score = test.points_worth;
           var matched = false;
           for (var g = 0; g < grading.length && !matched; g++) {
+            var bottom_inclusive = grading[g].bottom_inclusive;
             var top_exclusive = grading[g].top_exclusive;
-            if (grading[g].bottom_inclusive <= speedup &&
+            if (bottom_inclusive <= speedup &&
                 (top_exclusive < 0.0 || top_exclusive > speedup)) {
               matched = true;
               test_score -= grading[g].points_off;
+              console.log('calculate_score: deducting ' +
+                      grading[g].points_off + ' points on test ' + testname +
+                      ' for speedup of ' + speedup + ', in range ' +
+                      bottom_inclusive + '->' + top_exclusive);
             }
           }
+          console.log('calculate_score: giving test ' + testname + ' ' + test_score + ' points');
           performance += test_score;
         }
       }
@@ -2385,7 +2433,13 @@ app.post('/cancel/:run_id', function(req, res, next) {
                             return redirect_with_success('/overview', res, req,
                                 cancellationSuccessMsg);
                         } else {
-                            // At some point in the future, the local_run_finished endpoint will try to create a cluster job for this run. If it doesn't seem to have happened yet, report an error message to the user to try again in the future.
+                            /*
+                             * At some point in the future, the
+                             * local_run_finished endpoint will try to create a
+                             * cluster job for this run. If it doesn't seem to
+                             * have happened yet, report an error message to the
+                             * user to try again in the future.
+                             */
                             console.log('cancel: run cancellation did not find run ' + req.params.run_id + ' on Viola');
                             var query = client.query(
                                 'SELECT * FROM runs WHERE run_id=($1)', [req.params.run_id]);
@@ -2633,28 +2687,48 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
 
                 console.log('check_cluster_helper: got status "' + stdout + '" back from cluster for job ' + run.job_id);
 
+                var finished = false;
                 var query = null;
                 if (stdout === 'FAILED' || stdout === 'TIMEOUT') {
                     console.log('check_cluster_helper: marking ' + run.run_id + ' FAILED');
                     query = client.query(
                         "UPDATE runs SET status='FAILED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
                         [run.run_id]);
+                    finished = true;
                 } else if (string_starts_with(stdout, 'CANCELLED')) {
                     console.log('check_cluster_helper: marking ' + run.run_id + ' CANCELLED');
                     query = client.query(
                         "UPDATE runs SET status='CANCELLED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
                         [run.run_id]);
+                    finished = true;
                 } else if (stdout === 'COMPLETED') {
                     console.log('check_cluster_helper: marking ' + run.run_id + ' FINISHED');
                     query = client.query(
                         "UPDATE runs SET status='FINISHED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
                         [run.run_id]);
+                    finished = true;
+                } else if (stdout === 'RUNNING') {
+                    console.log('check_cluster_helper: marking ' + run.run_id + ' as TESTING PERFORMANCE');
+                    query = client.query(
+                        "UPDATE runs SET status='TESTING PERFORMANCE' WHERE run_id=($1)",
+                        [run.run_id]);
                 }
 
-                if (query) {
-                  finish_perf_tests(query, run, conn, done, client, perf_runs, i);
+                if (finished) {
+                    finish_perf_tests(query, run, conn, done, client, perf_runs, i);
+                } else if (query) {
+                    query.on('row', function(row, result) { result.addRow(row); });
+                    query.on('error', function(err, result) {
+                        console.log('Error updating running perf tests: ' + err);
+                        done();
+                        disconnect_from_cluster(conn);
+                        setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+                    });
+                    query.on('end', function(result) {
+                        check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                    });
                 } else {
-                  check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                    check_cluster_helper(perf_runs, i + 1, conn, client, done);
                 }
             });
         } else {
@@ -2675,7 +2749,7 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
 // Cluster functionality
 function check_cluster() {
     pgclient(function(client, done) {
-        var query = client.query("SELECT * FROM runs WHERE (job_id IS NOT NULL) AND (status='TESTING PERFORMANCE')");
+        var query = client.query("SELECT * FROM runs WHERE (job_id IS NOT NULL) AND ((status='TESTING PERFORMANCE') OR (status='IN CLUSTER QUEUE'))");
         query.on('row', function(row, result) { result.addRow(row); });
         query.on('error', function(err, result) {
                 done();
@@ -2704,7 +2778,7 @@ pgclient(function(client, done) {
    * Mark any in-progress tests as failed on reboot.
    */
   var query = client.query("UPDATE runs SET status='FAILED',finish_time=CURRENT_TIMESTAMP WHERE " +
-    "status='TESTING CORRECTNESS' OR status='TESTING PERFORMANCE'");
+    "status='TESTING CORRECTNESS' OR status='TESTING PERFORMANCE' OR status='IN CLUSTER QUEUE'");
   query.on('row', function(row, result) { result.addRow(row); });
   query.on('error', function(err, result) {
     done();

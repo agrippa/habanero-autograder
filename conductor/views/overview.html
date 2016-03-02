@@ -39,37 +39,6 @@
                 show_error('Internal failure');
               },
             });
-
-          $.ajax({
-              url: '/runs',
-              type: 'GET',
-              dataType: "json",
-              success: function(data) {
-                if (data.status === 'Success') {
-                  var runs = data.runs;
-                  for (var i = 0; i < runs.length; i++) {
-                    var curr = runs[i];
-                    var status = curr.status;
-                    var status_color = status === 'FINISHED' ? 'green' : ((status === 'FAILED' || status === 'CANCELLED') ? 'red' : 'orange');
-                    $('#past-runs tr:last').after('<tr><td><center><a href=/run/' + curr.run_id + '>' +
-                        curr.run_id + '</a></center></td><td><center>' +
-                        curr.assignment_name + '</center></td><td><center><font color="' + status_color + '">' +
-                        curr.status + '</font></center></td><td><center>' +
-                        '<form action="/cancel/' + curr.run_id + '" method="post" ' +
-                        'enctype="multipart/form-data"><button ' +
-                        'type="submit" class="button btn-primary btn-block" ' +
-                        'type="button" style="width: 100%">Cancel</button></form></center></td></tr>');
-                  }
-                } else {
-                  show_error(data.msg);
-                }
-              },
-              failure: function() {
-                show_error('Internal failure');
-              },
-            });
-
-
       });
     </script>
   </head>
@@ -117,9 +86,43 @@
       <hr/>
       <h3>Past Runs</h3>
       <hr/>
+
+      <center>
+          <a href="/overview/0">0</a>
+          ...
+          <% if (page > 0) { %>
+              <a href="/overview/<%= page - 1 %>"><%= page - 1 %></a>
+          <% } %>
+          <a href="/overview/<%= page %>"><b><%= page %></b></a>
+          <% if (page < parseInt(npages) - 1) { %>
+              <a href="/overview/<%= parseInt(page) + 1 %>"><%= parseInt(page) + 1 %></a>
+          <% } %>
+          ...
+          <a href="/overview/<%= parseInt(npages) - 1 %>"><%= parseInt(npages) - 1 %></a>
+      </center>
+
+      <hr/>
       <table id="past-runs" style="width:100%;" class="table table-hover table-bordered table-condensed">
       <!-- TODO -->
-      <tr><td bgcolor="#AAAAAA"><center><b>Run ID</b></center></td><td bgcolor="#AAAAAA"><center><b>Assignment</b></center></td><td bgcolor="#AAAAAA"><center><b>Status</b></center></td><td bgcolor="#AAAAAA"></td></tr>
+      <tr><td bgcolor="#AAAAAA"><center><b>Run ID</b></center></td>
+          <td bgcolor="#AAAAAA"><center><b>Assignment</b></center></td>
+          <td bgcolor="#AAAAAA"><center><b>Status</b></center></td>
+          <td bgcolor="#AAAAAA"></td>
+      </tr>
+      <% for (var r = 0; r < runs.length; r++) { %>
+      <%     var curr = runs[r]; %>
+      <%     var status = curr.status; %>
+      <%     var status_color = status === 'FINISHED' ? 'green' : ((status === 'FAILED' || status === 'CANCELLED') ? 'red' : 'orange'); %>
+             <tr><td><center><a href=/run/<%= curr.run_id %>><%= curr.run_id %></a></center></td>
+                 <td><center><%= curr.assignment_name %></center></td>
+                 <td><center><font color=<%= status_color %>><%= curr.status %></font></center></td>
+                 <td><center>
+                     <form action="/cancel/<%= curr.run_id %>" method="post" enctype="multipart/form-data">
+                         <button type="submit" class="button btn-primary btn-block" type="button" style="width: 100%">Cancel</button>
+                     </form></center>
+                 </td>
+             </tr>
+      <% } %>
       </table>
       </div>
     </div>
