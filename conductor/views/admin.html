@@ -111,6 +111,11 @@
                         '<input name="performance_timeout" type="text" value="' + curr.performance_timeout_str + '">' +
                         '<input value="Update" name="submit" type="submit">' +
                         '</form>';
+                    var ncores_html = '<form action="/update_ncores/' +
+                        curr.assignment_id + '" method="post" enctype="application/x-www-form-urlencoded">' +
+                        '<input name="ncores" type="text" value="' + curr.ncores + '">' +
+                        '<input value="Update" name="submit" type="submit">' +
+                        '</form>';
 
                     var upload_zip_html =
                       '<form action="/upload_zip/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
@@ -138,7 +143,7 @@
                         '</center></td><td><center>' + correctness_button_html +
                         '</center></td><td><center>' + jvm_args_html +
                         '</center></td><td>' + correctness_timeout_html +
-                        '</center></td><td>' + performance_timeout_html +
+                        '</center></td><td>' + performance_timeout_html + '</center></td><td>' + ncores_html +
                         '</center></td><td>' + upload_zip_html + '</td><td>' +
                         upload_instructor_pom_html + '</td><td>' +
                         upload_rubric_html + '</td><td>' + upload_checkstyle_html + '</td></tr>');
@@ -187,6 +192,7 @@
             <td bgcolor="#AAAAAA"><center><b>JVM Args</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Correctness Tests Timeout (ms)</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Performance Tests Timeout (HH:MM:SS)</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b># Cores</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Reupload Zip</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Reupload Instructor POM</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Reupload Rubric</b></center></td>

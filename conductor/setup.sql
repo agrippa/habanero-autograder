@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS assignments
  correctness_only BOOLEAN NOT NULL DEFAULT TRUE,
  jvm_args TEXT NOT NULL DEFAULT '',
  correctness_timeout_ms INTEGER NOT NULL DEFAULT 1200000,
- performance_timeout_str TEXT NOT NULL DEFAULT '00:10:00'
+ performance_timeout_str TEXT NOT NULL DEFAULT '00:10:00',
+ ncores INTEGER NOT NULL DEFAULT 16
 );
 
 CREATE TABLE IF NOT EXISTS runs
