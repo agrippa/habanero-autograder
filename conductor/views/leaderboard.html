@@ -70,7 +70,7 @@
         <hr/>
         <div class="col-md-9 col-md-offset-2" style="text-align:center;">
           <% for (assignment in assignments) { %>
-              <form style="width: 35%; float: left; margin: 5px 5px 5px 5px;" action="/leaderboard/<%= assignments[assignment].assignment_id %>">
+              <form style="width: 40%; float: left; margin: 5px 5px 5px 5px;" action="/leaderboard/<%= assignments[assignment].assignment_id %>">
                   <input class="btn btn-primary btn-block" type="submit" value="<%= assignments[assignment].name %>">
               </form>
           <% } %>
