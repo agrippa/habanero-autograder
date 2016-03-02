@@ -585,7 +585,7 @@ app.get('/leaderboard/:assignment_id?', function(req, res, next) {
         render_vars['has_performance_tests'] = has_performance_tests;
 
         var query = client.query(
-          "SELECT run_id,status,passed_checkstyle,compiled,passed_all_correctness,passed_performance " +
+          "SELECT run_id,status,passed_checkstyle,compiled,passed_all_correctness,passed_performance,characteristic_speedup " +
           "FROM runs WHERE assignment_id=($1) ORDER BY run_id DESC", [target_assignment_id]);
         register_query_helpers(query, res, done, req.session.username);
         query.on('end', function(result) {
@@ -1963,6 +1963,16 @@ function load_and_validate_rubric(rubric_file) {
     return failed_validation('Rubric is missing style section');
   }
 
+  if (!rubric.performance.hasOwnProperty('characteristic_test')) {
+    return failed_validation('Rubric is missing characteristic_test field of ' +
+            'performance section');
+  }
+
+  if (!rubric.performance.hasOwnProperty('tests')) {
+    return failed_validation('Rubric is missing tests field of performance ' +
+            'section');
+  }
+
   for (var c = 0; c < rubric.correctness.length; c++) {
     if (!rubric.correctness[c].hasOwnProperty('testname')) {
       return failed_validation('Correctness test is missing name');
@@ -1973,29 +1983,29 @@ function load_and_validate_rubric(rubric_file) {
     }
   }
 
-  for (var p = 0; p < rubric.performance.length; p++) {
-    if (!rubric.performance[p].hasOwnProperty('testname')) {
+  for (var p = 0; p < rubric.performance.tests.length; p++) {
+    if (!rubric.performance.tests[p].hasOwnProperty('testname')) {
       return failed_validation('Performance test is missing name');
     }
-    if (!rubric.performance[p].hasOwnProperty('points_worth')) {
+    if (!rubric.performance.tests[p].hasOwnProperty('points_worth')) {
       return failed_validation('Performance test is missing points_worth');
     }
-    var points_worth = rubric.performance[p].points_worth;
-    if (!rubric.performance[p].hasOwnProperty('grading')) {
+    var points_worth = rubric.performance.tests[p].points_worth;
+    if (!rubric.performance.tests[p].hasOwnProperty('grading')) {
       return failed_validation('Performance test is missing speedup grading');
     }
 
-    for (var g = 0; g < rubric.performance[p].grading.length; g++) {
-      if (!rubric.performance[p].grading[g].hasOwnProperty('bottom_inclusive')) {
+    for (var g = 0; g < rubric.performance.tests[p].grading.length; g++) {
+      if (!rubric.performance.tests[p].grading[g].hasOwnProperty('bottom_inclusive')) {
         return failed_validation('Performance test grading is missing bottom_inclusive');
       }
-      if (!rubric.performance[p].grading[g].hasOwnProperty('top_exclusive')) {
+      if (!rubric.performance.tests[p].grading[g].hasOwnProperty('top_exclusive')) {
         return failed_validation('Performance test grading is missing top_exclusive');
       }
-      if (!rubric.performance[p].grading[g].hasOwnProperty('points_off')) {
+      if (!rubric.performance.tests[p].grading[g].hasOwnProperty('points_off')) {
         return failed_validation('Performance test grading is missing points_off');
       }
-      if (rubric.performance[p].grading[g].points_off > points_worth) {
+      if (rubric.performance.tests[p].grading[g].points_off > points_worth) {
         return failed_validation('Performance test grading is more than points_worth');
       }
     }
@@ -2022,8 +2032,8 @@ function find_correctness_test_with_name(name, rubric) {
 
 function find_performance_test_with_name(name, rubric) {
   for (var p = 0; p < rubric.performance.length; p++) {
-    if (rubric.performance[p].testname === name) {
-      return rubric.performance[p];
+    if (rubric.performance.tests[p].testname === name) {
+      return rubric.performance.tests[p];
     }
   }
   return null;
@@ -2049,8 +2059,12 @@ function run_completed(run_status) {
   return run_status !== 'FAILED' && run_status !== 'CANCELLED';
 }
 
+function rubric_file_path(assignment_id) {
+    return __dirname + '/instructor-tests/' + assignment_id + '/rubric.json';
+}
+
 function calculate_score(assignment_id, log_files, ncores, run_status) {
-  var rubric_file = __dirname + '/instructor-tests/' + assignment_id + '/rubric.json';
+  var rubric_file = rubric_file_path(assignment_id);
 
   var validated = load_and_validate_rubric(rubric_file);
   if (!validated.success) {
@@ -2066,8 +2080,8 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
     total_correctness_possible += t.points_worth;
   }
   var total_performance_possible = 0.0;
-  for (var p = 0; p < rubric.performance.length; p++) {
-    var t = rubric.performance[p];
+  for (var p = 0; p < rubric.performance.tests.length; p++) {
+    var t = rubric.performance.tests[p];
     total_possible += t.points_worth;
     total_performance_possible += t.points_worth;
   }
@@ -2145,56 +2159,37 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
 
   // Compute performance score based on performance of each test
   var performance = 0.0;
-  if (run_completed(run_status) && 'performance.1.txt' in log_files &&
-          'performance.' + ncores + '.txt' in log_files) {
-    var single_thread_content = log_files['performance.1.txt'].toString('utf8');
+  if (run_completed(run_status) && 'performance.' + ncores + '.txt' in log_files) {
     var multi_thread_content = log_files['performance.' + ncores + '.txt'].toString('utf8');
 
-    var single_thread_lines = single_thread_content.split('\n');
     var multi_thread_lines = multi_thread_content.split('\n');
-
-    var single_thread_perf = {};
-    for (var i = 0; i < single_thread_lines.length; i++) {
-      var line = single_thread_lines[i];
-      if (string_starts_with(line, 'HABANERO-AUTOGRADER-PERF-TEST')) {
-        var tokens = line.split(' ');
-        var testname = tokens[2];
-        var t = parseInt(tokens[3]);
-        single_thread_perf[testname] = t;
-        console.log('calculate_score: found single thread perf for test=' +
-                testname + ', time=' + t);
-      }
-    }
 
     for (var i = 0; i < multi_thread_lines.length; i++) {
       var line = multi_thread_lines[i];
       if (string_starts_with(line, 'HABANERO-AUTOGRADER-PERF-TEST')) {
         var tokens = line.split(' ');
         var testname = tokens[2];
-        var t = parseInt(tokens[3]);
+        var seq_time = parseInt(tokens[3]);
+        var parallel_time = parseInt(tokens[4]);
 
         console.log('calculate_score: found multi thread perf for test=' +
                 testname + ', time=' + t);
 
-        if (testname in single_thread_perf) {
-          var test = find_performance_test_with_name(testname, rubric);
-          if (test) {
-            var single_thread_time = single_thread_perf[testname];
-            var multi_thread_time = t;
-            var speedup = single_thread_time / multi_thread_time;
-            var grading = test.grading;
-            var test_score = test.points_worth;
-            var matched = false;
-            for (var g = 0; g < grading.length && !matched; g++) {
-              var top_exclusive = grading[g].top_exclusive;
-              if (grading[g].bottom_inclusive <= speedup &&
-                  (top_exclusive < 0.0 || top_exclusive > speedup)) {
-                matched = true;
-                test_score -= grading[g].points_off;
-              }
+        var test = find_performance_test_with_name(testname, rubric);
+        if (test) {
+          var speedup = seq_time / parallel_time;
+          var grading = test.grading;
+          var test_score = test.points_worth;
+          var matched = false;
+          for (var g = 0; g < grading.length && !matched; g++) {
+            var top_exclusive = grading[g].top_exclusive;
+            if (grading[g].bottom_inclusive <= speedup &&
+                (top_exclusive < 0.0 || top_exclusive > speedup)) {
+              matched = true;
+              test_score -= grading[g].points_off;
             }
-            performance += test_score;
           }
+          performance += test_score;
         }
       }
     }
@@ -2341,7 +2336,8 @@ app.get('/run/:run_id', function(req, res, next) {
                   });
 
                   var score = calculate_score(assignment_id, log_files, ncores, run_status);
-                  var render_vars = {run_id: run_id, log_files: log_files, viola_err: viola_err_msg, cello_err: cello_err,
+                  var render_vars = {run_id: run_id, log_files: log_files,
+                                     viola_err: viola_err_msg, cello_err: cello_err,
                                      passed_checkstyle: passed_checkstyle,
                                      compiled: compiled,
                                      passed_all_correctness: passed_all_correctness,
@@ -2552,6 +2548,33 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                 return abort_and_reset_perf_tests(err, done, conn, 'svn-add');
               }
 
+              var characteristic_speedup = ""
+              if (!any_missing_files) {
+                  var rubric_file = rubric_file_path(run.assignment_id);
+                  var validated = load_and_validate_rubric(rubric_file);
+                  if (validated.success) {
+                      var rubric = validated.rubric;
+                      var characteristic_test = rubric.performance.characteristic_test;
+                      var test_contents = fs.readFileSync(
+                              LOCAL_FOLDER + '/performance.' + run.ncores + '.txt', 'utf8');
+                      var test_lines = test_contents.split('\n');
+                      for (var i = 0; i < test_lines.length; i++) {
+                          var line = test_lines[i];
+                          if (string_starts_with(line, 'HABANERO-AUTOGRADER-PERF-TEST')) {
+                              var tokens = line.split(' ');
+                              var testname = tokens[2];
+                              if (testname === characteristic_test) {
+                                  var seq_time = parseInt(tokens[3]);
+                                  var parallel_time = parseInt(tokens[4]);
+                                  var speedup = seq_time / parallel_time;
+                                  characteristic_speedup = speedup.toFixed(3);
+                                  break;
+                              }
+                          }
+                      }
+                  }
+              }
+
               delete_cluster_dir('autograder/' + run.run_id, conn,
                 function(err, conn, stdout, stderr) {
                   if (err) {
@@ -2570,8 +2593,8 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                         }
 
                         var query = client.query(
-                            'UPDATE runs SET passed_performance=($1) WHERE run_id=($2)',
-                            [!any_missing_files, run.run_id]);
+                            'UPDATE runs SET passed_performance=($1),characteristic_speedup=($2) WHERE run_id=($3)',
+                            [!any_missing_files, characteristic_speedup, run.run_id]);
                         query.on('row', function(row, result) { result.addRow(row); });
                         query.on('error', function(err, result) {
                             console.log('Error updating performance run state: ' + err);

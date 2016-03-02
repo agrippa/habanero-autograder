@@ -45,5 +45,6 @@ CREATE TABLE IF NOT EXISTS runs
  passed_performance BOOLEAN NOT NULL DEFAULT FALSE,
  start_time TIMESTAMP DEFAULT current_timestamp,
  finish_time TIMESTAMP,
- on_behalf_of INTEGER
+ on_behalf_of INTEGER,
+ characteristic_speedup TEXT NOT NULL DEFAULT ''
 );
