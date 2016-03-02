@@ -526,16 +526,37 @@ app.post('/notifications/', function(req, res, next) {
 });
 
 app.get('/overview/:page?', function(req, res, next) {
-  var page = req.params.page;
-  if (!page) page = 0;
+  var page_str = req.params.page;
+  if (!page_str) page_str = '0';
 
-  console.log('overview: user=' + req.session.username + ' page=' + page);
+  console.log('overview: user=' + req.session.username + ' page=' + page_str);
+
+  if (isNaN(page_str)) {
+      return render_page('overview.html', res, req,
+          {err_msg: 'Invalid URL, ' + page_str + ' is not a number', runs: [],
+              page: 0, npages: 1});
+  }
+
+  var page = parseInt(page_str);
+  if (page < 0) {
+      return render_page('overview.html', res, req,
+          {err_msg: 'Invalid URL, ' + page + ' is < 0',
+              runs: [], page: 0, npages: 1});
+  }
+
 
   get_runs_for_username(req.session.username, function(runs, err) {
       if (err) {
           return render_page('overview.html', res, req,
               {err_msg: 'Error gathering runs', runs: [], page: 0, npages: 1});
       } else {
+          var npages = Math.ceil(runs.length / PAGE_SIZE);
+          if (page >= npages) {
+              return render_page('overview.html', res, req,
+                  {err_msg: 'Invalid URL, ' + page + ' is >= the # of pages, ' + npages,
+                      runs: [], page: 0, npages: 1});
+          }
+
           var subsetted_runs = [];
           var limit = (page + 1) * PAGE_SIZE;
           if (limit > runs.length) limit = runs.length;
@@ -543,7 +564,7 @@ app.get('/overview/:page?', function(req, res, next) {
               subsetted_runs.push(runs[i]);
           }
           return render_page('overview.html', res, req, {runs: subsetted_runs,
-              page: page, npages: (runs.length + PAGE_SIZE - 1) / PAGE_SIZE});
+              page: page, npages: npages});
       }
   });
 });

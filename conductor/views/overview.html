@@ -88,17 +88,19 @@
       <hr/>
 
       <center>
-          <a href="/overview/0">0</a>
-          ...
-          <% if (page > 0) { %>
-              <a href="/overview/<%= page - 1 %>"><%= page - 1 %></a>
-          <% } %>
-          <a href="/overview/<%= page %>"><b><%= page %></b></a>
-          <% if (page < parseInt(npages) - 1) { %>
-              <a href="/overview/<%= parseInt(page) + 1 %>"><%= parseInt(page) + 1 %></a>
-          <% } %>
-          ...
-          <a href="/overview/<%= parseInt(npages) - 1 %>"><%= parseInt(npages) - 1 %></a>
+          <font size=3>
+              <a href="/overview/0">0</a>
+              ...
+              <% if (page > 0) { %>
+                  <a href="/overview/<%= page - 1 %>"><%= page - 1 %></a>
+              <% } %>
+              <a href="/overview/<%= page %>"><b><%= page %></b></a>
+              <% if (page < parseInt(npages) - 1) { %>
+                  <a href="/overview/<%= parseInt(page) + 1 %>"><%= parseInt(page) + 1 %></a>
+              <% } %>
+              ...
+              <a href="/overview/<%= parseInt(npages) - 1 %>"><%= parseInt(npages) - 1 %></a>
+          </font>
       </center>
 
       <hr/>
