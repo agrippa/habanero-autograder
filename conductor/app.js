@@ -569,12 +569,15 @@ app.get('/overview/:page?', function(req, res, next) {
   });
 });
 
-app.get('/leaderboard/:assignment_id?', function(req, res, next) {
+app.get('/leaderboard/:assignment_id?/:page?', function(req, res, next) {
   var target_assignment_id = req.params.assignment_id;
-  console.log('leaderboard: username=' + req.session.username);
+  var page = req.params.page;
+  console.log('leaderboard: username=' + req.session.username +
+      ' target_assignment_id=' + target_assignment_id + ' page=' + page);
 
   pgclient(function(client, done) {
-    var query = client.query("SELECT assignment_id,name,correctness_only FROM assignments WHERE visible=true;");
+    var query = client.query("SELECT assignment_id,name,correctness_only FROM " +
+        "assignments WHERE visible=true;");
     register_query_helpers(query, res, done, req.session.username);
     query.on('end', function(result) {
       var render_vars = {assignments: result.rows};
@@ -592,7 +595,8 @@ app.get('/leaderboard/:assignment_id?', function(req, res, next) {
         render_vars['has_performance_tests'] = has_performance_tests;
 
         var query = client.query(
-          "SELECT run_id,status,passed_checkstyle,compiled,passed_all_correctness,passed_performance,characteristic_speedup " +
+          "SELECT run_id,status,passed_checkstyle,compiled," +
+          "passed_all_correctness,passed_performance,characteristic_speedup " +
           "FROM runs WHERE assignment_id=($1) ORDER BY run_id DESC", [target_assignment_id]);
         register_query_helpers(query, res, done, req.session.username);
         query.on('end', function(result) {
