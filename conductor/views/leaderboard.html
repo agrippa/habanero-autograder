@@ -35,7 +35,9 @@
                     <% var nleft = count_nonempty; %>
                     <% for (var r = 0; r < runs.length - 1; r++) { %>
                     <%   if (runs[r].characteristic_speedup.length != 0) { %>
-                           {y: <%= runs[r].characteristic_speedup %>, label: '' }
+                    <%     var label = ''; %>
+                    <%     if (nleft === count_nonempty) label = 'Latest Run'; %>
+                        {y: <%= runs[r].characteristic_speedup %>, label: '<%= label %>' }
                     <%     nleft--; %>
                     <%     if (nleft != 0) { %>
                            ,
