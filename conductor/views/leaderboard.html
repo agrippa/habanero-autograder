@@ -25,7 +25,7 @@
             },
             axisX: {
                 title: "Time, newer runs to the left",
-                interval: 5000,
+                interval: <%= count_nonempty - 1 %>,
                 titleFontFamily: '"Helvetica Neue",Helvetica,Arial,sans-serif'
             },
             theme: "theme2",
@@ -37,6 +37,7 @@
                     <%   if (runs[r].characteristic_speedup.length != 0) { %>
                     <%     var label = ''; %>
                     <%     if (nleft === count_nonempty) label = 'Latest Run'; %>
+                    <%     if (nleft === 1) label = 'Oldest Run'; %>
                         {y: <%= runs[r].characteristic_speedup %>, label: '<%= label %>' }
                     <%     nleft--; %>
                     <%     if (nleft != 0) { %>
