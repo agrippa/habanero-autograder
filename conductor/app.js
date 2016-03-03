@@ -2107,7 +2107,7 @@ function rubric_file_path(assignment_id) {
     return __dirname + '/instructor-tests/' + assignment_id + '/rubric.json';
 }
 
-function calculate_score(assignment_id, log_files, ncores, run_status) {
+function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
   var rubric_file = rubric_file_path(assignment_id);
 
   var validated = load_and_validate_rubric(rubric_file);
@@ -2145,6 +2145,8 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
     var any_nonempty_stderr_lines = check_for_empty_stderr(lines);
 
     if (any_nonempty_stderr_lines) {
+      console.log('calculate_score: setting correctness score to 0 for run ' +
+              run_id + ' due to non-empty stderr');
       correctness = 0.0;
     } else {
       var failure_counts = [];
@@ -2169,6 +2171,8 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
          * The most likely cause is a timeout during the student tests, so assign
          * a score of 0 for correctness.
          */
+        console.log('calculate_score: setting correctness score to 0 for run ' +
+                run_id + ' because failure report not found');
         correctness = 0.0;
       } else {
         var line_index = 0;
@@ -2189,7 +2193,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
               var test = find_correctness_test_with_name(fullname, rubric);
               if (test) {
                 console.log('calculate_score: taking off ' + test.points_worth +
-                    ' points for test ' + test.testname);
+                    ' points for test ' + test.testname + ' on run ' + run_id);
                 correctness -= test.points_worth;
               }
             }
@@ -2198,6 +2202,9 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
       }
     }
   } else {
+    console.log('calculate_score: setting correctness score to 0 for run ' +
+            run_id + ', run_status=' + run_status +
+            ', correct.txt in log files? ' + ('correct.txt' in log_files));
     correctness = 0.0;
   }
 
@@ -2218,7 +2225,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
 
         console.log('calculate_score: found multi thread perf for test=' +
                 testname + ', seq_time=' + seq_time + ', parallel_time=' +
-                parallel_time);
+                parallel_time + ' for run ' + run_id);
 
         var test = find_performance_test_with_name(testname, rubric);
         if (test) {
@@ -2236,14 +2243,20 @@ function calculate_score(assignment_id, log_files, ncores, run_status) {
               console.log('calculate_score: deducting ' +
                       grading[g].points_off + ' points on test ' + testname +
                       ' for speedup of ' + speedup + ', in range ' +
-                      bottom_inclusive + '->' + top_exclusive);
+                      bottom_inclusive + '->' + top_exclusive + ' for run ' +
+                      run_id);
             }
           }
-          console.log('calculate_score: giving test ' + testname + ' ' + test_score + ' points');
+          console.log('calculate_score: giving test ' + testname + ' ' +
+                  test_score + ' points for run ' + run_id);
           performance += test_score;
         }
       }
     }
+  } else {
+      console.log('calculate_score: forcing performance to 0 for run ' +
+              run_id + ', run_status=' + run_status + ', have log file? ' +
+              ('performance.' + ncores + '.txt' in log_files));
   }
 
   // Compute style score based on number of style violations
@@ -2386,7 +2399,8 @@ app.get('/run/:run_id', function(req, res, next) {
                     }
                   });
 
-                  var score = calculate_score(assignment_id, log_files, ncores, run_status);
+                  var score = calculate_score(assignment_id, log_files, ncores,
+                          run_status, run_id);
                   var render_vars = {run_id: run_id, log_files: log_files,
                                      viola_err: viola_err_msg, cello_err: cello_err,
                                      passed_checkstyle: passed_checkstyle,
@@ -2396,9 +2410,12 @@ app.get('/run/:run_id', function(req, res, next) {
                                      has_performance_tests: !correctness_only,
                                      passed_performance: passed_performance,
                                      run_status: run_status};
+                  console.log('run: calculated score ' + score.total + '/' +
+                          score.total_possible + ' for run ' + run_id);
                   if (score) {
                     render_vars['score'] = score;
                   } else {
+                    render_vars['score'] = 0;
                     render_vars['err_msg'] = 'Error calculating score';
                   }
 
