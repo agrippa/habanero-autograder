@@ -1365,7 +1365,7 @@ function get_cello_work_dir(home_dir, run_id) {
 
 function get_scalability_tests(ncores) {
   var tests = [];
-  tests.push(1);
+  // tests.push(1);
   tests.push(ncores);
   /*
   var curr_cores = 1;
@@ -2410,11 +2410,12 @@ app.get('/run/:run_id', function(req, res, next) {
                                      has_performance_tests: !correctness_only,
                                      passed_performance: passed_performance,
                                      run_status: run_status};
-                  console.log('run: calculated score ' + score.total + '/' +
-                          score.total_possible + ' for run ' + run_id);
                   if (score) {
+                    console.log('run: calculated score ' + score.total + '/' +
+                            score.total_possible + ' for run ' + run_id);
                     render_vars['score'] = score;
                   } else {
+                    console.log('run: error calculating score for run ' + run_id);
                     render_vars['score'] = 0;
                     render_vars['err_msg'] = 'Error calculating score';
                   }
