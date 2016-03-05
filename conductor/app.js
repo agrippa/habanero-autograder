@@ -596,11 +596,66 @@ app.get('/leaderboard/:assignment_id?/:page?', function(req, res, next) {
 
         var query = client.query(
           "SELECT run_id,status,passed_checkstyle,compiled," +
-          "passed_all_correctness,passed_performance,characteristic_speedup " +
+          "passed_all_correctness,passed_performance,characteristic_speedup,user_id " +
           "FROM runs WHERE assignment_id=($1) ORDER BY run_id DESC", [target_assignment_id]);
         register_query_helpers(query, res, done, req.session.username);
         query.on('end', function(result) {
           render_vars['runs'] = result.rows;
+
+          // Find the best runs for each user
+          var max_runs_only = {};
+          for (i = 0; i < result.rows.length; i++) {
+              if (result.rows[i].characteristic_speedup.length != 0) {
+                  var user = result.rows[i].user_id;
+                  var speedup = parseFloat(result.rows[i].characteristic_speedup);
+
+                  if (user in max_runs_only) {
+                      if (speedup > max_runs_only[user]) {
+                          max_runs_only[user] = speedup;
+                      }
+                  } else {
+                      max_runs_only[user] = speedup;
+                  }
+              }
+          }
+
+          // Find the min and max out of the best runs
+          var nbins = 10;
+          var bins = [];
+          for (var i = 0; i < nbins; i++) bins.push(0);
+          var max_speedup = -1.0;
+          var min_speedup = -1.0;
+          for (var user in max_runs_only) {
+              if (max_runs_only.hasOwnProperty(user)) {
+                  var speedup = max_runs_only[user];
+                  if (max_speedup < speedup) max_speedup = speedup;
+                  if (min_speedup < 0.0 || speedup < min_speedup) min_speedup = speedup;
+              }
+          }
+
+          console.log('leaderboard: found min speedup=' + min_speedup +
+                  ' max speedup=' + max_speedup + ', using bin width=' +
+                  bin_width + ' for nbins=' + nbins);
+          max_speedup += 0.001;
+          var bin_width = (max_speedup - min_speedup) / nbins;
+          for (var user in max_runs_only) {
+              if (max_runs_only.hasOwnProperty(user)) {
+                  var speedup = max_runs_only[user];
+                  var delta_from_min = speedup - min_speedup;
+                  var bin = Math.floor(delta_from_min / bin_width);
+                  console.log('leaderboard: placing speedup ' + speedup + ' in bin ' + bin);
+                  bins[bin] = bins[bin] + 1;
+              }
+          }
+
+          render_vars['speedup_bins'] = [];
+          for (var i = 0; i < nbins; i++) {
+              var lower_bound = min_speedup + i * bin_width;
+              var upper_bound = min_speedup + (i + 1) * bin_width;
+              var lbl = '[' + lower_bound.toFixed(2).toString() + ', ' + upper_bound.toFixed(2).toString() + ')';
+              render_vars['speedup_bins'].push({lbl: lbl, count: bins[i] });
+          }
+
           var query = client.query('SELECT name FROM assignments where ' +
               'assignment_id=($1)', [target_assignment_id]);
           register_query_helpers(query, res, done, req.session.username);

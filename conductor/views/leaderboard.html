@@ -12,50 +12,81 @@
             <%   if (runs[r].characteristic_speedup.length > 0) count_nonempty++; %>
             <% } %>
 
-        window.onload = function() { var chart = new CanvasJS.Chart("chartContainer",
-        {
-            title: {
-                text: "<%= assignment_name %> Performance History",
-                fontFamily: '"Helvetica Neue",Helvetica,Arial,sans-serif'
-            },
-            animationEnabled: true,
-            axisY: {
-                title: "Speedup",
-                titleFontFamily: '"Helvetica Neue",Helvetica,Arial,sans-serif'
-            },
-            axisX: {
-                title: "Time, newer runs to the left",
-                interval: <%= count_nonempty - 1 %>,
-                titleFontFamily: '"Helvetica Neue",Helvetica,Arial,sans-serif'
-            },
-            theme: "theme2",
-            data: [{
-                type: "column",  
-                dataPoints: [
-                    <% var nleft = count_nonempty; %>
-                    <% for (var r = 0; r < runs.length - 1; r++) { %>
-                    <%   if (runs[r].characteristic_speedup.length != 0) { %>
-                    <%     var label = ''; %>
-                    <%     if (nleft === count_nonempty) label = 'Latest Run'; %>
-                    <%     if (nleft === 1) label = 'Oldest Run'; %>
-                        {y: <%= runs[r].characteristic_speedup %>, label: '<%= label %>' }
-                    <%     nleft--; %>
-                    <%     if (nleft != 0) { %>
-                           ,
-                    <%     } %>
-                    <%   } %>
-                    <% } %>
-                ]
-            }]
-        });
+        window.onload = function() {
+            var history = new CanvasJS.Chart("historyChartContainer",
+            {
+                title: {
+                    text: "<%= assignment_name %> Performance History",
+                    fontFamily: '"Helvetica Neue",Helvetica,Arial,sans-serif'
+                },
+                animationEnabled: true,
+                axisY: {
+                    title: "Speedup",
+                    titleFontFamily: '"Helvetica Neue",Helvetica,Arial,sans-serif'
+                },
+                axisX: {
+                    title: "Time, newer runs to the left",
+                    interval: <%= count_nonempty - 1 %>,
+                    titleFontFamily: '"Helvetica Neue",Helvetica,Arial,sans-serif'
+                },
+                theme: "theme2",
+                data: [{
+                    type: "column",  
+                    dataPoints: [
+                        <% var nleft = count_nonempty; %>
+                        <% for (var r = 0; r < runs.length - 1; r++) { %>
+                        <%   if (runs[r].characteristic_speedup.length != 0) { %>
+                        <%     var label = ''; %>
+                        <%     if (nleft === count_nonempty) label = 'Latest Run'; %>
+                        <%     if (nleft === 1) label = 'Oldest Run'; %>
+                            {y: <%= runs[r].characteristic_speedup %>, label: '<%= label %>' }
+                        <%     nleft--; %>
+                        <%     if (nleft != 0) { %>
+                               ,
+                        <%     } %>
+                        <%   } %>
+                        <% } %>
+                    ]
+                }]
+            });
 
-        <% if (count_nonempty == 0) { %>
-            $('#chartContainerContainer').css('display', 'none');
-        <% } else { %>
-            chart.render();
-        <% } %>
-    }
-        <% } %>
+            var binned = new CanvasJS.Chart("binnedChartContainer",
+            {
+                title: {
+                    text: "<%= assignment_name %> Speedup Distribution By User",
+                    fontFamily: '"Helvetica Neue",Helvetica,Arial,sans-serif'
+                },
+                animationEnabled: true,
+                axisY: {
+                    title: "Count",
+                    titleFontFamily: '"Helvetica Neue",Helvetica,Arial,sans-serif'
+                },
+                axisX: {
+                    title: "Speedup",
+                    titleFontFamily: '"Helvetica Neue",Helvetica,Arial,sans-serif'
+                },
+                theme: "theme2",
+                data: [{
+                    type: "column",  
+                    dataPoints: [
+                        <% for (var i = 0; i < speedup_bins.length; i++) { %>
+                        {y: <%= speedup_bins[i].count %>, label: '<%= speedup_bins[i].lbl %>' }
+                        <%     if (i != speedup_bins.length - 1) { %>
+                            ,
+                        <%     } %>
+                        <% } %>
+                    ]
+                }]
+            });
+
+            <% if (count_nonempty == 0) { %>
+                $('#chartContainerContainer').css('display', 'none');
+            <% } else { %>
+                history.render();
+                binned.render();
+            <% } %>
+           }
+    <% } %>
     </script>
   </head>
 
@@ -72,6 +103,7 @@
         <% } %>
         <hr/>
         <div class="col-md-9 col-md-offset-2" style="text-align:center;">
+            <h4>Select Assignment</h4>
           <% for (assignment in assignments) { %>
               <form style="width: 40%; float: left; margin: 5px 5px 5px 5px;" action="/leaderboard/<%= assignments[assignment].assignment_id %>">
                   <input class="btn btn-primary btn-block" type="submit" value="<%= assignments[assignment].name %>">
@@ -84,7 +116,9 @@
     <div id="chartContainerContainer" class="row" style="width:100%">
       <div class="col-md-8 col-md-offset-2">
       <hr/>
-        <div id="chartContainer" class="col-md-12 col-md-offset-0" style="height: 200px">
+        <div id="historyChartContainer" class="col-md-12 col-md-offset-0" style="height: 200px">
+        </div>
+        <div id="binnedChartContainer" class="col-md-12 col-md-offset-0" style="height: 200px">
         </div>
       </div>
     </div>
