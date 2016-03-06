@@ -2062,14 +2062,15 @@ function load_and_validate_rubric(rubric_file) {
     return failed_validation('Rubric is missing style section');
   }
 
-  if (!rubric.performance.hasOwnProperty('characteristic_test')) {
-    return failed_validation('Rubric is missing characteristic_test field of ' +
-            'performance section');
-  }
-
   if (!rubric.performance.hasOwnProperty('tests')) {
     return failed_validation('Rubric is missing tests field of performance ' +
             'section');
+  }
+
+  if (rubric.performance.tests.length > 0 &&
+          !rubric.performance.hasOwnProperty('characteristic_test')) {
+    return failed_validation('Rubric is missing characteristic_test field of ' +
+            'performance section');
   }
 
   for (var c = 0; c < rubric.correctness.length; c++) {
@@ -2167,6 +2168,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
 
   var validated = load_and_validate_rubric(rubric_file);
   if (!validated.success) {
+    console.log('calculate_score: failed loading rubric, ' + validated.msg);
     return null;
   }
   var rubric = validated.rubric;
@@ -2471,7 +2473,8 @@ app.get('/run/:run_id', function(req, res, next) {
                     render_vars['score'] = score;
                   } else {
                     console.log('run: error calculating score for run ' + run_id);
-                    render_vars['score'] = 0;
+                    render_vars['score'] = {total: 0.0, total_possible: 0.0,
+                        breakdown: []}
                     render_vars['err_msg'] = 'Error calculating score';
                   }
 
