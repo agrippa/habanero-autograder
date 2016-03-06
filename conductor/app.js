@@ -2417,69 +2417,77 @@ app.get('/run/:run_id', function(req, res, next) {
                     return res.send(401);
                 }
             }
-            var query = client.query("SELECT * FROM users WHERE user_id=($1)", [user_id]);
+
+            var query = client.query("SELECT name FROM assignments WHERE assignment_id=($1)", [assignment_id]);
             register_query_helpers(query, res, done, req.session.username);
             query.on('end', function(result) {
-                done();
+                var assignment_name = result.rows[0].name;
 
-                var username = result.rows[0].user_name;
-                var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
-                /*
-                 * If bugs cause submissions to fail, their storage may not exist.
-                 * This shouldn't happen in a bugless AutoGrader.
-                 */
-                if (!fs.existsSync(run_dir)) {
-                  var render_vars = { run_id: run_id };
-                  return render_page('missing_run.html', res, req, render_vars);
-                } else {
-                  var cello_err = null;
-                  var log_files = {};
-                  fs.readdirSync(run_dir).forEach(function(file) {
-                    if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 &&
-                          !arr_contains(file, dont_display)) {
-                        var contents = fs.readFileSync(run_dir + '/' + file, 'utf8');
-                        log_files[file] = contents;
+                var query = client.query("SELECT * FROM users WHERE user_id=($1)", [user_id]);
+                register_query_helpers(query, res, done, req.session.username);
+                query.on('end', function(result) {
+                    done();
 
-                        if (cello_err === null) {
-                            if (file === 'cluster-stdout.txt') {
-                                var lines = contents.split('\n');
-                                for (var i = 0; i < lines.length; i++) {
-                                    if (string_starts_with(lines[i], 'AUTOGRADER-ERROR')) {
-                                        cello_err = lines[i].substring(17);
-                                        break;
+                    var username = result.rows[0].user_name;
+                    var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
+                    /*
+                     * If bugs cause submissions to fail, their storage may not exist.
+                     * This shouldn't happen in a bugless AutoGrader.
+                     */
+                    if (!fs.existsSync(run_dir)) {
+                      var render_vars = { run_id: run_id };
+                      return render_page('missing_run.html', res, req, render_vars);
+                    } else {
+                      var cello_err = null;
+                      var log_files = {};
+                      fs.readdirSync(run_dir).forEach(function(file) {
+                        if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 &&
+                              !arr_contains(file, dont_display)) {
+                            var contents = fs.readFileSync(run_dir + '/' + file, 'utf8');
+                            log_files[file] = contents;
+
+                            if (cello_err === null) {
+                                if (file === 'cluster-stdout.txt') {
+                                    var lines = contents.split('\n');
+                                    for (var i = 0; i < lines.length; i++) {
+                                        if (string_starts_with(lines[i], 'AUTOGRADER-ERROR')) {
+                                            cello_err = lines[i].substring(17);
+                                            break;
+                                        }
                                     }
+                                } else if (file === 'cluster-stderr.txt') {
+                                    cello_err = contents;
                                 }
-                            } else if (file === 'cluster-stderr.txt') {
-                                cello_err = contents;
                             }
                         }
+                      });
+
+                      var score = calculate_score(assignment_id, log_files, ncores,
+                              run_status, run_id);
+                      var render_vars = {run_id: run_id, log_files: log_files,
+                                         viola_err: viola_err_msg, cello_err: cello_err,
+                                         passed_checkstyle: passed_checkstyle,
+                                         compiled: compiled,
+                                         passed_all_correctness: passed_all_correctness,
+                                         elapsed_time: elapsed_time, finished: finished,
+                                         has_performance_tests: !correctness_only,
+                                         passed_performance: passed_performance,
+                                         run_status: run_status,
+                                         assignment_name: assignment_name};
+                      if (score) {
+                        console.log('run: calculated score ' + score.total + '/' +
+                                score.total_possible + ' for run ' + run_id);
+                        render_vars['score'] = score;
+                      } else {
+                        console.log('run: error calculating score for run ' + run_id);
+                        render_vars['score'] = {total: 0.0, total_possible: 0.0,
+                            breakdown: []}
+                        render_vars['err_msg'] = 'Error calculating score';
+                      }
+
+                      return render_page('run.html', res, req, render_vars);
                     }
-                  });
-
-                  var score = calculate_score(assignment_id, log_files, ncores,
-                          run_status, run_id);
-                  var render_vars = {run_id: run_id, log_files: log_files,
-                                     viola_err: viola_err_msg, cello_err: cello_err,
-                                     passed_checkstyle: passed_checkstyle,
-                                     compiled: compiled,
-                                     passed_all_correctness: passed_all_correctness,
-                                     elapsed_time: elapsed_time, finished: finished,
-                                     has_performance_tests: !correctness_only,
-                                     passed_performance: passed_performance,
-                                     run_status: run_status};
-                  if (score) {
-                    console.log('run: calculated score ' + score.total + '/' +
-                            score.total_possible + ' for run ' + run_id);
-                    render_vars['score'] = score;
-                  } else {
-                    console.log('run: error calculating score for run ' + run_id);
-                    render_vars['score'] = {total: 0.0, total_possible: 0.0,
-                        breakdown: []}
-                    render_vars['err_msg'] = 'Error calculating score';
-                  }
-
-                  return render_page('run.html', res, req, render_vars);
-                }
+                });
             });
         });
     });
