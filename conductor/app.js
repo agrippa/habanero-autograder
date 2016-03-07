@@ -236,16 +236,23 @@ function cluster_scp(src_file, dst_file, is_upload, cb) {
   }
 
   if (CLUSTER_TYPE === 'slurm') {
-      var dst = null;
-      var src = null;
+      var client = new scp.Client({
+          port: 22,
+          host: CLUSTER_HOSTNAME,
+          username: CLUSTER_USER,
+          password: CLUSTER_PASSWORD});
+
       if (is_upload) {
-        dst = CLUSTER_USER + ':' + CLUSTER_PASSWORD + '@' + CLUSTER_HOSTNAME + ':' + dst_file;
-        src = src_file;
+        client.upload(src_file, dst_file, function(err) {
+            client.close();
+            cb(err);
+        });
       } else {
-        dst = dst_file;
-        src = CLUSTER_USER + ':' + CLUSTER_PASSWORD + '@' + CLUSTER_HOSTNAME + ':' + src_file;
+        client.download(src_file, dst_file, function(err) {
+            client.close();
+            cb(err);
+        });
       }
-      scp.scp(src, dst, cb);
   } else {
       if (is_upload) {
         dst_file = process.env.HOME + '/' + dst_file;
@@ -2305,7 +2312,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
             }
           }
           console.log('calculate_score: giving test ' + testname + ' ' +
-                  test_score + ' points for run ' + run_id);
+                  test_score + ' points for run ' + run_id + ' with speedup ' + speedup);
           performance += test_score;
         }
       }
@@ -2408,13 +2415,13 @@ app.get('/run/:run_id', function(req, res, next) {
                 // If this is an instructor run using a student submission, that student can view this submission
                 if (!req.session.is_admin && result.rows[0].on_behalf_of != req.session.user_id) {
                     done();
-                    return res.send(401);
+                    return res.sendStatus(401);
                 }
             } else {
                 // Instructors can view all submissions, students can only view their own submissions
                 if (!req.session.is_admin && user_id != req.session.user_id) {
                     done();
-                    return res.send(401);
+                    return res.sendStatus(401);
                 }
             }
 
