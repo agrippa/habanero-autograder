@@ -24,9 +24,10 @@
       <div class="col-md-8 col-md-offset-2">
         <h4>Score: <%= score.total %> / <%= score.total_possible %> (<%= (100.0 * score.total / score.total_possible).toFixed(2) %>%)</h4>
         <% if (finished) { %>
-          <h4 style="float:right">Time to complete: <%= elapsed_time %></h4>
+          <font style="float:right" size=4>Time to complete: <%= elapsed_time %></font>
         <% } else { %>
-          <h4 style="float:right">Execution time so far: <%= elapsed_time %></h4>
+        <%     var status_color = run_status === 'FINISHED' ? 'green' : ((run_status === 'FAILED' || run_status === 'CANCELLED') ? 'red' : 'orange'); %>
+        <font style="float:right" size=4 color=<%= status_color %>><%= run_status %></font><font style="float:right" size=4>Time so far: <%= elapsed_time %>,&nbsp;</font>
         <% } %>
         
         <div class="col-md-offset-1">
