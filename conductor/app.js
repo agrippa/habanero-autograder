@@ -10,7 +10,7 @@ var fs = require('fs-extra');
 var svn = require('svn-spawn');
 var crypto = require('crypto');
 var ssh = require('ssh2');
-var scp = require('scp2')
+var scp = require('scp')
 var child_process = require('child_process');
 var nodemailer = require('nodemailer');
 var url = require('url');
@@ -236,22 +236,24 @@ function cluster_scp(src_file, dst_file, is_upload, cb) {
   }
 
   if (CLUSTER_TYPE === 'slurm') {
-      var client = new scp.Client({
-          port: 22,
-          host: CLUSTER_HOSTNAME,
-          username: CLUSTER_USER,
-          password: CLUSTER_PASSWORD});
-
       if (is_upload) {
-        client.upload(src_file, dst_file, function(err) {
-            client.close();
-            cb(err);
-        });
+        scp.send({file: src_file,
+                  user: CLUSTER_USER,
+                  host: CLUSTER_HOSTNAME,
+                  port: '22',
+                  path: dst_file},
+                  function(err) {
+                      cb(err);
+                  });
       } else {
-        client.download(src_file, dst_file, function(err) {
-            client.close();
-            cb(err);
-        });
+        scp.get({file: src_file,
+                 user: CLUSTER_USER,
+                 host: CLUSTER_HOSTNAME,
+                 port: '22',
+                 path: dst_file},
+                 function(err) {
+                     cb(err);
+                 });
       }
   } else {
       if (is_upload) {

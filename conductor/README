@@ -76,6 +76,8 @@ On RedHat, follow the instructions at http://www.if-not-true-then-false.com/2012
  4. npm install
  5. node app.js
 
+The conductor host must have key-based SSH access to the configured cluster.
+
 ===== AutoGrader Viola installation instructions =====
 
  1. cd habanero-autograder/viola
