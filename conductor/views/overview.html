@@ -107,6 +107,7 @@
       <table id="past-runs" style="width:100%;" class="table table-hover table-bordered table-condensed">
       <!-- TODO -->
       <tr><td bgcolor="#AAAAAA"><center><b>Run ID</b></center></td>
+          <td bgcolor="#AAAAAA"><center><b>Completion Time</b></center></td>
           <td bgcolor="#AAAAAA"><center><b>Assignment</b></center></td>
           <td bgcolor="#AAAAAA"><center><b>Status</b></center></td>
           <td bgcolor="#AAAAAA"></td>
@@ -115,7 +116,15 @@
       <%     var curr = runs[r]; %>
       <%     var status = curr.status; %>
       <%     var status_color = status === 'FINISHED' ? 'green' : ((status === 'FAILED' || status === 'CANCELLED') ? 'red' : 'orange'); %>
+      <%     var is_afternoon = curr.finish_time.getHours() >= 12; %>
+      <%     var normalized_hours = curr.finish_time.getHours() % 12; %>
+      <%     if (normalized_hours == 0) normalized_hours = 12; %>
              <tr><td><center><a href=/run/<%= curr.run_id %>><%= curr.run_id %></a></center></td>
+                 <td><center><%= curr.finish_time.getMonth() + 1 + '/' +
+                         curr.finish_time.getDate() + '/' +
+                         curr.finish_time.getFullYear() + ' ' +
+                         normalized_hours + ':' +
+                         curr.finish_time.getMinutes() + ' ' + (is_afternoon ? 'PM' : 'AM') + ' CST' %></center></td>
                  <td><center><%= curr.assignment_name %></center></td>
                  <td><center><font color=<%= status_color %>><%= curr.status %></font></center></td>
                  <td><center>

@@ -551,7 +551,6 @@ app.get('/overview/:page?', function(req, res, next) {
               runs: [], page: 0, npages: 1});
   }
 
-
   get_runs_for_username(req.session.username, function(runs, err) {
       if (err) {
           return render_page('overview.html', res, req,
@@ -1993,7 +1992,8 @@ function get_runs_for_username(username, cb) {
                   var name = assignment_mapping[runs[i].assignment_id];
                   translated_runs.push({run_id: runs[i].run_id,
                                         assignment_name: name,
-                                        status: runs[i].status });
+                                        status: runs[i].status,
+                                        finish_time: runs[i].finish_time });
               }
               cb(translated_runs, null);
           });
