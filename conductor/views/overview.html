@@ -116,15 +116,19 @@
       <%     var curr = runs[r]; %>
       <%     var status = curr.status; %>
       <%     var status_color = status === 'FINISHED' ? 'green' : ((status === 'FAILED' || status === 'CANCELLED') ? 'red' : 'orange'); %>
-      <%     var is_afternoon = curr.finish_time.getHours() >= 12; %>
-      <%     var normalized_hours = curr.finish_time.getHours() % 12; %>
-      <%     if (normalized_hours == 0) normalized_hours = 12; %>
+      <%     var finish_time_str = ''; %>
+      <%     if (curr.finish_time) { %>
+      <%         var is_afternoon = curr.finish_time.getHours() >= 12; %>
+      <%         var normalized_hours = curr.finish_time.getHours() % 12; %>
+      <%         if (normalized_hours == 0) normalized_hours = 12; %>
+      <%         finish_time_str = curr.finish_time.getMonth() + 1 + '/' +
+                     curr.finish_time.getDate() + '/' +
+                     curr.finish_time.getFullYear() + ' ' + normalized_hours +
+                     ':' + curr.finish_time.getMinutes() + ' ' +
+                     (is_afternoon ? 'PM' : 'AM') + ' CST'; %>
+      <%     } %>
              <tr><td><center><a href=/run/<%= curr.run_id %>><%= curr.run_id %></a></center></td>
-                 <td><center><%= curr.finish_time.getMonth() + 1 + '/' +
-                         curr.finish_time.getDate() + '/' +
-                         curr.finish_time.getFullYear() + ' ' +
-                         normalized_hours + ':' +
-                         curr.finish_time.getMinutes() + ' ' + (is_afternoon ? 'PM' : 'AM') + ' CST' %></center></td>
+                 <td><center><%= finish_time_str %></center></td>
                  <td><center><%= curr.assignment_name %></center></td>
                  <td><center><font color=<%= status_color %>><%= curr.status %></font></center></td>
                  <td><center>
