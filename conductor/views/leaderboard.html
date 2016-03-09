@@ -129,6 +129,9 @@
     <div class="row" style="width:100%">
       <div class="col-md-8 col-md-offset-2">
         <hr/>
+        <% if (typeof runs !== 'undefined') { %>
+        <p><font size=3>Showing <%= runs.length %> run(s).</font></p>
+        <% } %>
         <table id="runs_table" style="width:100%" class="table table-hover table-bordered table-condensed">
           <tr>
             <td bgcolor="#AAAAAA"><center><b>Run</b></center></td>
