@@ -27,6 +27,8 @@ var VERBOSE = false;
 
 var LOCAL_JOB_ID = 'LOCAL';
 
+var PERF_TEST_LBL = 'HABANERO-AUTOGRADER-PERF-TEST';
+
 var PAGE_SIZE = 50;
 
 function check_env(varname) {
@@ -220,6 +222,13 @@ function run_cluster_cmd(conn, lbl, cluster_cmd, cb) {
         }
       });
     }
+}
+
+var MAX_FILE_SIZE = 1 * 1024 * 1024;
+
+function get_file_size(path) {
+    var stats = fs.statSync(path);
+    return stats["size"];
 }
 
 function cluster_scp(src_file, dst_file, is_upload, cb) {
@@ -1469,6 +1478,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     "#SBATCH --time=" + timeout_str + "\n" +
     "#SBATCH --export=ALL\n" +
     "#SBATCH --partition=commons\n" +
+//     "#SBATCH --reservation=comp322_3\n" +
     "#SBATCH --output=" + home_dir + "/autograder/" + run_id + "/stdout.txt\n" +
     "#SBATCH --error=" + home_dir + "/autograder/" + run_id + "/stderr.txt\n" +
     "\n" +
@@ -1646,14 +1656,20 @@ app.post('/local_run_finished', function(req, res, next) {
                   var checkstyle_passed = false;
                   var correctness_tests_passed = false;
                    
-                  if (fs.existsSync(checkstyle_txt)) {
+                  if (fs.existsSync(checkstyle_txt) &&
+                        get_file_size(checkstyle_txt) < MAX_FILE_SIZE) {
+                      // Checkstyle passed?
                       var checkstyle_contents = fs.readFileSync(checkstyle_txt, 'utf8');
                       var checkstyle_new_lines = count_new_lines(checkstyle_contents);
                       checkstyle_passed = (checkstyle_new_lines == 0);
-                      if (checkstyle_passed && fs.existsSync(compile_txt)) {
+                      if (checkstyle_passed && fs.existsSync(compile_txt) &&
+                          get_file_size(compile_txt) < MAX_FILE_SIZE) {
+                        // Successfully compiled?
                         var compile_contents = fs.readFileSync(compile_txt, 'utf8');
                         compile_passed = (compile_contents.indexOf('BUILD SUCCESS') != -1);
-                        if (compile_passed && fs.existsSync(correct_txt)) {
+                        if (compile_passed && fs.existsSync(correct_txt) &&
+                                get_file_size(correct_txt) < MAX_FILE_SIZE) {
+                          // Correctness tests passed?
                           var correct_contents = fs.readFileSync(correct_txt, 'utf8');
                           var lines = correct_contents.split('\n');
                           var any_failures = false;
@@ -2283,7 +2299,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
 
     for (var i = 0; i < multi_thread_lines.length; i++) {
       var line = multi_thread_lines[i];
-      if (string_starts_with(line, 'HABANERO-AUTOGRADER-PERF-TEST')) {
+      if (string_starts_with(line, PERF_TEST_LBL)) {
         var tokens = line.split(' ');
         var testname = tokens[2];
         var seq_time = parseInt(tokens[3]);
@@ -2452,21 +2468,27 @@ app.get('/run/:run_id', function(req, res, next) {
                       fs.readdirSync(run_dir).forEach(function(file) {
                         if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 &&
                               !arr_contains(file, dont_display)) {
-                            var contents = fs.readFileSync(run_dir + '/' + file, 'utf8');
-                            log_files[file] = contents;
+                            console.log('run: run_id=' + run_id + ' reading file ' + run_dir + '/' + file);
+                            var path = run_dir + '/' + file;
+                            if (get_file_size(path) < MAX_FILE_SIZE) {
+                              var contents = fs.readFileSync(run_dir + '/' + file, 'utf8');
+                              log_files[file] = contents;
 
-                            if (cello_err === null) {
-                                if (file === 'cluster-stdout.txt') {
-                                    var lines = contents.split('\n');
-                                    for (var i = 0; i < lines.length; i++) {
-                                        if (string_starts_with(lines[i], 'AUTOGRADER-ERROR')) {
-                                            cello_err = lines[i].substring(17);
-                                            break;
-                                        }
-                                    }
-                                } else if (file === 'cluster-stderr.txt') {
-                                    cello_err = contents;
-                                }
+                              if (cello_err === null) {
+                                  if (file === 'cluster-stdout.txt') {
+                                      var lines = contents.split('\n');
+                                      for (var i = 0; i < lines.length; i++) {
+                                          if (string_starts_with(lines[i], 'AUTOGRADER-ERROR')) {
+                                              cello_err = lines[i].substring(17);
+                                              break;
+                                          }
+                                      }
+                                  } else if (file === 'cluster-stderr.txt') {
+                                      cello_err = contents;
+                                  }
+                              }
+                            } else {
+                                log_files[file] = 'Unusually large file, unable to display.';
                             }
                         }
                       });
@@ -2705,20 +2727,23 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                   if (validated.success) {
                       var rubric = validated.rubric;
                       var characteristic_test = rubric.performance.characteristic_test;
-                      var test_contents = fs.readFileSync(
-                              LOCAL_FOLDER + '/performance.' + run.ncores + '.txt', 'utf8');
-                      var test_lines = test_contents.split('\n');
-                      for (var i = 0; i < test_lines.length; i++) {
-                          var line = test_lines[i];
-                          if (string_starts_with(line, 'HABANERO-AUTOGRADER-PERF-TEST')) {
-                              var tokens = line.split(' ');
-                              var testname = tokens[2];
-                              if (testname === characteristic_test) {
-                                  var seq_time = parseInt(tokens[3]);
-                                  var parallel_time = parseInt(tokens[4]);
-                                  var speedup = seq_time / parallel_time;
-                                  characteristic_speedup = speedup.toFixed(3);
-                                  break;
+                      var performance_path = LOCAL_FOLDER + '/performance.' +
+                          run.ncores + '.txt';
+                      if (get_file_size(performance_path) < MAX_FILE_SIZE) {
+                          var test_contents = fs.readFileSync(performance_path, 'utf8');
+                          var test_lines = test_contents.split('\n');
+                          for (var i = 0; i < test_lines.length; i++) {
+                              var line = test_lines[i];
+                              if (string_starts_with(line, PERF_TEST_LBL)) {
+                                  var tokens = line.split(' ');
+                                  var testname = tokens[2];
+                                  if (testname === characteristic_test) {
+                                      var seq_time = parseInt(tokens[3]);
+                                      var parallel_time = parseInt(tokens[4]);
+                                      var speedup = seq_time / parallel_time;
+                                      characteristic_speedup = speedup.toFixed(3);
+                                      break;
+                                  }
                               }
                           }
                       }
