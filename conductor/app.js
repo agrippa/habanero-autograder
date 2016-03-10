@@ -1478,6 +1478,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     "#SBATCH --time=" + timeout_str + "\n" +
     "#SBATCH --export=ALL\n" +
     "#SBATCH --partition=commons\n" +
+    "#SBATCH --account=scavenge\n" +
 //     "#SBATCH --reservation=comp322_3\n" +
     "#SBATCH --output=" + home_dir + "/autograder/" + run_id + "/stdout.txt\n" +
     "#SBATCH --error=" + home_dir + "/autograder/" + run_id + "/stderr.txt\n" +
@@ -1538,23 +1539,23 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   }
   slurmFileContents += '\n';
 
-  // var profiler_output = '$CELLO_WORK_DIR/profiler.txt';
-  // slurmFileContents += 'touch ' + profiler_output + '\n';
-  // slurmFileContents += loop_over_all_perf_tests(
-  //   'java ' + securityFlags + ' -Dhj.numWorkers=' + ncores +
-  //   ' -agentpath:' + java_profiler_dir + '/liblagent.so ' +
-  //   '-javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
-  //   'org.junit.runner.JUnitCore $CLASSNAME >> ' + profiler_output + ' 2>&1 ; ' +
-  //   'echo ===== Profiling test $CLASSNAME ===== >> $CELLO_WORK_DIR/traces.txt; ' +
-  //   'cat $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/traces.txt >> ' +
-  //   '$CELLO_WORK_DIR/traces.txt');
-  // slurmFileContents += 'awk \'BEGIN { doPrint = 1; } /Profiling/ { ' +
-  //   'doPrint = 0; print $0; } /Total trace count/ { doPrint = 1; } { ' +
-  //   'if (doPrint) print $0; }\' $CELLO_WORK_DIR/traces.txt > ' +
-  //   '$CELLO_WORK_DIR/traces.filtered.txt\n';
-  // slurmFileContents += 'mv $CELLO_WORK_DIR/traces.filtered.txt ' +
-  //   '$CELLO_WORK_DIR/traces.txt\n';
-  // slurmFileContents += '\n';
+  var profiler_output = '$CELLO_WORK_DIR/profiler.txt';
+  slurmFileContents += 'touch ' + profiler_output + '\n';
+  slurmFileContents += loop_over_all_perf_tests(
+    'java ' + securityFlags + ' -Dhj.numWorkers=' + ncores +
+    ' -agentpath:' + java_profiler_dir + '/liblagent.so ' +
+    '-javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
+    'org.junit.runner.JUnitCore $CLASSNAME >> ' + profiler_output + ' 2>&1 ; ' +
+    'echo ===== Profiling test $CLASSNAME ===== >> $CELLO_WORK_DIR/traces.txt; ' +
+    'cat $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/traces.txt >> ' +
+    '$CELLO_WORK_DIR/traces.txt');
+  slurmFileContents += 'awk \'BEGIN { doPrint = 1; } /Profiling/ { ' +
+    'doPrint = 0; print $0; } /Total trace count/ { doPrint = 1; } /Failures:/ { doPrint = 0; } { ' +
+    'if (doPrint) print $0; }\' $CELLO_WORK_DIR/traces.txt > ' +
+    '$CELLO_WORK_DIR/traces.filtered.txt\n';
+  slurmFileContents += 'mv $CELLO_WORK_DIR/traces.filtered.txt ' +
+    '$CELLO_WORK_DIR/traces.txt\n';
+  slurmFileContents += '\n';
 
   /*
    * A bug in JDK 8 [1] leads to the FastTrack data race detector crashing on
@@ -2685,9 +2686,9 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
             }
 
             var copies = [{ src: REMOTE_STDOUT, dst: LOCAL_STDOUT },
-                          { src: REMOTE_STDERR, dst: LOCAL_STDERR }];
+                          { src: REMOTE_STDERR, dst: LOCAL_STDERR },
+                          { src: REMOTE_TRACES, dst: LOCAL_TRACES }];
                           // { src: REMOTE_PROFILER, dst: LOCAL_PROFILER },
-                          // { src: REMOTE_TRACES, dst: LOCAL_TRACES }];
             // if (os !== 'Darwin') {
             //   copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
             // }
