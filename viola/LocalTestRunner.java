@@ -99,6 +99,7 @@ public class LocalTestRunner {
     public String getAssignmentName() { return assignment_name; }
     public File getLogDir() { return logDir; }
     public String getErrMsg() { return errMsg; }
+    public void setErrMsg(String msg) { errMsg = msg; }
     public String getSVNLoc() { return svnLoc; }
     public SVNClientManager getSVNClientManager() { return svnClientManager; }
 
@@ -111,14 +112,14 @@ public class LocalTestRunner {
      * TODO Problem here is we could fail silently to succeed.
      */
     private void notifyConductor(String err_msg) {
-        try {
-            String urlParameters = "done_token=" + done_token + "&err_msg=" + err_msg;
-            byte[] postData = urlParameters.getBytes(StandardCharsets.UTF_8);
-            int postDataLength = postData.length;
-            String request = "http://" + env.conductorHost + ":" +
-              env.conductorPort + "/local_run_finished";
-            ViolaUtil.log("Notifying conductor at " + request + " of run completion\n");
+        String urlParameters = "done_token=" + done_token + "&err_msg=" + err_msg;
+        byte[] postData = urlParameters.getBytes(StandardCharsets.UTF_8);
+        int postDataLength = postData.length;
+        String request = "http://" + env.conductorHost + ":" +
+          env.conductorPort + "/local_run_finished";
+        ViolaUtil.log("Notifying conductor at " + request + " of run completion\n");
 
+        try {
             URL url = new URL(request);
             HttpURLConnection conn = (HttpURLConnection)url.openConnection();
             conn.setDoOutput(true);

@@ -1641,6 +1641,11 @@ app.post('/local_run_finished', function(req, res, next) {
         query.on('end', function(result) {
           if (result.rows.length != 1) {
             return failed_starting_perf_tests(res, 'Unexpected # of rows', done, client, -1, null);
+          } else if (result.rows[0].status !== 'TESTING CORRECTNESS') {
+              log('local_run_finished: received duplicate local run ' +
+                  'completion notifications from viola for run ' +
+                  result.rows[0].run_id);
+              return res.send(JSON.stringify({ status: 'Success' }));
           } else {
             var run_id = result.rows[0].run_id;
             var user_id = result.rows[0].user_id;
@@ -1815,14 +1820,16 @@ app.post('/local_run_finished', function(req, res, next) {
                                               return failed_starting_perf_tests(res,
                                                 'Failed creating autograder dir', done, client, run_id, conn);
                                             }
-                                            run_cluster_cmd(conn, 'submission checkout', submission_checkout,
-                                              function(err, conn, stdout, stderr) {
+                                            cluster_scp(__dirname + '/submissions/' + username + '/' + run_id, 'autograder/' + run_id + '/submission', true, function(err) {
+                                            // run_cluster_cmd(conn, 'submission checkout', submission_checkout,
+                                            //   function(err, conn, stdout, stderr) {
                                                 if (err) {
                                                   return failed_starting_perf_tests(res,
                                                        'Failed checking out student code', done, client, run_id, conn);
                                                 }
-                                                run_cluster_cmd(conn, 'assignment checkout', assignment_checkout,
-                                                  function(err, conn, stdout, stderr) {
+                                                cluster_scp(__dirname + '/instructor-tests/' + assignment_id, 'autograder/' + run_id + '/assignment', true, function(err) {
+                                                // run_cluster_cmd(conn, 'assignment checkout', assignment_checkout,
+                                                //   function(err, conn, stdout, stderr) {
                                                     if (err) {
                                                       return failed_starting_perf_tests(res,
                                                             'Failed checking out assignment code', done, client, run_id, conn);

@@ -50,6 +50,7 @@ public class Viola {
 
     private static ViolaEnv env = null;
     private static final LinkedList<LocalTestRunner> toImport = new LinkedList<LocalTestRunner>();
+    private static final LinkedList<LocalTestRunner> toNotify = new LinkedList<LocalTestRunner>();
 
     private static String getEnvVarOrFail(String varname) {
       String val = System.getenv(varname);
@@ -107,9 +108,13 @@ public class Viola {
         env = new ViolaEnv(conductorHost, conductorPort, svnRepo, svnUser,
                 svnPassword, junit, hamcrest, mavenRepo, asm, checkstyle, autograderHome);
 
-        final SVNImportRunnable importRunner = new SVNImportRunnable(toImport);
+        final SVNImportRunnable importRunner = new SVNImportRunnable(toImport, toNotify);
         final Thread importThread = new Thread(importRunner);
         importThread.start();
+
+        final NotifyConductorRunnable notifyRunner = new NotifyConductorRunnable(toNotify);
+        final Thread notifyThread = new Thread(notifyRunner);
+        notifyThread.start();
 
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/run", new RunHandler());

@@ -7,13 +7,15 @@ import org.tmatesoft.svn.core.SVNException;
 
 public class SVNImportRunnable implements Runnable {
     private final LinkedList<LocalTestRunner> toImport;
+    private final LinkedList<LocalTestRunner> toNotify;
 
     private final static int nretries = 10;
     private final static int backoff = 2;
     private final static int initialPause = 1000;
 
-    public SVNImportRunnable(LinkedList<LocalTestRunner> toImport) {
+    public SVNImportRunnable(LinkedList<LocalTestRunner> toImport, LinkedList<LocalTestRunner> toNotify) {
         this.toImport = toImport;
+        this.toNotify = toNotify;
     }
 
     @Override
@@ -31,7 +33,10 @@ public class SVNImportRunnable implements Runnable {
 
             ViolaUtil.log("received import job for run %d from %s to %s\n", curr.getRunId(),
                     curr.getLogDir().getAbsolutePath(), curr.getSVNLoc());
-
+            /*
+             * If some internal error caused the log directory to not even be created, we assume that an appropriate
+             * error message was set by the test runner.
+             */
             if (curr.getLogDir().exists()) {
                 // Commit the added files to the repo
                 final String commitMessage = curr.getUser() + " " + curr.getAssignmentName() + " " +
@@ -66,17 +71,14 @@ public class SVNImportRunnable implements Runnable {
                 }
                 ViolaUtil.log("import job for run %d was successful after %d attempt(s)\n", curr.getRunId(), ntries);
 
-                if (ntries < nretries) {
-                    curr.cleanup(curr.getErrMsg());
-                } else {
-                    curr.cleanup("Unable to save test log files");
+                if (ntries >= nretries) {
+                    curr.setErrMsg("Unable to save test log files");
                 }
-            } else {
-                /*
-                 * Some internal error caused the log directory to not even be created, we assume that an appropriate
-                 * error message was set by the test runner and pass it back to the conductor here.
-                 */
-                curr.cleanup(curr.getErrMsg());
+            }
+
+            synchronized (toNotify) {
+                toNotify.push(curr);
+                toNotify.notify();
             }
 
             ViolaUtil.log("Finished local tests for user=%s assignment=%s run=%d\n", curr.getUser(),
