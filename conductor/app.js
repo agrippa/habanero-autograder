@@ -31,9 +31,13 @@ var PERF_TEST_LBL = 'HABANERO-AUTOGRADER-PERF-TEST';
 
 var PAGE_SIZE = 50;
 
+function log(msg) {
+    console.log(new Date().toLocaleString() + ' ' + msg);
+}
+
 function check_env(varname) {
   if (!(varname in process.env)) {
-    console.log('The ' + varname + ' environment variable must be set');
+    log('The ' + varname + ' environment variable must be set');
     process.exit(1);
   }
   return process.env[varname];
@@ -53,7 +57,7 @@ var transporter = nodemailer.createTransport({
 });
 
 function send_email(to, subject, body, cb) {
-  console.log('send_email: to=' + to + ' subject="' + subject + '"');
+  log('send_email: to=' + to + ' subject="' + subject + '"');
 
   var options = {
     from: 'Habanero AutoGrader <' + GMAIL_USER + '>',
@@ -75,14 +79,14 @@ if (POSTGRES_PASSWORD.length == 0) {
   POSTGRES_USER_TOKEN = POSTGRES_USERNAME + ":" + POSTGRES_PASSWORD;
 }
 
-console.log('Connecting to local PGSQL instance with user ' + POSTGRES_USERNAME);
+log('Connecting to local PGSQL instance with user ' + POSTGRES_USERNAME);
 
 var SVN_USERNAME = process.env.SVN_USER || 'jmg3';
 var SVN_PASSWORD = process.env.SVN_PASSWORD || '';
 var SVN_REPO = process.env.SVN_REPO ||
     'https://svn.rice.edu/r/parsoft/projects/AutoGrader/student-runs';
 
-console.log('Connecting to SVN repo ' + SVN_REPO + ' as user ' + SVN_USERNAME);
+log('Connecting to SVN repo ' + SVN_REPO + ' as user ' + SVN_USERNAME);
 
 var svn_client = new svn({
         username: SVN_USERNAME,
@@ -92,7 +96,7 @@ var svn_client = new svn({
 var VIOLA_HOST = process.env.VIOLA_HOST || 'localhost';
 var VIOLA_PORT = parseInt(process.env.VIOLA_PORT || '8080');
 
-console.log('Connecting to Viola at ' + VIOLA_HOST + ':' + VIOLA_PORT);
+log('Connecting to Viola at ' + VIOLA_HOST + ':' + VIOLA_PORT);
 
 var CLUSTER_HOSTNAME = process.env.CLUSTER_HOSTNAME || 'stic.rice.edu';
 var CLUSTER_USER = process.env.CLUSTER_USER || 'jmg3';
@@ -108,7 +112,7 @@ if (CLUSTER_TYPE !== 'slurm' && CLUSTER_TYPE !== 'local') {
 }
 var CHECK_CLUSTER_PERIOD = 30000;
 
-console.log('Connecting to remote cluster at ' + CLUSTER_HOSTNAME +
+log('Connecting to remote cluster at ' + CLUSTER_HOSTNAME +
   ' of type ' + CLUSTER_TYPE + ' as ' + CLUSTER_USER);
 
 // TODO load this from JSON file
@@ -119,9 +123,9 @@ var cancellationSuccessMsg = 'Successfully cancelled. Please give the job status
 temp.track();
 
 function pgclient(cb) {
-  console.log('pgclient: acquiring PGSQL client...');
+  log('pgclient: acquiring PGSQL client...');
   pg.connect(conString, function(err, client, done) {
-          console.log("pgclient: finished acquiring PGSQL client, err=" + err);
+          log("pgclient: finished acquiring PGSQL client, err=" + err);
           if (err) {
             done();
             return console.error('error fetching client from pool', err);
@@ -140,7 +144,7 @@ function register_query_helpers(query, res, done, username) {
 }
 
 function connect_to_cluster(cb) {
-  console.log('connect_to_cluster: Connecting to cluster of cluster type ' +
+  log('connect_to_cluster: Connecting to cluster of cluster type ' +
       CLUSTER_TYPE + ', cluster hostname ' + CLUSTER_HOSTNAME +
       ', cluster user ' + CLUSTER_USER);
   if (CLUSTER_TYPE === 'slurm') {
@@ -170,13 +174,13 @@ function disconnect_from_cluster(conn) {
 
 // Assume this is called after 'ready' event is triggered.
 function run_cluster_cmd(conn, lbl, cluster_cmd, cb) {
-    console.log('run_cluster_cmd[' + lbl + ']: ' + cluster_cmd);
+    log('run_cluster_cmd[' + lbl + ']: ' + cluster_cmd);
 
     if (CLUSTER_TYPE === 'slurm') {
         conn.exec(cluster_cmd, function(err, stream) {
             if (err) {
                 disconnect_from_cluster(conn);
-                console.log('[' + lbl + '] err=' + err);
+                log('[' + lbl + '] err=' + err);
                 return cb(lbl, conn, null, null);
             }
             var acc_stdout = '';
@@ -184,13 +188,13 @@ function run_cluster_cmd(conn, lbl, cluster_cmd, cb) {
             stream.on('close', function(code, signal) {
                 if (code != 0) {
                     disconnect_from_cluster(conn);
-                    console.log('[' + lbl + '] code=' + code + ' signal=' + signal);
+                    log('[' + lbl + '] code=' + code + ' signal=' + signal);
                     return cb(lbl, conn, acc_stdout, acc_stderr);
                 } else {
                     if (VERBOSE) {
-                        console.log('[' + lbl + '] code=' + code + ' signal=' + signal);
-                        console.log('[' + lbl + '] stdout=' + acc_stdout);
-                        console.log('[' + lbl + '] stderr=' + acc_stderr);
+                        log('[' + lbl + '] code=' + code + ' signal=' + signal);
+                        log('[' + lbl + '] stdout=' + acc_stdout);
+                        log('[' + lbl + '] stderr=' + acc_stderr);
                     }
                     return cb(null, conn, acc_stdout, acc_stderr);
                 }
@@ -210,13 +214,13 @@ function run_cluster_cmd(conn, lbl, cluster_cmd, cb) {
       run.stderr.on('data', function(data) { acc_stderr = acc_stderr + data; });
       run.on('close', function(code) {
         if (code != 0) {
-          console.log('[' + lbl + '] code=' + code + ', cluster_cmd=' + cluster_cmd);
+          log('[' + lbl + '] code=' + code + ', cluster_cmd=' + cluster_cmd);
           return cb(lbl, conn, acc_stdout, acc_stderr);
         } else {
           if (VERBOSE) {
-            console.log('[' + lbl + '] code=' + code);
-            console.log('[' + lbl + '] stdout=' + acc_stdout);
-            console.log('[' + lbl + '] stderr=' + acc_stderr);
+            log('[' + lbl + '] code=' + code);
+            log('[' + lbl + '] stdout=' + acc_stdout);
+            log('[' + lbl + '] stderr=' + acc_stderr);
           }
           return cb(null, conn, acc_stdout, acc_stderr);
         }
@@ -236,12 +240,12 @@ function cluster_scp(src_file, dst_file, is_upload, cb) {
     if (dst_file.trim().search('/') === 0) {
       throw 'All remote directories should be relative, but got ' + dst_file;
     }
-    console.log('cluster_scp: transferring ' + src_file + ' on local machine to ' + dst_file + ' on cluster');
+    log('cluster_scp: transferring ' + src_file + ' on local machine to ' + dst_file + ' on cluster');
   } else {
     if (src_file.trim().search('/') === 0) {
       throw 'All remote directories should be relative, but got ' + src_file;
     }
-    console.log('cluster_scp: transferring ' + src_file + ' on cluster to ' + dst_file + ' on local machine');
+    log('cluster_scp: transferring ' + src_file + ' on cluster to ' + dst_file + ' on local machine');
   }
 
   if (CLUSTER_TYPE === 'slurm') {
@@ -372,11 +376,11 @@ function get_cluster_os(conn, cb) {
   run_cluster_cmd(conn, 'get cluster OS', UNAME_CMD,
       function(err, conn, stdout, stderr) {
         if (err) {
-          console.log('get_cluster_os: err=' + err + ', stderr=' + stderr);
+          log('get_cluster_os: err=' + err + ', stderr=' + stderr);
           cb(err, null);
         } else {
           stdout = stdout.trim();
-          console.log('get_cluster_os: got ' + stdout);
+          log('get_cluster_os: got ' + stdout);
           cb(null, stdout);
         }
       });
@@ -434,7 +438,7 @@ app.post('/login', function(req, res, next) {
   var username = req.body.username;
   var password = req.body.password;
 
-  console.log('login: username=' + username);
+  log('login: username=' + username);
 
   // Check that user exists
   pgclient(function(client, done) {
@@ -469,7 +473,7 @@ app.post('/login', function(req, res, next) {
 });
 
 app.get('/logout', function(req, res, next) {
-  console.log('logout: username=' + req.session.username);
+  log('logout: username=' + req.session.username);
 
   req.session.username = null;
   req.session.user_id = null;
@@ -498,7 +502,7 @@ app.get('*', function(req, res, next) {
 
 app.get('/profile', function(req, res, next) {
   var username = req.session.username;
-  console.log('profile: username=' + username);
+  log('profile: username=' + username);
 
   pgclient(function(client, done) {
     var query = client.query('SELECT * FROM users WHERE user_name=($1)',
@@ -529,7 +533,7 @@ app.get('/profile', function(req, res, next) {
 
 app.post('/notifications/', function(req, res, next) {
   var enable_notifications = ('enable' in req.body);
-  console.log('notifications: user=' + req.session.username +
+  log('notifications: user=' + req.session.username +
       ' enable_notifications=' + enable_notifications);
   pgclient(function(client, done) {
     var query = client.query('UPDATE users SET ' +
@@ -547,7 +551,7 @@ app.get('/overview/:page?', function(req, res, next) {
   var page_str = req.params.page;
   if (!page_str) page_str = '0';
 
-  console.log('overview: user=' + req.session.username + ' page=' + page_str);
+  log('overview: user=' + req.session.username + ' page=' + page_str);
 
   if (isNaN(page_str)) {
       return render_page('overview.html', res, req,
@@ -589,12 +593,12 @@ app.get('/overview/:page?', function(req, res, next) {
 app.get('/leaderboard/:assignment_id?/:page?', function(req, res, next) {
   var target_assignment_id = req.params.assignment_id;
   var page = req.params.page;
-  console.log('leaderboard: username=' + req.session.username +
+  log('leaderboard: username=' + req.session.username +
       ' target_assignment_id=' + target_assignment_id + ' page=' + page);
 
   pgclient(function(client, done) {
     var query = client.query("SELECT assignment_id,name,correctness_only FROM " +
-        "assignments WHERE visible=true;");
+        "assignments WHERE visible=true ORDER BY assignment_id DESC;");
     register_query_helpers(query, res, done, req.session.username);
     query.on('end', function(result) {
       var render_vars = {assignments: result.rows};
@@ -650,7 +654,7 @@ app.get('/leaderboard/:assignment_id?/:page?', function(req, res, next) {
               }
           }
 
-          console.log('leaderboard: found min speedup=' + min_speedup +
+          log('leaderboard: found min speedup=' + min_speedup +
                   ' max speedup=' + max_speedup + ', using bin width=' +
                   bin_width + ' for nbins=' + nbins);
           max_speedup += 0.001;
@@ -660,7 +664,7 @@ app.get('/leaderboard/:assignment_id?/:page?', function(req, res, next) {
                   var speedup = max_runs_only[user];
                   var delta_from_min = speedup - min_speedup;
                   var bin = Math.floor(delta_from_min / bin_width);
-                  console.log('leaderboard: placing speedup ' + speedup + ' in bin ' + bin);
+                  log('leaderboard: placing speedup ' + speedup + ' in bin ' + bin);
                   bins[bin] = bins[bin] + 1;
               }
           }
@@ -695,15 +699,20 @@ app.get('/comments', function(req, res, next) {
 });
 
 app.get('/user_guide', function(req, res, next) {
+  log('user_guide: ' + req.session.username);
   return render_page('user_guide.html', res, req);
 });
 
+app.get('/faq', function(req, res, next) {
+  log('faq: ' + req.session.username);
+  return render_page('faq.html', res, req);
+});
 
 app.post('/comments', function(req, res, next) {
   var comment = req.body.comments;
   send_email('jmg3@rice.edu', 'AUTOGRADER COMMENT', comment, function(err) {
     if (err) {
-      console.log('comments: err=' + err);
+      log('comments: err=' + err);
       return render_page('comments.html', res, req, {err_msg: 'Error submitting comment' });
     }
     return redirect_with_success('/overview', res, req, 'Thank you for your comment!');
@@ -730,7 +739,7 @@ var assignment_file_fields = [
                               { name: 'checkstyle_config', maxCount: 1 }
                              ];
 app.post('/assignment', upload.fields(assignment_file_fields), function(req, res, next) {
-  console.log('assignment: is_admin=' + req.session.is_admin);
+  log('assignment: is_admin=' + req.session.is_admin);
   if (!req.session.is_admin) {
     return res.send(JSON.stringify({ status: 'Failure', msg: permissionDenied }));
   } else {
@@ -882,7 +891,7 @@ function handle_reupload(req, res, missing_msg, target_filename) {
 }
 
 app.post('/update_jvm_args/:assignment_id', function(req, res, next) {
-  console.log('update_jvm_args: is_admin=' + req.session.is_admin + ', jvm_args=' + req.body.jvm_args);
+  log('update_jvm_args: is_admin=' + req.session.is_admin + ', jvm_args=' + req.body.jvm_args);
   if (!req.session.is_admin) {
     return render_page('admin.html', res, req, {err_msg: permissionDenied});
   } else {
@@ -939,7 +948,7 @@ function update_assignment_field(timeout_val, column_name, assignment_id, res, r
 }
 
 app.post('/update_correctness_timeout/:assignment_id', function(req, res, next) {
-  console.log('update_correctness_timeout: is_admin=' + req.session.is_admin +
+  log('update_correctness_timeout: is_admin=' + req.session.is_admin +
       ', new timeout=' + req.body.correctness_timeout);
   if (!req.session.is_admin) {
     return render_page('admin.html', res, req, {err_msg: permissionDenied});
@@ -957,7 +966,7 @@ app.post('/update_correctness_timeout/:assignment_id', function(req, res, next) 
 });
 
 app.post('/update_performance_timeout/:assignment_id', function(req, res, next) {
-  console.log('update_performance_timeout: is_admin=' + req.session.is_admin +
+  log('update_performance_timeout: is_admin=' + req.session.is_admin +
       ', new timeout=' + req.body.performance_timeout);
   if (!req.session.is_admin) {
     return render_page('admin.html', res, req, {err_msg: permissionDenied});
@@ -975,7 +984,7 @@ app.post('/update_performance_timeout/:assignment_id', function(req, res, next) 
 });
 
 app.post('/update_ncores/:assignment_id', function(req, res, next) {
-  console.log('update_ncores: is_admin=' + req.session.is_admin +
+  log('update_ncores: is_admin=' + req.session.is_admin +
       ', new timeout=' + req.body.performance_timeout);
   if (!req.session.is_admin) {
     return render_page('admin.html', res, req, {err_msg: permissionDenied});
@@ -994,13 +1003,13 @@ app.post('/update_ncores/:assignment_id', function(req, res, next) {
 
 app.post('/upload_zip/:assignment_id', upload.single('zip'),
     function(req, res, next) {
-      console.log('upload_zip: is_admin=' + req.session.is_admin);
+      log('upload_zip: is_admin=' + req.session.is_admin);
       return handle_reupload(req, res, 'Please provide a ZIP', 'instructor.zip');
     });
 
 app.post('/upload_instructor_pom/:assignment_id', upload.single('pom'),
     function(req, res, next) {
-      console.log('upload_instructor_pom: is_admin=' + req.session.is_admin);
+      log('upload_instructor_pom: is_admin=' + req.session.is_admin);
 
       if (!req.file) {
           return render_page('admin.html', res, req, {err_msg: 'No POM provided'});
@@ -1017,7 +1026,7 @@ app.post('/upload_instructor_pom/:assignment_id', upload.single('pom'),
 
 app.post('/upload_rubric/:assignment_id', upload.single('rubric'),
     function(req, res, next) {
-      console.log('upload_rubric: is_admin=' + req.session.is_admin);
+      log('upload_rubric: is_admin=' + req.session.is_admin);
 
       if (!req.file) {
           return render_page('admin.html', res, req, {err_msg: 'No rubric provided'});
@@ -1033,7 +1042,7 @@ app.post('/upload_rubric/:assignment_id', upload.single('rubric'),
 
 app.post('/upload_checkstyle/:assignment_id', upload.single('checkstyle_config'),
     function(req, res, next) {
-      console.log('upload_checkstyle: is_admin=' + req.session.is_admin);
+      log('upload_checkstyle: is_admin=' + req.session.is_admin);
 
       return handle_reupload(req, res, 'Please provide a checkstyle file', 'checkstyle.xml');
     });
@@ -1047,7 +1056,7 @@ app.get('/assignments', function(req, res, next) {
   if (req.session.is_admin && req.query.get_not_visible && req.query.get_not_visible === 'true') {
     get_not_visible = true;
   }
-  console.log('assignments: username=' + req.session.username +
+  log('assignments: username=' + req.session.username +
       ' get_not_visible=' + get_not_visible);
 
   pgclient(function(client, done) {
@@ -1060,7 +1069,7 @@ app.get('/assignments', function(req, res, next) {
     register_query_helpers(query, res, done, req.session.username);
     query.on('end', function(result) {
         done();
-        console.log('assignments: returning ' + result.rowCount + ' assignment(s)');
+        log('assignments: returning ' + result.rowCount + ' assignment(s)');
         res.send(JSON.stringify({ status: 'Success',
                 'assignments': result.rows }));
     });
@@ -1068,7 +1077,7 @@ app.get('/assignments', function(req, res, next) {
 });
 
 app.post('/set_assignment_correctness_only', function(req, res, next) {
-  console.log('set_assignment_correctness_only: is_admin=' + req.session.is_admin);
+  log('set_assignment_correctness_only: is_admin=' + req.session.is_admin);
   if (!req.session.is_admin) {
     res.send(JSON.stringify({ status: 'Failure', msg: permissionDenied }));
   } else {
@@ -1102,7 +1111,7 @@ app.post('/set_assignment_correctness_only', function(req, res, next) {
 });
 
 app.post('/set_assignment_visible', function(req, res, next) {
-  console.log('set_assignment_visible: is_admin=' + req.session.is_admin);
+  log('set_assignment_visible: is_admin=' + req.session.is_admin);
   if (!req.session.is_admin) {
     res.send(JSON.stringify({ status: 'Failure', msg: permissionDenied }));
   } else {
@@ -1152,7 +1161,7 @@ function get_user_id_for_name(username, client, done, res, cb) {
     } else {
       // Got the user ID, time to get the assignment ID
       var user_id = result.rows[0].user_id;
-      console.log('get_user_id_for_name: got user_id=' + user_id +
+      log('get_user_id_for_name: got user_id=' + user_id +
           ' for username=' + username);
 
       return cb(user_id, null);
@@ -1179,7 +1188,7 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
             '&timeout=' + correctness_timeout;
           var viola_options = { host: VIOLA_HOST,
               port: VIOLA_PORT, path: '/run?' + encodeURI(viola_params) };
-          console.log('submit_run: sending viola request for run ' + run_id);
+          log('submit_run: sending viola request for run ' + run_id);
           http.get(viola_options, function(viola_res) {
               var bodyChunks = [];
               viola_res.on('data', function(chunk) {
@@ -1197,7 +1206,7 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
                   }
               });
           }).on('error', function(err) {
-              console.log('VIOLA err="' + err + '"');
+              log('VIOLA err="' + err + '"');
               return redirect_with_err('/overview', res, req,
                   'An error occurred launching the local tests');
           });
@@ -1208,21 +1217,21 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
 }
 
 function run_setup_failed(run_id, res, req, err_msg, svn_err) {
-    console.log('run_setup_failed: run_id=' + run_id + ' err_msg="' + err_msg +
+    log('run_setup_failed: run_id=' + run_id + ' err_msg="' + err_msg +
             '" err="' + svn_err + '"');
     pgclient(function(client, done) {
         var query = client.query("UPDATE runs SET status='FAILED'," +
             "finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)", [run_id]);
         query.on('row', function(row, result) { result.addRow(row); }); // unnecessary?
         query.on('error', function(err, result) {
-            console.log('Error storing failure setting up tests for run_id=' +
+            log('Error storing failure setting up tests for run_id=' +
                 run_id + ': ' + err);
             done();
             return redirect_with_err('/overview', res, req, err_msg);
         });
         query.on('end', function(result) {
             done();
-            console.log('Failure initiating tests for run_id=' + run_id + ': ' +
+            log('Failure initiating tests for run_id=' + run_id + ': ' +
                 err_msg);
             return redirect_with_err('/overview', res, req, err_msg);
         });
@@ -1249,7 +1258,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
           var assignment_id = result.rows[0].assignment_id;
           var jvm_args = result.rows[0].jvm_args;
           var correctness_timeout = result.rows[0].correctness_timeout_ms;
-          console.log('submit_run: found assignment_id=' + assignment_id +
+          log('submit_run: found assignment_id=' + assignment_id +
               ' jvm_args="' + jvm_args + '" correctness_timeout=' +
               correctness_timeout + ' for user_id=' + user_id);
 
@@ -1258,7 +1267,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
           if (assignment_correctness_only) correctness_only = true;
 
           crypto.randomBytes(48, function(ex, buf) {
-              console.log('submit_run: got random bytes');
+              log('submit_run: got random bytes');
               var done_token = buf.toString('hex');
 
               var query = client.query("INSERT INTO runs (user_id, " +
@@ -1269,7 +1278,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
               query.on('end', function(result) {
                 done();
                 var run_id = result.rows[0].run_id;
-                console.log('submit_run: got run_id=' + run_id +
+                log('submit_run: got run_id=' + run_id +
                     ' for user_id=' + user_id + ' on assignment_id=' +
                     assignment_id);
                 var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
@@ -1339,7 +1348,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
 }
 
 app.post('/submit_run_as', function(req, res, next) {
-    console.log('submit_run_as: enabled? ' + (fs.existsSync(__dirname + '/enable_run_as')));
+    log('submit_run_as: enabled? ' + (fs.existsSync(__dirname + '/enable_run_as')));
     if (!fs.existsSync(__dirname + '/enable_run_as')) {
         return res.send('submit_run_as not enabled');
     }
@@ -1356,7 +1365,7 @@ app.post('/submit_run_as', function(req, res, next) {
     var for_username = req.query.for_username;
     var svn_url = req.query.svn_url;
     var assignment_name = req.query.assignment_name;
-    console.log('submit_run_as: username="' + username + '" for_username="' +
+    log('submit_run_as: username="' + username + '" for_username="' +
         for_username + '" svn_url="' + svn_url + '" assignment_name="' +
         assignment_name + '"');
 
@@ -1396,7 +1405,7 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
     if ('correctness_only' in req.body && req.body.correctness_only === 'on') {
         correctness_only = true;
     }
-    console.log('submit_run: username=' + req.session.username +
+    log('submit_run: username=' + req.session.username +
       ' assignment="' + assignment_name + '"');
 
     if (assignment_name.length === 0) {
@@ -1582,16 +1591,18 @@ function failed_starting_perf_tests(res, failure_msg, done, client, run_id, conn
   if (conn) disconnect_from_cluster(conn);
 
   query = client.query(
-      "UPDATE runs SET status='FAILED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
+      "UPDATE runs SET status='FAILED',finish_time=CURRENT_TIMESTAMP," +
+      "cello_msg='An internal error occurred initiating the performance " +
+      "tests, please contact the teaching staff' WHERE run_id=($1)",
       [run_id]);
   query.on('row', function(row, result) { result.addRow(row); }); // unnecessary?
   query.on('error', function(err, result) {
-    console.log('Error storing failure starting perf tests: ' + err);
+    log('Error storing failure starting perf tests: ' + err);
     done();
   });
   query.on('end', function(result) {
     done();
-    console.log('Failure initiating performance tests: ' + failure_msg);
+    log('Failure initiating performance tests: ' + failure_msg);
     return res.send(JSON.stringify({status: 'Failure', msg: failure_msg}));
   });
 }
@@ -1615,7 +1626,7 @@ function count_new_lines(content) {
 app.post('/local_run_finished', function(req, res, next) {
     var done_token = req.body.done_token;
     var viola_err_msg = req.body.err_msg;
-    console.log('local_run_finished: done_token=' + done_token + ' err_msg="' +
+    log('local_run_finished: done_token=' + done_token + ' err_msg="' +
         viola_err_msg + '"');
 
     pgclient(function(client, done) {
@@ -1630,7 +1641,7 @@ app.post('/local_run_finished', function(req, res, next) {
             var user_id = result.rows[0].user_id;
             var assignment_id = result.rows[0].assignment_id;
             var correctness_only = result.rows[0].correctness_only;
-            console.log('local_run_finished: run_id=' + run_id + ' user_id=' +
+            log('local_run_finished: run_id=' + run_id + ' user_id=' +
                 user_id + ' assignment_id=' + assignment_id +
                 ' correctness_only=' + correctness_only);
 
@@ -1744,7 +1755,7 @@ app.post('/local_run_finished', function(req, res, next) {
                               register_query_helpers(query, res, done, username);
                               query.on('end', function(result) {
 
-                                  console.log('local_run_finished: Connecting to ' +
+                                  log('local_run_finished: Connecting to ' +
                                       CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
                                   // Launch on the cluster
 
@@ -1853,7 +1864,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                                         batched_cluster_scp(copies, true, function(stat) {
                                                             for (var i = 0; i < stat.length; i++) {
                                                               if (!stat[i].success) {
-                                                                console.log('scp err copying to ' + stat[i].dst + ' from ' + stat[i].src + ', ' + stat[i].err);
+                                                                log('scp err copying to ' + stat[i].dst + ' from ' + stat[i].src + ', ' + stat[i].err);
                                                                 return failed_starting_perf_tests(res,
                                                                   'Failed scp-ing cello.slurm+security.policy', done, client, run_id, conn);
                                                               }
@@ -1892,7 +1903,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                                             } else {
                                                               // local cluster
                                                               var cello_script = process.env.HOME + '/autograder/' + run_id + '/cello.slurm';
-                                                              console.log('local_run_finished: starting local run from ' + cello_script);
+                                                              log('local_run_finished: starting local run from ' + cello_script);
                                                               var run_cmd = '/bin/bash ' + cello_script;
 
                                                               run_cluster_cmd(conn, 'local perf run', run_cmd,
@@ -2194,7 +2205,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
 
   var validated = load_and_validate_rubric(rubric_file);
   if (!validated.success) {
-    console.log('calculate_score: failed loading rubric, ' + validated.msg);
+    log('calculate_score: failed loading rubric, ' + validated.msg);
     return null;
   }
   var rubric = validated.rubric;
@@ -2228,7 +2239,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
     var any_nonempty_stderr_lines = check_for_empty_stderr(lines);
 
     if (any_nonempty_stderr_lines) {
-      console.log('calculate_score: setting correctness score to 0 for run ' +
+      log('calculate_score: setting correctness score to 0 for run ' +
               run_id + ' due to non-empty stderr');
       correctness = 0.0;
     } else {
@@ -2254,7 +2265,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
          * The most likely cause is a timeout during the student tests, so assign
          * a score of 0 for correctness.
          */
-        console.log('calculate_score: setting correctness score to 0 for run ' +
+        log('calculate_score: setting correctness score to 0 for run ' +
                 run_id + ' because failure report not found');
         correctness = 0.0;
       } else {
@@ -2275,7 +2286,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
 
               var test = find_correctness_test_with_name(fullname, rubric);
               if (test) {
-                console.log('calculate_score: taking off ' + test.points_worth +
+                log('calculate_score: taking off ' + test.points_worth +
                     ' points for test ' + test.testname + ' on run ' + run_id);
                 correctness -= test.points_worth;
               }
@@ -2285,7 +2296,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
       }
     }
   } else {
-    console.log('calculate_score: setting correctness score to 0 for run ' +
+    log('calculate_score: setting correctness score to 0 for run ' +
             run_id + ', run_status=' + run_status +
             ', correct.txt in log files? ' + ('correct.txt' in log_files));
     correctness = 0.0;
@@ -2306,7 +2317,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
         var seq_time = parseInt(tokens[3]);
         var parallel_time = parseInt(tokens[4]);
 
-        console.log('calculate_score: found multi thread perf for test=' +
+        log('calculate_score: found multi thread perf for test=' +
                 testname + ', seq_time=' + seq_time + ', parallel_time=' +
                 parallel_time + ' for run ' + run_id);
 
@@ -2323,21 +2334,21 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
                 (top_exclusive < 0.0 || top_exclusive > speedup)) {
               matched = true;
               test_score -= grading[g].points_off;
-              console.log('calculate_score: deducting ' +
+              log('calculate_score: deducting ' +
                       grading[g].points_off + ' points on test ' + testname +
                       ' for speedup of ' + speedup + ', in range ' +
                       bottom_inclusive + '->' + top_exclusive + ' for run ' +
                       run_id);
             }
           }
-          console.log('calculate_score: giving test ' + testname + ' ' +
+          log('calculate_score: giving test ' + testname + ' ' +
                   test_score + ' points for run ' + run_id + ' with speedup ' + speedup);
           performance += test_score;
         }
       }
     }
   } else {
-      console.log('calculate_score: forcing performance to 0 for run ' +
+      log('calculate_score: forcing performance to 0 for run ' +
               run_id + ', run_status=' + run_status + ', have log file? ' +
               ('performance.' + ncores + '.txt' in log_files));
   }
@@ -2379,7 +2390,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
 
 app.get('/run/:run_id', function(req, res, next) {
     var run_id = req.params.run_id;
-    console.log('run: run_id=' + run_id);
+    log('run: run_id=' + run_id);
 
     pgclient(function(client, done) {
         var query = client.query("SELECT * FROM runs WHERE run_id=($1)",
@@ -2394,6 +2405,7 @@ app.get('/run/:run_id', function(req, res, next) {
             var run_status = result.rows[0].status;
             var assignment_id = result.rows[0].assignment_id;
             var viola_err_msg = result.rows[0].viola_msg;
+            var cello_msg = result.rows[0].cello_msg;
             var ncores = result.rows[0].ncores; 
             var passed_checkstyle = result.rows[0].passed_checkstyle;
             var compiled = result.rows[0].compiled;
@@ -2469,7 +2481,7 @@ app.get('/run/:run_id', function(req, res, next) {
                       fs.readdirSync(run_dir).forEach(function(file) {
                         if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 &&
                               !arr_contains(file, dont_display)) {
-                            console.log('run: run_id=' + run_id + ' reading file ' + run_dir + '/' + file);
+                            log('run: run_id=' + run_id + ' reading file ' + run_dir + '/' + file);
                             var path = run_dir + '/' + file;
                             if (get_file_size(path) < MAX_FILE_SIZE) {
                               var contents = fs.readFileSync(run_dir + '/' + file, 'utf8');
@@ -2494,6 +2506,10 @@ app.get('/run/:run_id', function(req, res, next) {
                         }
                       });
 
+                      if (cello_err === null && cello_msg.length > 0) {
+                          cello_err = cello_msg;
+                      }
+
                       var score = calculate_score(assignment_id, log_files, ncores,
                               run_status, run_id);
                       var render_vars = {run_id: run_id, log_files: log_files,
@@ -2507,11 +2523,11 @@ app.get('/run/:run_id', function(req, res, next) {
                                          run_status: run_status,
                                          assignment_name: assignment_name};
                       if (score) {
-                        console.log('run: calculated score ' + score.total + '/' +
+                        log('run: calculated score ' + score.total + '/' +
                                 score.total_possible + ' for run ' + run_id);
                         render_vars['score'] = score;
                       } else {
-                        console.log('run: error calculating score for run ' + run_id);
+                        log('run: error calculating score for run ' + run_id);
                         render_vars['score'] = {total: 0.0, total_possible: 0.0,
                             breakdown: []}
                         render_vars['err_msg'] = 'Error calculating score';
@@ -2526,7 +2542,7 @@ app.get('/run/:run_id', function(req, res, next) {
 });
 
 app.post('/cancel/:run_id', function(req, res, next) {
-    console.log('cancel: run_id=' + req.params.run_id + ' user=' + req.session.username);
+    log('cancel: run_id=' + req.params.run_id + ' user=' + req.session.username);
     if (!req.params.run_id) {
         return redirect_with_err('/overview', res, req,
             'No run ID was provided for cancellation');
@@ -2556,7 +2572,7 @@ app.post('/cancel/:run_id', function(req, res, next) {
             var viola_params = 'done_token=' + result.rows[0].done_token;
             var viola_options = { host: VIOLA_HOST,
                 port: VIOLA_PORT, path: '/cancel?' + encodeURI(viola_params) };
-            console.log('cancel: signaling Viola to cancel run ' + req.params.run_id);
+            log('cancel: signaling Viola to cancel run ' + req.params.run_id);
             http.get(viola_options, function(viola_res) {
                 var bodyChunks = [];
                 viola_res.on('data', function(chunk) {
@@ -2569,7 +2585,7 @@ app.post('/cancel/:run_id', function(req, res, next) {
                         var found_run_on_viola = result.found;
                         if (found_run_on_viola || correctness_only) {
                             // We can be confident the run was killed or completed on Viola before reaching the cluster
-                            console.log('cancel: run ' + req.params.run_id + ' successfully cancelled on Viola');
+                            log('cancel: run ' + req.params.run_id + ' successfully cancelled on Viola');
                             done();
                             return redirect_with_success('/overview', res, req,
                                 cancellationSuccessMsg);
@@ -2581,7 +2597,7 @@ app.post('/cancel/:run_id', function(req, res, next) {
                              * have happened yet, report an error message to the
                              * user to try again in the future.
                              */
-                            console.log('cancel: run cancellation did not find run ' + req.params.run_id + ' on Viola');
+                            log('cancel: run cancellation did not find run ' + req.params.run_id + ' on Viola');
                             var query = client.query(
                                 'SELECT * FROM runs WHERE run_id=($1)', [req.params.run_id]);
                             register_query_helpers(query, res, done, req.session.username);
@@ -2617,7 +2633,7 @@ app.post('/cancel/:run_id', function(req, res, next) {
                     }
                 });
             }).on('error', function(err) {
-                console.log('VIOLA err="' + err + '"');
+                log('VIOLA err="' + err + '"');
                 return redirect_with_err('/overview', res, req,
                     'An error occurred cancelling run ' + req.params.run_id);
             });
@@ -2630,37 +2646,44 @@ app.get('/', function(req, res, next) {
   return res.redirect('overview');
 });
 
+var checkClusterActive = false;
+function set_check_cluster_timeout(t) {
+    log('set_check_cluster_timeout: timeout=' + t);
+    checkClusterActive = false;
+    setTimeout(check_cluster, t);
+}
+
 function abort_and_reset_perf_tests(err, done, conn, lbl) {
-  console.log(lbl + ' err=' + err);
+  log('abort_and_reset_perf_tests: ' + lbl + ' err=' + err);
   done();
   disconnect_from_cluster(conn);
-  setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+  set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
 }
 
 function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
     query.on('row', function(row, result) { result.addRow(row); });
     query.on('error', function(err, result) {
-            console.log('Error updating running perf tests: ' + err);
+            log('Error updating running perf tests: ' + err);
             done();
             disconnect_from_cluster(conn);
-            setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+            set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
     });
     query.on('end', function(result) {
       var query = client.query(
         'SELECT * FROM users WHERE user_id=($1)', [run.user_id]);
       query.on('row', function(row, result) { result.addRow(row); });
       query.on('error', function(err, result) {
-              console.log('Error finding user name: ' + err);
+              log('Error finding user name: ' + err);
               done();
               disconnect_from_cluster(conn);
-              setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+              set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
       });
       query.on('end', function(result) {
         if (result.rows.length != 1) {
-          console.log('Missing user, user_id=' + run.user_id);
+          log('Missing user, user_id=' + run.user_id);
           done();
           disconnect_from_cluster(conn);
-          setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+          set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
         } else {
           var username = result.rows[0].user_name;
           var wants_notification = result.rows[0].receive_email_notifications;
@@ -2707,10 +2730,10 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
               var svn_add_cmd = ['add'];
               for (var i = 0; i < stat.length; i++) {
                 if (stat[i].success) {
-                  console.log('finish_perf_tests: successfully copied back to ' + stat[i].dst);
+                  log('finish_perf_tests: successfully copied back to ' + stat[i].dst);
                   svn_add_cmd.push(stat[i].dst);
                 } else {
-                  console.log('finish_perf_tests: scp err copying to ' + stat[i].dst + ', err=' +
+                  log('finish_perf_tests: scp err copying to ' + stat[i].dst + ', err=' +
                     stat[i].err);
                   any_missing_files = true;
                 }
@@ -2773,10 +2796,10 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                             [!any_missing_files, characteristic_speedup, run.run_id]);
                         query.on('row', function(row, result) { result.addRow(row); });
                         query.on('error', function(err, result) {
-                            console.log('Error updating performance run state: ' + err);
+                            log('Error updating performance run state: ' + err);
                             done();
                             disconnect_from_cluster(conn);
-                            setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+                            set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
                         });
                         query.on('end', function(result) {
                             if (wants_notification) {
@@ -2812,10 +2835,11 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
     if (i >= perf_runs.length) {
         done();
         disconnect_from_cluster(conn);
-        setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+        set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
     } else {
         var run = perf_runs[i];
-        console.log('check_cluster_helper: ' + JSON.stringify(run));
+        log('check_cluster_helper: ' + (i + 1) + '/' +
+                perf_runs.length + ' ' + JSON.stringify(run));
 
         if (CLUSTER_TYPE === 'slurm') {
             var SACCT = "sacct --noheader -j " + run.job_id + " -u jmg3 " +
@@ -2824,35 +2848,35 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                 if (err) {
                   done();
                   disconnect_from_cluster(conn);
-                  setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+                  set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
                   return;
                 }
                 stdout = stdout.trim();
 
-                console.log('check_cluster_helper: got status "' + stdout + '" back from cluster for job ' + run.job_id);
+                log('check_cluster_helper: got status "' + stdout + '" back from cluster for job ' + run.job_id);
 
                 var finished = false;
                 var query = null;
                 if (stdout === 'FAILED' || stdout === 'TIMEOUT') {
-                    console.log('check_cluster_helper: marking ' + run.run_id + ' FAILED');
+                    log('check_cluster_helper: marking ' + run.run_id + ' FAILED');
                     query = client.query(
                         "UPDATE runs SET status='FAILED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
                         [run.run_id]);
                     finished = true;
                 } else if (string_starts_with(stdout, 'CANCELLED')) {
-                    console.log('check_cluster_helper: marking ' + run.run_id + ' CANCELLED');
+                    log('check_cluster_helper: marking ' + run.run_id + ' CANCELLED');
                     query = client.query(
                         "UPDATE runs SET status='CANCELLED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
                         [run.run_id]);
                     finished = true;
                 } else if (stdout === 'COMPLETED') {
-                    console.log('check_cluster_helper: marking ' + run.run_id + ' FINISHED');
+                    log('check_cluster_helper: marking ' + run.run_id + ' FINISHED');
                     query = client.query(
                         "UPDATE runs SET status='FINISHED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
                         [run.run_id]);
                     finished = true;
                 } else if (stdout === 'RUNNING') {
-                    console.log('check_cluster_helper: marking ' + run.run_id + ' as TESTING PERFORMANCE');
+                    log('check_cluster_helper: marking ' + run.run_id + ' as TESTING PERFORMANCE');
                     query = client.query(
                         "UPDATE runs SET status='TESTING PERFORMANCE' WHERE run_id=($1)",
                         [run.run_id]);
@@ -2863,10 +2887,10 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                 } else if (query) {
                     query.on('row', function(row, result) { result.addRow(row); });
                     query.on('error', function(err, result) {
-                        console.log('Error updating running perf tests: ' + err);
+                        log('Error updating running perf tests: ' + err);
                         done();
                         disconnect_from_cluster(conn);
-                        setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
+                        set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
                     });
                     query.on('end', function(result) {
                         check_cluster_helper(perf_runs, i + 1, conn, client, done);
@@ -2877,10 +2901,10 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
             });
         } else {
             if (run.job_id !== LOCAL_JOB_ID) {
-                console.log('Unexpected job_id "' + run.job_id + '" for local cluster');
+                log('Unexpected job_id "' + run.job_id + '" for local cluster');
                 check_cluster_helper(perf_runs, i + 1, conn, client, done);
             } else {
-                console.log('check_cluster_helper: marking ' + run.run_id + ' FINISHED');
+                log('check_cluster_helper: marking ' + run.run_id + ' FINISHED');
                 var query = client.query(
                     "UPDATE runs SET status='FINISHED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
                     [run.run_id]);
@@ -2892,29 +2916,43 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
 
 // Cluster functionality
 function check_cluster() {
-    pgclient(function(client, done) {
-        var query = client.query("SELECT * FROM runs WHERE (job_id IS NOT NULL) AND ((status='TESTING PERFORMANCE') OR (status='IN CLUSTER QUEUE'))");
-        query.on('row', function(row, result) { result.addRow(row); });
-        query.on('error', function(err, result) {
-                done();
-                console.log('Error looking up running perf tests: ' + err);
-                setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
-        });
-        query.on('end', function(result) {
+    if (checkClusterActive) {
+        console.log('check_cluster: woke up and a cluster checker was already active?!');
+    } else {
+        checkClusterActive = true;
+        pgclient(function(client, done) {
+            var query = client.query("SELECT * FROM runs WHERE (job_id IS NOT " +
+                "NULL) AND ((status='TESTING PERFORMANCE') OR (status='IN CLUSTER " +
+                "QUEUE'))");
+            query.on('row', function(row, result) { result.addRow(row); });
+            query.on('error', function(err, result) {
+                    done();
+                    log('Error looking up running perf tests: ' + err);
+                    set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+            });
+            query.on('end', function(result) {
 
-            var perf_runs = result.rows;
-            connect_to_cluster(function(conn, err) {
-                if (err) {
-                  console.log('Error connecting to cluster with ' +
-                    CLUSTER_USER + '@' + CLUSTER_HOSTNAME + ', err=' + err);
-                  done();
-                  setTimeout(check_cluster, CHECK_CLUSTER_PERIOD);
-                } else {
-                  check_cluster_helper(perf_runs, 0, conn, client, done);
-                }
+                var perf_runs = result.rows;
+                connect_to_cluster(function(conn, err) {
+                    if (err) {
+                      log('Error connecting to cluster with ' +
+                        CLUSTER_USER + '@' + CLUSTER_HOSTNAME + ', err=' + err);
+                      done();
+                      set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+                    } else {
+                        var running_jobs_str = '[';
+                        for (var i = 0; i < perf_runs.length; i++) {
+                            running_jobs_str = running_jobs_str + ' ' + perf_runs[i].run_id;
+                        }
+                        running_jobs_str = running_jobs_str + ' ]';
+                        log('check_cluster: found ' + perf_runs.length +
+                            ' running jobs ' + running_jobs_str);
+                      check_cluster_helper(perf_runs, 0, conn, client, done);
+                    }
+                });
             });
         });
-    });
+    }
 }
 
 pgclient(function(client, done) {
@@ -2926,13 +2964,13 @@ pgclient(function(client, done) {
   query.on('row', function(row, result) { result.addRow(row); });
   query.on('error', function(err, result) {
     done();
-    console.log('Error on initial cleanup, err=' + err);
+    log('Error on initial cleanup, err=' + err);
     process.exit(1);
   });
   query.on('end', function(result) {
     done();
 
-    setTimeout(check_cluster, 0);
+    set_check_cluster_timeout(0);
 
     var port = process.env.PORT || 8000;
 
@@ -2940,7 +2978,7 @@ pgclient(function(client, done) {
     app.use(express.static(__dirname + '/views', { maxAge: oneDay }));
 
     var server = app.listen(port, function() {
-      console.log('Server listening at http://%s:%s', 
+      log('Server listening at http://%s:%s', 
         server.address().address,
         server.address().port);
     });
