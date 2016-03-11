@@ -143,6 +143,11 @@ function register_query_helpers(query, res, done, username) {
     });
 }
 
+function svn_cmd(cmd, cb) {
+    log('svn_cmd: ' + cmd.join(' '));
+    return svn_client.cmd(cmd, cb);
+}
+
 function connect_to_cluster(cb) {
   log('connect_to_cluster: Connecting to cluster of cluster type ' +
       CLUSTER_TYPE + ', cluster hostname ' + CLUSTER_HOSTNAME +
@@ -792,13 +797,13 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
 
               var dst_dir = SVN_REPO + '/assignments/' + assignment_id;
               var mkdir_msg = 'create assignment ' + assignment_id;
-              svn_client.cmd(['mkdir', '--parents', '--message', mkdir_msg, dst_dir],
+              svn_cmd(['mkdir', '--parents', '--message', mkdir_msg, dst_dir],
                 function(err, data) {
                   if (is_actual_svn_err(err)) {
                     return render_page('admin.html', res, req,
                       {err_msg: 'Error creating assignment directory'});
                   } else {
-                    svn_client.cmd(['checkout', dst_dir, assignment_dir], function(err, data) {
+                    svn_cmd(['checkout', dst_dir, assignment_dir], function(err, data) {
                       if (is_actual_svn_err(err)) {
                         return render_page('admin.html', res, req,
                           {err_msg: 'Error checking out assignment directory'});
@@ -812,7 +817,7 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
                         fs.renameSync(req.files.checkstyle_config[0].path,
                           assignment_dir + '/checkstyle.xml');
 
-                        svn_client.cmd(['add',
+                        svn_cmd(['add',
                           assignment_dir + '/instructor.zip',
                           assignment_dir + '/instructor_pom.xml',
                           assignment_dir + '/rubric.json',
@@ -822,7 +827,7 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
                                 {err_msg: 'Error adding files to assignment repo'});
                             } else {
                               var commit_msg = 'initial commit for assignment ' + assignment_id;
-                              svn_client.cmd(['commit', '--message', commit_msg, assignment_dir],
+                              svn_cmd(['commit', '--message', commit_msg, assignment_dir],
                                 function(err, data) {
                                   if (is_actual_svn_err(err)) {
                                     return render_page('admin.html', res, req,
@@ -868,14 +873,14 @@ function handle_reupload(req, res, missing_msg, target_filename) {
            * changes to the repo this ensures we're on the latest revision on
            * the NodeJS server (and handles the buggy Habanero repo).
            */
-          svn_client.cmd(['update', '--accept', 'theirs-full', assignment_dir], function(err, data) {
+          svn_cmd(['update', '--accept', 'theirs-full', assignment_dir], function(err, data) {
             if (is_actual_svn_err(err)) {
               return render_page('admin.html', res, req, {err_msg: 'Error updating file in the repo'});
             }
 
             fs.renameSync(req.file.path, assignment_dir + '/' + target_filename);
             var commit_msg = 'reupload ' + target_filename + ' for assignment' + assignment_id;
-            svn_client.cmd(['commit', '--message', commit_msg, assignment_dir],
+            svn_cmd(['commit', '--message', commit_msg, assignment_dir],
               function(err, data) {
                 if (is_actual_svn_err(err)) {
                   return render_page('admin.html', res, req, {err_msg: 'Error updating file in the repo'});
@@ -1171,13 +1176,13 @@ function get_user_id_for_name(username, client, done, res, cb) {
 
 function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
       assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb) {
-  svn_client.cmd(['add', run_dir + '/student.zip'], function(err, data) {
+  svn_cmd(['add', run_dir + '/student.zip'], function(err, data) {
     if (is_actual_svn_err(err)) {
       return redirect_with_err('/overview', res, req,
         'An error occurred backing up your submission, adding submission');
     } else {
       var commit_msg = '"add ' + username + ' ' + assignment_name + ' ' + run_id + '"';
-      svn_client.cmd(['commit', '--message', commit_msg, run_dir], function(err, data) {
+      svn_cmd(['commit', '--message', commit_msg, run_dir], function(err, data) {
         if (is_actual_svn_err(err)) {
           return redirect_with_err('/overview', res, req,
               'An error occurred backing up your submission, committing submission');
@@ -1286,13 +1291,13 @@ function submit_run(user_id, username, assignment_name, correctness_only,
 
                 // Create run directory to store information on this run
                 var mkdir_msg = '"mkdir ' + username + ' ' + assignment_name + ' ' + run_id + '"';
-                svn_client.cmd(['mkdir', '--parents', '--message', mkdir_msg, svn_dir], function(err, data) {
+                svn_cmd(['mkdir', '--parents', '--message', mkdir_msg, svn_dir], function(err, data) {
                   // Special-case an error message from the Habanero repo that we can safely ignore
                   if (is_actual_svn_err(err)) {
                       return run_setup_failed(run_id, res, req,
                           'An error occurred backing up your submission, creating repo location for submission', err);
                   } else {
-                    svn_client.cmd(['checkout', svn_dir, run_dir], function(err, data) {
+                    svn_cmd(['checkout', svn_dir, run_dir], function(err, data) {
                       if (is_actual_svn_err(err)) {
                           return run_setup_failed(run_id, res, req,
                               'An error occurred backing up your submission, checking out repo location for submission', err);
@@ -1310,7 +1315,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                                     'Internal error creating temporary directory', err);
                             }
 
-                            svn_client.cmd(['export', svn_url,
+                            svn_cmd(['export', svn_url,
                                 temp_dir + '/submission_svn_folder'], function(err, data) {
                               if (is_actual_svn_err(err)) {
                                   return run_setup_failed(run_id, res, req,
@@ -1655,7 +1660,7 @@ app.post('/local_run_finished', function(req, res, next) {
                 var wants_notification = result.rows[0].receive_email_notifications;
                 var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
 
-                svn_client.cmd(['up', '--accept', 'theirs-full', run_dir], function(err, data) {
+                svn_cmd(['up', '--accept', 'theirs-full', run_dir], function(err, data) {
                   if (err) {
                     return failed_starting_perf_tests(res, 'Failed updating repo', done, client, run_id, null);
                   }
@@ -2780,12 +2785,12 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs,
                   if (err) {
                     return abort_and_reset_perf_tests(err, done, conn, 'delete');
                   }
-                  svn_client.cmd(svn_add_cmd, function(err, data) {
+                  svn_cmd(svn_add_cmd, function(err, data) {
                     if (err) {
                       return abort_and_reset_perf_tests(err, done, conn,
                         'adding local files');
                     }
-                    svn_client.cmd(['commit', '--message', 'add local files', LOCAL_FOLDER],
+                    svn_cmd(['commit', '--message', 'add local files', LOCAL_FOLDER],
                       function(err, data) {
                         if (err) {
                           return abort_and_reset_perf_tests(err, done, conn,
