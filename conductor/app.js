@@ -2660,7 +2660,8 @@ function abort_and_reset_perf_tests(err, done, conn, lbl) {
   set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
 }
 
-function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
+function finish_perf_tests(query, run, conn, done, client, perf_runs,
+        current_perf_runs_index) {
     query.on('row', function(row, result) { result.addRow(row); });
     query.on('error', function(err, result) {
             log('Error updating running perf tests: ' + err);
@@ -2814,10 +2815,14 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs, i) {
                                   return abort_and_reset_perf_tests(err, done, conn,
                                     'sending notification email');
                                 }
-                                check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                                check_cluster_helper(perf_runs,
+                                    current_perf_runs_index + 1, conn, client,
+                                    done);
                               });
                             } else {
-                              check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                              check_cluster_helper(perf_runs,
+                                  current_perf_runs_index + 1, conn, client,
+                                  done);
                             }
                         });
                       });
