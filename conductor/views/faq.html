@@ -20,8 +20,21 @@
         <hr/>
         <h5>I see an error that starts with "/var/spool/slurm/job894552/slurm_script: line 47:   456 Killed                  java -Djava.security.manager -Djava.security.policy==$CELLO_WORK_DIR/security.policy ...", what does this mean?</h5>
         <hr/>
-        <p>This error message generally indicates that your application tried to use more memory than was allotted to it on the cluster.</p>
+        <p>This error message generally indicates that your application tried to
+        use more memory than was allotted to it on the cluster.</p>
+      </div>
+    </div>
+
+    <div class="row" style="width:100%">
+      <div class="col-md-8 col-md-offset-2">
         <hr/>
+        <h5>I see the error "Performance tests reported error: An internal error occurred initiating the performance tests, please contact the teaching staff", what does this mean?</h5>
+        <hr/>
+        <p>This error message generally indicates a timeout connecting from the
+        autograder to the cluster on which the performance tests will run. The
+        recommended action is to see if resubmitting your test run resolves this
+        error. If the error message persists, please contact the teaching
+        staff.</p>
       </div>
     </div>
 
