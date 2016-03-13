@@ -417,7 +417,11 @@ public class LocalTestRunner {
                 unzipped_code_dir);
             PrintWriter writer = new PrintWriter(
                 logDir.getAbsolutePath() + "/checkstyle.txt", "UTF-8");
-            writer.println(checkstyle_results.stdout);
+            if (checkstyle_results.stderr.length() > 0) {
+                writer.println(checkstyle_results.stderr);
+            } else {
+                writer.println(checkstyle_results.stdout);
+            }
             writer.close();
 
             /*

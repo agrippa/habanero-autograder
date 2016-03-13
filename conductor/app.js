@@ -254,6 +254,8 @@ function cluster_scp(src_file, dst_file, is_upload, cb) {
   }
 
   if (CLUSTER_TYPE === 'slurm') {
+      var start_time = new Date().getTime();
+
       if (is_upload) {
         scp.send({file: src_file,
                   user: CLUSTER_USER,
@@ -261,6 +263,7 @@ function cluster_scp(src_file, dst_file, is_upload, cb) {
                   port: '22',
                   path: dst_file},
                   function(err) {
+                      log('cluster_scp: upload from ' + src_file + ' took ' + (new Date().getTime() - start_time) + ' ms');
                       cb(err);
                   });
       } else {
@@ -270,6 +273,7 @@ function cluster_scp(src_file, dst_file, is_upload, cb) {
                  port: '22',
                  path: dst_file},
                  function(err) {
+                     log('cluster_scp: download to ' + dst_file + ' took ' + (new Date().getTime() - start_time) + ' ms');
                      cb(err);
                  });
       }
@@ -431,6 +435,32 @@ app.use(session({secret: 'blarp', cookie:{maxAge: 7 * 24 * 3600 * 1000}}));
 app.engine('html', ejs.renderFile);
 app.set('view engine', 'html');
 app.set('views', __dirname + "/views");
+
+app.get('/status/:run_id', function(req, res, next) {
+    var run_id = req.params.run_id;
+    log('status: run_id=' + run_id);
+
+    /*
+     * Deliberately don't check permissions, it's okay to leave this endpoint
+     * in the open.
+     */
+    pgclient(function(client, done) {
+        var query = client.query("SELECT * FROM runs WHERE run_id=($1)",
+            [run_id]);
+        query.on('row', function(row, result) { result.addRow(row); });
+        query.on('error', function(err, result) {
+                done();
+                return res.send('INTERNAL FAILURE');
+        });
+        query.on('end', function(result) {
+            done();
+            if (result.rowCount != 1) {
+                return res.send('UNKNOWN RUN');
+            }
+            return res.send(result.rows[0].status);
+        });
+    });
+});
 
 /*
  * login/logout routes should always be the only routes above the wildcard '*' route
@@ -833,7 +863,27 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
                                     return render_page('admin.html', res, req,
                                       {err_msg: 'Error committing files to assignment repo'});
                                   } else {
-                                    return res.redirect('/admin');
+                                      connect_to_cluster(function(conn, err) {
+                                          if (err) {
+                                              return render_page('admin.html', res, req, {err_msg: 'Error connecting to cluster'});
+                                          } else {
+                                              create_cluster_dir('autograder-assignments', conn, function(err, conn, stdout, stderr) {
+                                                  if (err) {
+                                                      disconnect_from_cluster(conn);
+                                                      return render_page('admin.html', res, req, {err_msg: 'Unable to create directory on cluster'});
+                                                  }
+
+                                                  cluster_scp(assignment_dir, 'autograder-assignments/' + assignment_id, true, function(err) {
+                                                      disconnect_from_cluster(conn);
+                                                      if (err) {
+                                                          return render_page('admin.html', res, req, {err_msg: 'Unable to upload to cluster'});
+                                                      }
+
+                                                      return res.redirect('/admin');
+                                                  });
+                                              });
+                                          }
+                                      });
                                   }
                                 });
                             }
@@ -885,7 +935,19 @@ function handle_reupload(req, res, missing_msg, target_filename) {
                 if (is_actual_svn_err(err)) {
                   return render_page('admin.html', res, req, {err_msg: 'Error updating file in the repo'});
                 } else {
-                  return res.redirect('/admin');
+                  // Update copy on the cluster
+                  connect_to_cluster(function(conn, err) {
+                      if (err) {
+                          return render_page('admin.html', res, req, {err_msg: 'Error connecting to cluster'});
+                      }
+                      cluster_scp(assignment_dir + '/' + target_filename, 'autograder-assignments/' + assignment_id + '/', true, function(err) {
+                          disconnect_from_cluster(conn);
+                          if (err) {
+                              return render_page('admin.html', res, req, {err_msg: 'Unable to upload to cluster'});
+                          }
+                          return res.redirect('/admin');
+                      });
+                  });
                 }
               });
           });
@@ -1534,7 +1596,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   slurmFileContents += '    rm $F\n';
   slurmFileContents += 'done\n';
   slurmFileContents += '\n';
-  slurmFileContents += 'mvn -f $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml clean compile test-compile\n';
+  slurmFileContents += 'mvn -Dcheckstyle.skip=true -f $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml clean compile test-compile\n';
   slurmFileContents += 'cd $CELLO_WORK_DIR/submission/student/$STUDENT_DIR\n';
 
   var remotePolicyPath = '$CELLO_WORK_DIR/security.policy';
@@ -1827,7 +1889,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                                   return failed_starting_perf_tests(res,
                                                        'Failed checking out student code', done, client, run_id, conn);
                                                 }
-                                                cluster_scp(__dirname + '/instructor-tests/' + assignment_id, 'autograder/' + run_id + '/assignment', true, function(err) {
+                                                run_cluster_cmd(conn, 'instructor files cp', 'cp -r autograder-assignments/' + assignment_id + ' autograder/' + run_id + '/assignment', function(err, conn, stdout, stderr) {
                                                 // run_cluster_cmd(conn, 'assignment checkout', assignment_checkout,
                                                 //   function(err, conn, stdout, stderr) {
                                                     if (err) {
