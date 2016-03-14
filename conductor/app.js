@@ -1306,7 +1306,7 @@ function run_setup_failed(run_id, res, req, err_msg, svn_err) {
 }
 
 function submit_run(user_id, username, assignment_name, correctness_only,
-        use_zip, svn_url, res, req, success_cb) {
+        enable_profiling, use_zip, svn_url, res, req, success_cb) {
     pgclient(function(client, done) {
 
       var query = client.query("SELECT * FROM assignments WHERE name=($1)",
@@ -1338,9 +1338,9 @@ function submit_run(user_id, username, assignment_name, correctness_only,
               var done_token = buf.toString('hex');
 
               var query = client.query("INSERT INTO runs (user_id, " +
-                  "assignment_id, done_token, status, correctness_only) VALUES " +
-                  "($1,$2,$3,'TESTING CORRECTNESS',$4) RETURNING run_id",
-                  [user_id, assignment_id, done_token, correctness_only]);
+                  "assignment_id, done_token, status, correctness_only, enable_profiling) VALUES " +
+                  "($1,$2,$3,'TESTING CORRECTNESS',$4,$5) RETURNING run_id",
+                  [user_id, assignment_id, done_token, correctness_only, enable_profiling]);
               register_query_helpers(query, res, done, username);
               query.on('end', function(result) {
                 done();
@@ -1447,7 +1447,7 @@ app.post('/submit_run_as', function(req, res, next) {
                 if (err) {
                     return res.send('Failed getting user ID for "' + for_username + '"');
                 }
-                return submit_run(user_id, username, assignment_name, false,
+                return submit_run(user_id, username, assignment_name, false, false,
                     false, svn_url, res, req, function(run_id) {
                         pgclient(function(client, done) {
                             var query = client.query(
@@ -1472,8 +1472,12 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
     if ('correctness_only' in req.body && req.body.correctness_only === 'on') {
         correctness_only = true;
     }
-    log('submit_run: username=' + req.session.username +
-      ' assignment="' + assignment_name + '"');
+    var enable_profiling = false;
+    if ('enable_profiling' in req.body && req.body.enable_profiling === 'on') {
+        enable_profiling = true;
+    }
+    log('submit_run: username=' + req.session.username + ' assignment="' +
+        assignment_name + '"');
 
     if (assignment_name.length === 0) {
       return redirect_with_err('/overview', res, req, 'Please select an assignment');
@@ -1503,7 +1507,7 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
     var username = req.session.username;
 
     return submit_run(user_id, username, assignment_name, correctness_only,
-            use_zip, svn_url, res, req, function(run_id) {
+            enable_profiling, use_zip, svn_url, res, req, function(run_id) {
                 return redirect_with_success('/overview', res, req, 'Successfully launched run #' + run_id); });
 });
 
@@ -1542,7 +1546,8 @@ function loop_over_all_perf_tests(cmd) {
 
 function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     assignment_name, java_profiler_dir, os, ncores, junit_jar, hamcrest_jar, hj_jar,
-    asm_jar, rr_agent_jar, rr_runtime_jar, assignment_jvm_args, timeout_str) {
+    asm_jar, rr_agent_jar, rr_runtime_jar, assignment_jvm_args, timeout_str,
+    enable_profiling) {
   var slurmFileContents =
     "#!/bin/bash\n" +
     "\n" +
@@ -1615,23 +1620,25 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   }
   slurmFileContents += '\n';
 
-  var profiler_output = '$CELLO_WORK_DIR/profiler.txt';
-  slurmFileContents += 'touch ' + profiler_output + '\n';
-  slurmFileContents += loop_over_all_perf_tests(
-    'java ' + securityFlags + ' -Dhj.numWorkers=' + ncores +
-    ' -agentpath:' + java_profiler_dir + '/liblagent.so ' +
-    '-javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
-    'org.junit.runner.JUnitCore $CLASSNAME >> ' + profiler_output + ' 2>&1 ; ' +
-    'echo ===== Profiling test $CLASSNAME ===== >> $CELLO_WORK_DIR/traces.txt; ' +
-    'cat $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/traces.txt >> ' +
-    '$CELLO_WORK_DIR/traces.txt');
-  slurmFileContents += 'awk \'BEGIN { doPrint = 1; } /Profiling/ { ' +
-    'doPrint = 0; print $0; } /Total trace count/ { doPrint = 1; } /Failures:/ { doPrint = 0; } { ' +
-    'if (doPrint) print $0; }\' $CELLO_WORK_DIR/traces.txt > ' +
-    '$CELLO_WORK_DIR/traces.filtered.txt\n';
-  slurmFileContents += 'mv $CELLO_WORK_DIR/traces.filtered.txt ' +
-    '$CELLO_WORK_DIR/traces.txt\n';
-  slurmFileContents += '\n';
+  if (enable_profiling) {
+      var profiler_output = '$CELLO_WORK_DIR/profiler.txt';
+      slurmFileContents += 'touch ' + profiler_output + '\n';
+      slurmFileContents += loop_over_all_perf_tests(
+        'java ' + securityFlags + ' -Dhj.numWorkers=' + ncores +
+        ' -agentpath:' + java_profiler_dir + '/liblagent.so ' +
+        '-javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
+        'org.junit.runner.JUnitCore $CLASSNAME >> ' + profiler_output + ' 2>&1 ; ' +
+        'echo ===== Profiling test $CLASSNAME ===== >> $CELLO_WORK_DIR/traces.txt; ' +
+        'cat $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/traces.txt >> ' +
+        '$CELLO_WORK_DIR/traces.txt');
+      slurmFileContents += 'awk \'BEGIN { doPrint = 1; } /Profiling/ { ' +
+        'doPrint = 0; print $0; } /Total trace count/ { doPrint = 1; } /Failures:/ { doPrint = 0; } { ' +
+        'if (doPrint) print $0; }\' $CELLO_WORK_DIR/traces.txt > ' +
+        '$CELLO_WORK_DIR/traces.filtered.txt\n';
+      slurmFileContents += 'mv $CELLO_WORK_DIR/traces.filtered.txt ' +
+        '$CELLO_WORK_DIR/traces.txt\n';
+      slurmFileContents += '\n';
+  }
 
   /*
    * A bug in JDK 8 [1] leads to the FastTrack data race detector crashing on
@@ -1713,9 +1720,12 @@ app.post('/local_run_finished', function(req, res, next) {
             var user_id = result.rows[0].user_id;
             var assignment_id = result.rows[0].assignment_id;
             var correctness_only = result.rows[0].correctness_only;
+            var enable_profiling = result.rows[0].enable_profiling;
+
             log('local_run_finished: run_id=' + run_id + ' user_id=' +
                 user_id + ' assignment_id=' + assignment_id +
-                ' correctness_only=' + correctness_only);
+                ' correctness_only=' + correctness_only + ' enable_profiling=' +
+                enable_profiling);
 
             var query = client.query("SELECT * FROM users WHERE user_id=($1)", [user_id]);
             register_query_helpers(query, res, done, 'unknown');
@@ -1929,7 +1939,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                                             username, assignment_id, assignment_name,
                                                             java_profiler_dir, os, ncores, junit,
                                                             hamcrest, hj, asm, rr_agent_jar, rr_runtime_jar,
-                                                            assignment_jvm_args, timeout_str));
+                                                            assignment_jvm_args, timeout_str, enable_profiling));
 
                                                         var copies = [{src: run_dir + '/cello.slurm',
                                                                        dst: 'autograder/' + run_id + '/cello.slurm'},
@@ -2784,8 +2794,10 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs,
             }
 
             var copies = [{ src: REMOTE_STDOUT, dst: LOCAL_STDOUT },
-                          { src: REMOTE_STDERR, dst: LOCAL_STDERR },
-                          { src: REMOTE_TRACES, dst: LOCAL_TRACES }];
+                          { src: REMOTE_STDERR, dst: LOCAL_STDERR }];
+            if (run.enable_profiling) {
+                copies.push({ src: REMOTE_TRACES, dst: LOCAL_TRACES });
+            }
                           // { src: REMOTE_PROFILER, dst: LOCAL_PROFILER },
             // if (os !== 'Darwin') {
             //   copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });

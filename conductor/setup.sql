@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS runs
  status TEXT NOT NULL,
  job_id TEXT,
  correctness_only BOOLEAN NOT NULL DEFAULT FALSE,
+ enable_profiling BOOLEAN NOT NULL DEFAULT FALSE,
  viola_msg TEXT NOT NULL DEFAULT '',
  cello_msg TEXT NOT NULL DEFAULT '',
  ncores INTEGER DEFAULT 0,
