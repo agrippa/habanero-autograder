@@ -1477,7 +1477,8 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
         enable_profiling = true;
     }
     log('submit_run: username=' + req.session.username + ' assignment="' +
-        assignment_name + '"');
+        assignment_name + '" correctness_only=' + correctness_only +
+        ' enable_profiling=' + enable_profiling);
 
     if (assignment_name.length === 0) {
       return redirect_with_err('/overview', res, req, 'Please select an assignment');
@@ -1611,12 +1612,17 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
                    hamcrest_jar, hj_jar, asm_jar];
   for (var i = 0; i < tests.length; i++) {
     var curr_cores = tests[i];
-    var output_file = '$CELLO_WORK_DIR/performance.' + curr_cores + '.txt';
+    var output_file = '/tmp/performance.' + curr_cores + '.txt';
+    var final_output_file = '$CELLO_WORK_DIR/performance.' + curr_cores + '.txt';
 
     slurmFileContents += 'touch ' + output_file + '\n';
     slurmFileContents += loop_over_all_perf_tests('java ' + securityFlags + ' -Dhj.numWorkers=' +
       curr_cores + ' -javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
       'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
+    slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c); ' +
+      'if [[ "$NBYTES" -gt "4194304" ]]; then echo "Excessive file size" > ' +
+      final_output_file + '; else mv ' + output_file + ' ' + final_output_file +
+      '; fi; rm -f ' + output_file + ';';
   }
   slurmFileContents += '\n';
 

@@ -38,6 +38,24 @@
       </div>
     </div>
 
+    <div class="row" style="width:100%">
+      <div class="col-md-8 col-md-offset-2">
+        <hr/>
+        <h5>I see an error similar to "Performance tests reported error: slurmstepd: *** JOB XXXX CANCELLED AT 2016-03-15T22:22:52 DUE TO TIME LIMIT on c73 *** ", what does this mean?</h5>
+        <hr/>
+        <p>This error message indicates that your job on the cluster took longer
+        than the permitted time. The most common cause of this is long-running
+        student code, running much slower than expected. Verify that you haven't
+        added any unnecessary overhead to your program, such as calls to
+        doWork() or print statements. The second most common cause is hangs
+        caused by a third-party profiling tool which is used when performance
+        profiling is enabled by the user. In this case, the only user-visible
+        impact is that the profiling information will be absent from the run
+        page. Otherwise, this error can be safely ignored.</p>
+      </div>
+    </div>
+
+
     <% include footer.html %>
   </body>
 </html>
