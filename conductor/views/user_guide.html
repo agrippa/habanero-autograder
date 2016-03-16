@@ -40,6 +40,17 @@
         which points to a valid Maven project. Enter this URL in the field
         marked <b>SVN URL</b>.</p>
 
+        <p>Selecting <b>Correctness Tests Only</b> will only test the
+        correctness of the submission, and not the performance. This can lead to
+        quicker jobs if you are not optimizing for performance yet.</p>
+
+        <p>Selecting <b>Enable Performance Profiling</b> will run the submission
+        through a third-party tool for performance analysis at the end of the
+        performance tests on the cluster, producing diagnostics on where the
+        submission is spending its time. However, be aware that a bug in this
+        third-party tool may cause the job on the cluster to hang. For this
+        reason, performance profiling is disabled by default.</p>
+
         <p>Finally, whether you chose ZIP upload or SVN export, click <b>Run</b>
         and your job will be started!</p>
       </div>
