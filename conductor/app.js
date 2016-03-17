@@ -102,6 +102,7 @@ log('Connecting to Viola at ' + VIOLA_HOST + ':' + VIOLA_PORT);
 
 var CLUSTER_HOSTNAME = process.env.CLUSTER_HOSTNAME || 'stic.rice.edu';
 var CLUSTER_USER = process.env.CLUSTER_USER || 'jmg3';
+var CLUSTER_PRIVATE_KEY_PASSPHRASE = process.env.CLUSTER_PRIVATE_KEY_PASSPHRASE || null;
 var clusterPrivateKey = fs.readFileSync(HOME + '/.ssh/id_rsa');
 /*
  * We support cluster types of 'slurm' and 'local'. However, 'local' clusters are
@@ -165,6 +166,7 @@ function connect_to_cluster(cb) {
         port: 22,
         username: CLUSTER_USER,
         privateKey: clusterPrivateKey,
+        passphrase: CLUSTER_PRIVATE_KEY_PASSPHRASE,
         readyTimeout: 60000
     });
   } else {
@@ -473,7 +475,7 @@ app.get('/login', function(req, res, next) {
 
 app.post('/login', function(req, res, next) {
   var username = req.body.username;
-  var password = req.body.password;
+  var password = req.body.pw;
 
   log('login: username=' + username);
 
@@ -484,9 +486,8 @@ app.post('/login', function(req, res, next) {
         query.on('end', function(result) {
               done();
               if (result.rowCount == 0) {
-                res.send(JSON.stringify({ status: 'Failure',
-                        msg: 'User "' + username + '" does not exist',
-                        user: username }));
+                  return redirect_with_err('/login', res, req,
+                      'User "' + username + '" does not exist');
               } else if (result.rowCount == 1) {
                 // Check that password matches
                 if (bcrypt.compareSync(password, result.rows[0].password_hash)) {
@@ -494,16 +495,14 @@ app.post('/login', function(req, res, next) {
                   req.session.user_id = result.rows[0].user_id;
                   req.session.is_admin = result.rows[0].is_admin;
 
-                  res.send(JSON.stringify({ status: 'Success',
-                          redirect: '/overview', user: username }));
+                  return res.redirect('/overview');
                 } else {
-                  res.send(JSON.stringify({ status: 'Failure',
-                          msg: 'Incorrect password for user "' + username + '"',
-                          user: username }));
+                  return redirect_with_err('/login', res, req,
+                      'Incorrect password for user "' + username + '"');
                 }
               } else {
-                res.send(JSON.stringify({ status: 'Failure',
-                        msg: 'Internal error (' + result.rowCount + ')'}));
+                return redirect_with_err('/login', res, req,
+                    'Internal error (' + result.rowCount + ')');
               }
             });
       });
@@ -606,10 +605,19 @@ app.get('/overview/:page?', function(req, res, next) {
   get_runs_for_username(req.session.username, function(runs, err) {
       if (err) {
           return render_page('overview.html', res, req,
-              {err_msg: 'Error gathering runs', runs: [], page: 0, npages: 1});
-      } else {
-          var npages = Math.ceil(runs.length / PAGE_SIZE);
-          if (page >= npages) {
+              {err_msg: 'Error gathering runs', runs: [], assignments: [],
+                  page: 0, npages: 1});
+      }
+
+      get_visible_assignments(function(assignments, err) {
+          if (err) {
+              return render_page('overview.html', res, req,
+                  {err_msg: 'Error gathering assignments', runs: [],
+                      assignments: [], page: 0, npages: 1});
+          }
+          var npages = Math.max(Math.ceil(runs.length / PAGE_SIZE), 1);
+          // npages will be 0 when there are no runs for this user
+          if (npages > 0 && page >= npages) {
               return render_page('overview.html', res, req,
                   {err_msg: 'Invalid URL, ' + page + ' is >= the # of pages, ' + npages,
                       runs: [], page: 0, npages: 1});
@@ -622,8 +630,8 @@ app.get('/overview/:page?', function(req, res, next) {
               subsetted_runs.push(runs[i]);
           }
           return render_page('overview.html', res, req, {runs: subsetted_runs,
-              page: page, npages: npages});
-      }
+              page: page, npages: npages, assignments: assignments});
+      });
   });
 });
 
@@ -747,10 +755,12 @@ app.get('/faq', function(req, res, next) {
 
 app.post('/comments', function(req, res, next) {
   var comment = req.body.comments;
+  log('comments: comment="' + comment + '"');
+
   send_email('jmg3@rice.edu', 'AUTOGRADER COMMENT', comment, function(err) {
     if (err) {
       log('comments: err=' + err);
-      return render_page('comments.html', res, req, {err_msg: 'Error submitting comment' });
+      return redirect_with_err('/comments', res, req, 'Error submitting comment');
     }
     return redirect_with_success('/overview', res, req, 'Thank you for your comment!');
   });
@@ -758,7 +768,13 @@ app.post('/comments', function(req, res, next) {
 
 app.get('/admin', function(req, res, next) {
   if (req.session.is_admin) {
-    return render_page('admin.html', res, req);
+    get_all_assignments(function(assignments, err) {
+        if (err) {
+            return redirect_with_err('/overview', res, req, "Error fetching assignments");
+        }
+        var render_vars = {assignments: assignments};
+        return render_page('admin.html', res, req, render_vars);
+    });
   } else {
     return res.redirect('/overview');
   }
@@ -1163,73 +1179,70 @@ app.get('/assignments', function(req, res, next) {
   });
 });
 
-app.post('/set_assignment_correctness_only', function(req, res, next) {
+app.post('/set_assignment_correctness_only/:assignment_id', function(req, res, next) {
   log('set_assignment_correctness_only: is_admin=' + req.session.is_admin);
   if (!req.session.is_admin) {
-    res.send(JSON.stringify({ status: 'Failure', msg: permissionDenied }));
-  } else {
-    var assignment_id = req.body.assignment_id;
-    var set_correctness_only = req.body.set_correctness_only;
-
-    pgclient(function(client, done) {
-        var query = client.query(
-            "SELECT * FROM assignments WHERE assignment_id=($1);",
-            [assignment_id]);
-        register_query_helpers(query, res, done, req.session.username);
-        query.on('end', function(result) {
-            if (result.rowCount == 0) {
-                done();
-                return res.send(JSON.stringify({ status: 'Failure',
-                        msg: 'Invalid assignment ID, does not exist' }));
-            } else {
-                var query = client.query(
-                    "UPDATE assignments SET correctness_only=($1) WHERE assignment_id=($2);",
-                    [set_correctness_only, assignment_id]);
-                register_query_helpers(query, res, done, req.session.username);
-                query.on('end', function(result) {
-                    done();
-                    return res.send(JSON.stringify({ status: 'Success',
-                            redirect: '/admin' }));
-                });
-            }
-        });
-    });
+      return redirect_with_err('/overview', res, req, permissionDenied);
   }
+
+  var assignment_id = req.params.assignment_id;
+  var set_correctness_only = req.body.set_correctness_only;
+
+  pgclient(function(client, done) {
+      var query = client.query(
+          "SELECT * FROM assignments WHERE assignment_id=($1);",
+          [assignment_id]);
+      register_query_helpers(query, res, done, req.session.username);
+      query.on('end', function(result) {
+          if (result.rowCount == 0) {
+              done();
+              return redirect_with_err('/admin', res, req,
+                  'Invalid assignment ID, does not exist');
+          }
+          var query = client.query(
+              "UPDATE assignments SET correctness_only=($1) WHERE assignment_id=($2);",
+              [set_correctness_only, assignment_id]);
+          register_query_helpers(query, res, done, req.session.username);
+          query.on('end', function(result) {
+              done();
+              return redirect_with_success('/admin', res, req, 'Updated correctness only');
+          });
+      });
+  });
 });
 
-app.post('/set_assignment_visible', function(req, res, next) {
+app.post('/set_assignment_visible/:assignment_id', function(req, res, next) {
   log('set_assignment_visible: is_admin=' + req.session.is_admin);
   if (!req.session.is_admin) {
-    res.send(JSON.stringify({ status: 'Failure', msg: permissionDenied }));
-  } else {
-    var assignment_id = req.body.assignment_id;
-    var set_visible = req.body.set_visible;
-
-    pgclient(function(client, done) {
-        var query = client.query(
-            "SELECT * FROM assignments WHERE assignment_id=($1);",
-            [assignment_id]);
-        register_query_helpers(query, res, done, req.session.username);
-        query.on('end', function(result) {
-            if (result.rowCount == 0) {
-                done();
-                return res.send(JSON.stringify({ status: 'Failure',
-                        msg: 'Invalid assignment ID, does not exist' }));
-            } else {
-                var query = client.query(
-                    "UPDATE assignments SET visible=($1) WHERE assignment_id=($2);",
-                    [set_visible, assignment_id]);
-                register_query_helpers(query, res, done, req.session.username);
-                query.on('end', function(result) {
-                    done();
-                    return res.send(JSON.stringify({ status: 'Success',
-                            redirect: '/admin' }));
-                });
-            }
-        });
-    });
-
+    return redirect_with_err('/overview', res, req, permissionDenied);
   }
+
+  var assignment_id = req.params.assignment_id;
+  var set_visible = req.body.set_visible;
+
+  pgclient(function(client, done) {
+      var query = client.query(
+          "SELECT * FROM assignments WHERE assignment_id=($1);",
+          [assignment_id]);
+      register_query_helpers(query, res, done, req.session.username);
+      query.on('end', function(result) {
+          if (result.rowCount == 0) {
+              done();
+              return redirect_with_err('/admin', res, req,
+                  'Invalid assignment ID, does not exist');
+          } else {
+              var query = client.query(
+                  "UPDATE assignments SET visible=($1) WHERE assignment_id=($2);",
+                  [set_visible, assignment_id]);
+              register_query_helpers(query, res, done, req.session.username);
+              query.on('end', function(result) {
+                  done();
+                  return redirect_with_success('/admin', res, req,
+                      'Updated visibility');
+              });
+          }
+      });
+  });
 });
 
 function get_user_name_for_id(user_id, client, done, res, cb) {
@@ -2099,6 +2112,36 @@ app.get('/anonymous_runs', function(req, res, next) {
     });
   });
 });
+
+function get_all_assignments(cb) {
+  pgclient(function(client, done) {
+    var query = client.query("SELECT * FROM assignments ORDER BY assignment_id ASC");
+    query.on('row', function(row, result) { result.addRow(row); });
+    query.on('error', function(err, result) {
+        done();
+        cb(null, err);
+    });
+    query.on('end', function(result) {
+        done();
+        cb(result.rows, null);
+    });
+  });
+}
+
+function get_visible_assignments(cb) {
+  pgclient(function(client, done) {
+    var query = client.query("SELECT * FROM assignments WHERE visible=true;");
+    query.on('row', function(row, result) { result.addRow(row); });
+    query.on('error', function(err, result) {
+        done();
+        cb(null, err);
+    });
+    query.on('end', function(result) {
+        done();
+        cb(result.rows, null);
+    });
+  });
+}
 
 function get_runs_for_username(username, cb) {
   pgclient(function(client, done) {

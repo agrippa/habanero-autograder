@@ -6,36 +6,14 @@
     <script type="text/javascript" src="/third_party/bootstrap.min.js"></script>
 
     <script type="text/javascript">
-      function login() {
-        var user = $('#username').val();
-        var pw = $('#pw').val();
-
-        $.ajax({
-            url: '/login',
-            type: 'POST',
-            data: { username: user, password: pw },
-            ContentType: 'application/json; charset=utf-8',
-            dataType: 'json',
-            success: function(data) {
-              if (data.status === 'Success') {
-                window.location.replace(data.redirect);
-              } else {
-                show_error(data.msg);
-              }
-            },
-            failure: function() {
-              show_error('Internal failure');
-            },
-          });
-      }
-
-      $(function() {
+    $(function() {
         $('#pw').keydown(function(e) {
-              if (e.keyCode === 13) {
-                login();
-              }
-            });
-      });
+            if (e.keyCode === 13) {
+                e.preventDefault();
+                $('#login_form').submit();
+            }
+        });
+    });
     </script>
   </head>
 
@@ -44,15 +22,15 @@
 
     <div class="row">
       <div class="col-md-4 col-md-offset-4">
+      <form id="login_form" role="form" action="/login" method="post">
       <div class="form-group">
-      <form role="form">
-        <input type="text" class="form-control" placeholder="NetID" id="username" autocomplete="on"></input>
-        <input type="password" class="form-control" placeholder="Password" id="pw" autocomplete="on"></input>
+        <input type="text" class="form-control" placeholder="NetID" id="username" name="username" autocomplete="on"></input>
+        <input type="password" class="form-control" placeholder="Password" id="pw" name="pw" autocomplete="on"></input>
+      </div>
+      <div class="form-group">
+        <button type="submit" class="btn btn-default">Login</button>
+      </div>
       </form>
-      </div>
-      <div class="form-group">
-        <button type="button" class="btn btn-default" onclick="login()">Login</button>
-      </div>
       </div>
     </div>
 

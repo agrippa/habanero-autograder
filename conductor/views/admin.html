@@ -4,168 +4,6 @@
     <link rel="stylesheet" href="/third_party/bootstrap.min.css">
     <script src="/third_party/jquery-2.1.4.min.js"></script>
     <script src="/third_party/bootstrap.min.js"></script>
-
-    <script type="text/javascript">
-      function create_assignment() {
-          var name = $('#name').val();
-
-          $.ajax({
-            url: '/assignment',
-            type: 'POST',
-            data: { assignment_name: name },
-            ContentType: 'application/json; charset=utf-8',
-            dataType: 'json',
-            success: function(data) {
-              if (data.status === 'Success') {
-                window.location.replace(data.redirect);
-              } else {
-                show_error(data.msg);
-              }
-            },
-            failure: function() {
-              show_error('Internal failure');
-            },
-          });
-      }
-
-      function set_assignment_visible(assignment_id, set_visible) {
-          $.ajax({
-             url: '/set_assignment_visible',
-            type: 'POST',
-            data: { assignment_id: assignment_id, set_visible: set_visible },
-            ContentType: 'application/json; charset=utf-8',
-            dataType: 'json',
-            success: function(data) {
-              if (data.status === 'Success') {
-                window.location.replace(data.redirect);
-              } else {
-                show_error(data.msg);
-              }
-            },
-            failure: function() {
-              show_error('Internal failure');
-            },
-          });
-      }
-
-      function set_assignment_correctness_only(assignment_id, set_correctness_only) {
-          $.ajax({
-             url: '/set_assignment_correctness_only',
-            type: 'POST',
-            data: { assignment_id: assignment_id, set_correctness_only: set_correctness_only },
-            ContentType: 'application/json; charset=utf-8',
-            dataType: 'json',
-            success: function(data) {
-              if (data.status === 'Success') {
-                window.location.replace(data.redirect);
-              } else {
-                show_error(data.msg);
-              }
-            },
-            failure: function() {
-              show_error('Internal failure');
-            },
-          });
-      }
-
-      $(function() {
-        $('#name').keydown(function(e) {
-              if (e.keyCode === 13) {
-                login();
-              }
-            });
-
-        $.ajax({
-            url: '/assignments',
-            type: 'GET',
-            data: { get_not_visible: true },
-            ContentType: 'application/json; charset=utf-8',
-            dataType: 'json',
-            success: function(data) {
-              if (data.status === 'Success') {
-                var assignments = data.assignments;
-                for (var i = 0; i < assignments.length; i++) {
-                    var curr = assignments[i];
-                    var visible_lbl = curr.visible ? 'Disable' : 'Enable';
-
-                    var visibility_button_html = '<button type="button" ' +
-                      'class="btn btn-default" ' +
-                      'onclick="set_assignment_visible(' + curr.assignment_id +
-                      ', ' + !curr.visible + ');">' + visible_lbl + '</button>';
-                    var correctness_button_html = (curr.correctness_only ? 'True' : 'False') + '&nbsp;|&nbsp;<button type="button" ' +
-                      'class="btn btn-default" ' +
-                      'onclick="set_assignment_correctness_only(' + curr.assignment_id +
-                      ', ' + !curr.correctness_only + ');">Toggle</button>';
-
-                    var jvm_args_html = '<form action="/update_jvm_args/' + curr.assignment_id + '" method="post" enctype="application/x-www-form-urlencoded">' +
-                      '<input name="jvm_args" type="text" value="' + curr.jvm_args + '">' +
-                      '<input value="Update" name="submit" type="submit">' +
-                      '</form>';
-                    var slurm_flags_html = '<form action="/update_custom_slurm_flags/' + curr.assignment_id + '" method="post" enctype="application/x-www-form-urlencoded">' +
-                      '<input name="custom_slurm_flags" type="text" value="' + curr.custom_slurm_flags + '">' +
-                      '<input value="Update" name="submit" type="submit">' +
-                      '</form>';
-
-                    var correctness_timeout_html = '<form action="/update_correctness_timeout/' +
-                        curr.assignment_id + '" method="post" enctype="application/x-www-form-urlencoded">' +
-                        '<input name="correctness_timeout" type="text" value="' + curr.correctness_timeout_ms + '">' +
-                        '<input value="Update" name="submit" type="submit">' +
-                        '</form>';
-                    var performance_timeout_html = '<form action="/update_performance_timeout/' +
-                        curr.assignment_id + '" method="post" enctype="application/x-www-form-urlencoded">' +
-                        '<input name="performance_timeout" type="text" value="' + curr.performance_timeout_str + '">' +
-                        '<input value="Update" name="submit" type="submit">' +
-                        '</form>';
-                    var ncores_html = '<form action="/update_ncores/' +
-                        curr.assignment_id + '" method="post" enctype="application/x-www-form-urlencoded">' +
-                        '<input name="ncores" type="text" value="' + curr.ncores + '">' +
-                        '<input value="Update" name="submit" type="submit">' +
-                        '</form>';
-
-                    var upload_zip_html =
-                      '<form action="/upload_zip/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
-                      '<input name="zip" type="file">' +
-                      '<input value="Upload" name="submit" type="submit">' +
-                      '</form>';
-                    var upload_instructor_pom_html =
-                      '<form action="/upload_instructor_pom/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
-                      '<input name="pom" type="file">' +
-                      '<input value="Upload" name="submit" type="submit">' +
-                      '</form>';
-                    var upload_rubric_html =
-                      '<form action="/upload_rubric/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
-                      '<input name="rubric" type="file">' +
-                      '<input value="Upload" name="submit" type="submit">' +
-                      '</form>';
-                    var upload_checkstyle_html =
-                      '<form action="/upload_checkstyle/' + curr.assignment_id + '" method="post" enctype="multipart/form-data">' +
-                      '<input name="checkstyle_config" type="file">' +
-                      '<input value="Upload" name="submit" type="submit">' +
-                      '</form>';
-
-                    $('#existing-assignments tr:last').after('<tr><td><center>' +
-                        curr.name + '</center></td><td><center>' + visibility_button_html +
-                        '</center></td><td><center>' + correctness_button_html +
-                        '</center></td><td><center>' + jvm_args_html +
-                        '</center></td><td><center>' + slurm_flags_html +
-                        '</center></td><td>' + correctness_timeout_html +
-                        '</center></td><td>' + performance_timeout_html + '</center></td><td>' + ncores_html +
-                        '</center></td><td>' + upload_zip_html + '</td><td>' +
-                        upload_instructor_pom_html + '</td><td>' +
-                        upload_rubric_html + '</td><td>' + upload_checkstyle_html + '</td></tr>');
-                }
-                $('#assignment-count').text(assignments.length + " assignment(s)");
-              } else {
-                show_error(data.msg);
-              }
-            },
-            failure: function() {
-              show_error('Internal failure');
-            },
-          });
-
-      });
-    </script>
   </head>
 
   <body>
@@ -205,6 +43,96 @@
             <td bgcolor="#AAAAAA"><center><b>Reupload Rubric</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Reupload Checkstyle</b></center></td>
           </tr>
+          <% for (var i = 0; i < assignments.length; i++) { %>
+          <%   var curr = assignments[i]; %>
+          <tr>
+              <td>
+                  <center><%= curr.name %></center>
+              </td>
+              <td>
+                  <center>
+                  <form action="/set_assignment_visible/<%= curr.assignment_id %>" method="post">
+                      <input type="hidden" name="set_visible" value="<%= !curr.visible %>">
+                      <input class="btn btn-primary" value=<%= curr.visible ? 'Disable' : 'Enable' %> name="submit" type="submit">
+                  </form>
+                  </center>
+              </td>
+              <td>
+                  <center>
+                  <form action="/set_assignment_correctness_only/<%= curr.assignment_id %>" method="post">
+                      <input type="hidden" name="set_correctness_only" value="<%= !curr.correctness_only %>">
+                      <input class="btn btn-primary" value=<%= curr.correctness_only ? 'Disable' : 'Enable' %> name="submit" type="submit">
+                  </form>
+                  </center>
+              </td>
+              <td>
+                  <center>
+                      <form action="/update_jvm_args/<%= curr.assignment_id %>" method="post" enctype="application/x-www-form-urlencoded">
+                          <input name="jvm_args" type="text" value="<%= curr.jvm_args %>">
+                          <input value="Update" name="submit" type="submit">
+                      </form>
+                      </center>
+                  </td>
+                  <td>
+                      <center>
+                          <form action="/update_custom_slurm_flags/<%= curr.assignment_id %>" method="post" enctype="application/x-www-form-urlencoded">
+                              <input name="custom_slurm_flags" type="text" value="<%= curr.custom_slurm_flags %>">
+                              <input value="Update" name="submit" type="submit">
+                          </form>
+                      </center>
+                  </td>
+                  <td>
+                      <center>
+                          <form action="/update_correctness_timeout/<%= curr.assignment_id %>" method="post" enctype="application/x-www-form-urlencoded">
+                              <input name="correctness_timeout" type="text" value="<%= curr.correctness_timeout_ms %>">
+                              <input value="Update" name="submit" type="submit">
+                          </form>
+                      </center>
+                  </td>
+                  <td>
+                      <center>
+                          <form action="/update_performance_timeout/<%= curr.assignment_id %>" method="post" enctype="application/x-www-form-urlencoded">
+                              <input name="performance_timeout" type="text" value="<%= curr.performance_timeout_str %>">
+                              <input value="Update" name="submit" type="submit">
+                          </form>
+                      </center>
+                  </td>
+                  <td>
+                      <center>
+                          <form action="/update_ncores/<%= curr.assignment_id %>" method="post" enctype="application/x-www-form-urlencoded">
+                              <input name="ncores" type="text" value="<%= curr.ncores %>">
+                              <input value="Update" name="submit" type="submit">
+                          </form>
+                      </center>
+                  </td>
+                  <td>
+                      <center>
+                          <form action="/upload_zip/<%= curr.assignment_id %>" method="post" enctype="multipart/form-data">
+                              <input name="zip" type="file">
+                              <input value="Upload" name="submit" type="submit">
+                          </form>
+                      </center>
+                  </td>
+                  <td>
+                      <form action="/upload_instructor_pom/<%= curr.assignment_id %>" method="post" enctype="multipart/form-data">
+                          <input name="pom" type="file">
+                          <input value="Upload" name="submit" type="submit">
+                      </form>
+                  </td>
+                  <td>
+                      <form action="/upload_rubric/<%= curr.assignment_id %>" method="post" enctype="multipart/form-data">
+                          <input name="rubric" type="file">
+                          <input value="Upload" name="submit" type="submit">
+                      </form>
+                  </td>
+                  <td>
+                      <form action="/upload_checkstyle/<%= curr.assignment_id %>" method="post" enctype="multipart/form-data">
+                          <input name="checkstyle_config" type="file">
+                          <input value="Upload" name="submit" type="submit">
+                      </form>
+                  </td>
+              </tr>
+          <% } %>
         </table>
       </div>
     </div>
