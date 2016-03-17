@@ -92,11 +92,6 @@ var SVN_REPO = process.env.SVN_REPO ||
 
 log('Connecting to SVN repo ' + SVN_REPO + ' as user ' + SVN_USERNAME);
 
-var svn_client = new svn({
-        username: SVN_USERNAME,
-        password: SVN_PASSWORD
-    });
-
 var VIOLA_HOST = process.env.VIOLA_HOST || 'localhost';
 var VIOLA_PORT = parseInt(process.env.VIOLA_PORT || '8080');
 
@@ -147,6 +142,11 @@ function register_query_helpers(query, res, done, username) {
                     msg: 'Internal error (' + err + ')', user: username }));
     });
 }
+
+var svn_client = new svn({
+        username: SVN_USERNAME,
+        password: SVN_PASSWORD
+    });
 
 function svn_cmd(cmd, cb) {
     log('svn_cmd: ' + cmd.join(' '));
@@ -1904,18 +1904,6 @@ app.post('/local_run_finished', function(req, res, next) {
                                     var rr_runtime_jar = vals['RR_RUNTIME_JAR'];
 
                                     var cello_work_dir = get_cello_work_dir(home_dir, run_id);
-                                    var submission_checkout = 'svn checkout ' +
-                                      '--username ' + SVN_USERNAME +
-                                      ' --password ' + SVN_PASSWORD + ' ' +
-                                      SVN_REPO + '/' + username + '/' +
-                                      run_id + ' ' +
-                                      cello_work_dir + '/submission';
-                                    var assignment_checkout = 'svn checkout ' +
-                                      '--username ' + SVN_USERNAME +
-                                      ' --password ' + SVN_PASSWORD + ' ' +
-                                      SVN_REPO + '/assignments/' +
-                                      assignment_id + ' ' + cello_work_dir +
-                                      '/assignment';
                                     var dependency_list_cmd = 'mvn -f ' +
                                         cello_work_dir +
                                         '/assignment/instructor_pom.xml ' +
@@ -1940,15 +1928,11 @@ app.post('/local_run_finished', function(req, res, next) {
                                                 'Failed creating autograder dir', done, client, run_id, conn);
                                             }
                                             cluster_scp(__dirname + '/submissions/' + username + '/' + run_id, 'autograder/' + run_id + '/submission', true, function(err) {
-                                            // run_cluster_cmd(conn, 'submission checkout', submission_checkout,
-                                            //   function(err, conn, stdout, stderr) {
                                                 if (err) {
                                                   return failed_starting_perf_tests(res,
                                                        'Failed checking out student code', done, client, run_id, conn);
                                                 }
                                                 run_cluster_cmd(conn, 'instructor files cp', 'cp -r autograder-assignments/' + assignment_id + ' autograder/' + run_id + '/assignment', function(err, conn, stdout, stderr) {
-                                                // run_cluster_cmd(conn, 'assignment checkout', assignment_checkout,
-                                                //   function(err, conn, stdout, stderr) {
                                                     if (err) {
                                                       return failed_starting_perf_tests(res,
                                                             'Failed checking out assignment code', done, client, run_id, conn);
