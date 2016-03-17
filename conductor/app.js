@@ -45,6 +45,8 @@ function check_env(varname) {
 
 var AUTOGRADER_HOME = check_env('AUTOGRADER_HOME');
 
+var HOME = check_env('HOME');
+
 var GMAIL_USER = check_env('GMAIL_USER');
 var GMAIL_PASS = check_env('GMAIL_PASS');
 
@@ -100,7 +102,7 @@ log('Connecting to Viola at ' + VIOLA_HOST + ':' + VIOLA_PORT);
 
 var CLUSTER_HOSTNAME = process.env.CLUSTER_HOSTNAME || 'stic.rice.edu';
 var CLUSTER_USER = process.env.CLUSTER_USER || 'jmg3';
-var CLUSTER_PASSWORD = process.env.CLUSTER_PASSWORD || '';
+var clusterPrivateKey = fs.readFileSync(HOME + '/.ssh/id_rsa');
 /*
  * We support cluster types of 'slurm' and 'local'. However, 'local' clusters are
  * purely for testing locally and should never be used in production, as they
@@ -162,7 +164,7 @@ function connect_to_cluster(cb) {
         host: CLUSTER_HOSTNAME,
         port: 22,
         username: CLUSTER_USER,
-        password: CLUSTER_PASSWORD,
+        privateKey: clusterPrivateKey,
         readyTimeout: 60000
     });
   } else {
@@ -1032,6 +1034,24 @@ app.post('/update_correctness_timeout/:assignment_id', function(req, res, next) 
   }
 });
 
+app.post('/update_custom_slurm_flags/:assignment_id', function(req, res, next) {
+    log('update_custom_slurm_flags: is_admin=' + req.session.is_admin +
+        ', new slurm flags = "' + req.body.custom_slurm_flags + '"');
+  if (!req.session.is_admin) {
+    return render_page('admin.html', res, req, {err_msg: permissionDenied});
+  } else {
+    if (!req.body.custom_slurm_flags) {
+      return render_page('admin.html', res, req,
+          {err_msg: 'Malformed request, missing custom slurm flags field?'});
+    }
+    var assignment_id = req.params.assignment_id;
+    var custom_slurm_flags = req.body.custom_slurm_flags;
+
+    return update_assignment_field("'" + custom_slurm_flags + "'", 'custom_slurm_flags',
+        assignment_id, res, req);
+  }
+});
+
 app.post('/update_performance_timeout/:assignment_id', function(req, res, next) {
   log('update_performance_timeout: is_admin=' + req.session.is_admin +
       ', new timeout=' + req.body.performance_timeout);
@@ -1548,7 +1568,7 @@ function loop_over_all_perf_tests(cmd) {
 function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     assignment_name, java_profiler_dir, os, ncores, junit_jar, hamcrest_jar, hj_jar,
     asm_jar, rr_agent_jar, rr_runtime_jar, assignment_jvm_args, timeout_str,
-    enable_profiling) {
+    enable_profiling, custom_slurm_flags) {
   var slurmFileContents =
     "#!/bin/bash\n" +
     "\n" +
@@ -1561,10 +1581,12 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     "#SBATCH --export=ALL\n" +
     "#SBATCH --partition=commons\n" +
     "#SBATCH --account=scavenge\n" +
-//     "#SBATCH --reservation=comp322_3\n" +
     "#SBATCH --output=" + home_dir + "/autograder/" + run_id + "/stdout.txt\n" +
-    "#SBATCH --error=" + home_dir + "/autograder/" + run_id + "/stderr.txt\n" +
-    "\n" +
+    "#SBATCH --error=" + home_dir + "/autograder/" + run_id + "/stderr.txt\n\n";
+  for (var i = 0; i < custom_slurm_flags.length; i++) {
+      slurmFileContents += '#SBATCH ' + custom_slurm_flags[i] + '\n';
+  }
+  slurmFileContents += "\n" +
     "export CELLO_WORK_DIR=" + get_cello_work_dir(home_dir, run_id) + "\n";
   if (CLUSTER_TYPE === 'slurm') {
     slurmFileContents += "echo Job $SLURM_JOBID\n";
@@ -1612,10 +1634,11 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
                    hamcrest_jar, hj_jar, asm_jar];
   for (var i = 0; i < tests.length; i++) {
     var curr_cores = tests[i];
-    var output_file = '/tmp/performance.' + curr_cores + '.txt';
+    var output_file = '/tmp/performance.' + run_id + '.' + curr_cores + '.txt';
     var final_output_file = '$CELLO_WORK_DIR/performance.' + curr_cores + '.txt';
 
     slurmFileContents += 'touch ' + output_file + '\n';
+    slurmFileContents += 'touch ' + final_output_file + '\n';
     slurmFileContents += loop_over_all_perf_tests('java ' + securityFlags + ' -Dhj.numWorkers=' +
       curr_cores + ' -javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
       'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
@@ -1837,6 +1860,9 @@ app.post('/local_run_finished', function(req, res, next) {
                               var assignment_jvm_args = result.rows[0].jvm_args;
                               var timeout_str = result.rows[0].performance_timeout_str;
                               var ncores = result.rows[0].ncores;
+                              var custom_slurm_flags_str = result.rows[0].custom_slurm_flags;
+                              var custom_slurm_flags_list =
+                                custom_slurm_flags_str.split(',');
 
                               var query = client.query(
                                   "UPDATE runs SET status='IN CLUSTER QUEUE',viola_msg=$1,ncores=$2 WHERE run_id=($3)", [viola_err_msg, ncores, run_id]);
@@ -1945,7 +1971,8 @@ app.post('/local_run_finished', function(req, res, next) {
                                                             username, assignment_id, assignment_name,
                                                             java_profiler_dir, os, ncores, junit,
                                                             hamcrest, hj, asm, rr_agent_jar, rr_runtime_jar,
-                                                            assignment_jvm_args, timeout_str, enable_profiling));
+                                                            assignment_jvm_args, timeout_str, enable_profiling,
+                                                            custom_slurm_flags_list));
 
                                                         var copies = [{src: run_dir + '/cello.slurm',
                                                                        dst: 'autograder/' + run_id + '/cello.slurm'},
@@ -2939,7 +2966,7 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                 perf_runs.length + ' ' + JSON.stringify(run));
 
         if (CLUSTER_TYPE === 'slurm') {
-            var SACCT = "sacct --noheader -j " + run.job_id + " -u jmg3 " +
+            var SACCT = "sacct --noheader -j " + run.job_id + " -u " + CLUSTER_USER + " " +
                 "--format=JobName,State | grep hab | awk '{ print $2 }'";
             run_cluster_cmd(conn, 'checking job status', SACCT, function(err, conn, stdout, stderr) {
                 if (err) {

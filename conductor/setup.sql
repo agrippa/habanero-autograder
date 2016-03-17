@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS assignments
  jvm_args TEXT NOT NULL DEFAULT '',
  correctness_timeout_ms INTEGER NOT NULL DEFAULT 1200000,
  performance_timeout_str TEXT NOT NULL DEFAULT '00:10:00',
- ncores INTEGER NOT NULL DEFAULT 16
+ ncores INTEGER NOT NULL DEFAULT 16,
+ custom_slurm_flags TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS runs

@@ -101,6 +101,11 @@
                       '<input name="jvm_args" type="text" value="' + curr.jvm_args + '">' +
                       '<input value="Update" name="submit" type="submit">' +
                       '</form>';
+                    var slurm_flags_html = '<form action="/update_custom_slurm_flags/' + curr.assignment_id + '" method="post" enctype="application/x-www-form-urlencoded">' +
+                      '<input name="custom_slurm_flags" type="text" value="' + curr.custom_slurm_flags + '">' +
+                      '<input value="Update" name="submit" type="submit">' +
+                      '</form>';
+
                     var correctness_timeout_html = '<form action="/update_correctness_timeout/' +
                         curr.assignment_id + '" method="post" enctype="application/x-www-form-urlencoded">' +
                         '<input name="correctness_timeout" type="text" value="' + curr.correctness_timeout_ms + '">' +
@@ -142,6 +147,7 @@
                         curr.name + '</center></td><td><center>' + visibility_button_html +
                         '</center></td><td><center>' + correctness_button_html +
                         '</center></td><td><center>' + jvm_args_html +
+                        '</center></td><td><center>' + slurm_flags_html +
                         '</center></td><td>' + correctness_timeout_html +
                         '</center></td><td>' + performance_timeout_html + '</center></td><td>' + ncores_html +
                         '</center></td><td>' + upload_zip_html + '</td><td>' +
@@ -190,6 +196,7 @@
             <td bgcolor="#AAAAAA"><center><b>Visibility</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Correctness Only</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>JVM Args</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>SLURM Flags</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Correctness Tests Timeout (ms)</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Performance Tests Timeout (HH:MM:SS)</b></center></td>
             <td bgcolor="#AAAAAA"><center><b># Cores</b></center></td>
