@@ -18,7 +18,9 @@ var moment = require('moment');
 var archiver = require('archiver');
 var temp = require('temp');
 
-var permissionDenied = 'Permission denied. But you should shoot me an e-mail at jmaxg3@gmail.com. If you like playing around with systems, we have interesting research for you in the Habanero group.';
+var permissionDenied = 'Permission denied. But you should shoot me an e-mail ' +
+    'at jmaxg3@gmail.com. If you like playing around with systems, we have ' +
+    'interesting research for you in the Habanero group.';
 
 var upload = multer({ dest: 'uploads/' });
 
