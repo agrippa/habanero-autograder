@@ -1,10 +1,5 @@
 import java.util.LinkedList;
 
-import org.tmatesoft.svn.core.wc.SVNClientManager;
-import org.tmatesoft.svn.core.SVNURL;
-import org.tmatesoft.svn.core.SVNDepth;
-import org.tmatesoft.svn.core.SVNException;
-
 public class NotifyConductorRunnable implements Runnable {
     private final LinkedList<LocalTestRunner> toNotify;
 

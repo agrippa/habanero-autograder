@@ -7,12 +7,16 @@
 
     <script type="text/javascript">
     $(function() {
-        $('#pw').keydown(function(e) {
+        var submit_on_enter = function(e) {
             if (e.keyCode === 13) {
                 e.preventDefault();
                 $('#login_form').submit();
             }
-        });
+        };
+
+        $('#username').keydown(submit_on_enter);
+        $('#pw').keydown(submit_on_enter);
+        $('#username').focus();
     });
     </script>
   </head>
