@@ -116,7 +116,9 @@ var CLUSTER_TYPE = process.env.CLUSTER_TYPE || 'slurm';
 if (CLUSTER_TYPE !== 'slurm' && CLUSTER_TYPE !== 'local') {
   throw 'Unsupported cluster type ' + CLUSTER_TYPE;
 }
-var CHECK_CLUSTER_PERIOD = 30000;
+var CHECK_CLUSTER_PERIOD_MS = 30 * 1000; // 30 seconds
+var CHECK_CLUSTER_FILES_PERIOD_MS = 60 * 60 * 1000; // 60 minutes
+var CLUSTER_FOLDER_RETENTION_TIME_S = 24 * 60 * 60; // 24 hours
 
 log('Connecting to remote cluster at ' + CLUSTER_HOSTNAME +
   ' of type ' + CLUSTER_TYPE + ' as ' + CLUSTER_USER);
@@ -335,25 +337,6 @@ function create_cluster_dir(dirname, conn, cb) {
   }
 
   run_cluster_cmd(conn, 'creating dir', MKDIR_CMD, cb);
-}
-
-function delete_cluster_dir(dirname, conn, cb) {
-  if (dirname.trim().search('/') === 0) {
-    throw 'Remote directory names should be relative to $HOME, got ' + dirname;
-  }
-
-  var RMDIR_CMD = null;
-  if (CLUSTER_TYPE === 'slurm') {
-    RMDIR_CMD = 'rm -r ' + dirname;
-  } else {
-    RMDIR_CMD = 'rm -r ' + process.env.HOME + '/' + dirname;
-  }
-
-  if (KEEP_CLUSTER_DIRS) {
-    cb(null, conn, '', '');
-  } else {
-    run_cluster_cmd(conn, 'removing dir', RMDIR_CMD, cb);
-  }
 }
 
 function get_cluster_env_var(varname, conn, cb) {
@@ -2682,7 +2665,7 @@ function abort_and_reset_perf_tests(err, done, conn, lbl) {
   log('abort_and_reset_perf_tests: ' + lbl + ' err=' + err);
   done();
   disconnect_from_cluster(conn);
-  set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+  set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
 }
 
 function finish_perf_tests(run_status, run, conn, done, client, perf_runs,
@@ -2694,14 +2677,14 @@ function finish_perf_tests(run_status, run, conn, done, client, perf_runs,
         log('Error finding user name: ' + err);
         done();
         disconnect_from_cluster(conn);
-        set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+        set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
     });
     query.on('end', function(result) {
         if (result.rows.length != 1) {
             log('Missing user, user_id=' + run.user_id);
             done();
             disconnect_from_cluster(conn);
-            set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+            set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
         } else {
             var username = result.rows[0].user_name;
             var wants_notification = result.rows[0].receive_email_notifications;
@@ -2794,49 +2777,42 @@ function finish_perf_tests(run_status, run, conn, done, client, perf_runs,
                     }
                 }
 
-                delete_cluster_dir('autograder/' + run.run_id, conn,
-                    function(err, conn, stdout, stderr) {
-                        if (err) {
-                            return abort_and_reset_perf_tests(err, done, conn, 'delete');
+                var query = client.query(
+                    "UPDATE runs SET status='" + run_status + "'," +
+                    "finish_time=CURRENT_TIMESTAMP," +
+                    "passed_performance=($1)," +
+                    "characteristic_speedup=($2) WHERE run_id=($3)",
+                    [!any_missing_files, characteristic_speedup, run.run_id]);
+                query.on('row', function(row, result) { result.addRow(row); });
+                query.on('error', function(err, result) {
+                    log('Error updating performance run state: ' + err);
+                    done();
+                    disconnect_from_cluster(conn);
+                    set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
+                });
+
+                query.on('end', function(result) {
+                    if (wants_notification) {
+                        var email = username + '@rice.edu';
+                        if (username === 'admin') {
+                            email = 'jmg3@rice.edu';
                         }
-
-                        var query = client.query(
-                            "UPDATE runs SET status='" + run_status + "'," +
-                            "finish_time=CURRENT_TIMESTAMP," +
-                            "passed_performance=($1)," +
-                            "characteristic_speedup=($2) WHERE run_id=($3)",
-                            [!any_missing_files, characteristic_speedup, run.run_id]);
-                        query.on('row', function(row, result) { result.addRow(row); });
-                        query.on('error', function(err, result) {
-                            log('Error updating performance run state: ' + err);
-                            done();
-                            disconnect_from_cluster(conn);
-                            set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
-                        });
-
-                        query.on('end', function(result) {
-                            if (wants_notification) {
-                                var email = username + '@rice.edu';
-                                if (username === 'admin') {
-                                    email = 'jmg3@rice.edu';
-                                }
-                                var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
-                                send_email(email_for_user(username), subject, '', function(err) {
-                                    if (err) {
-                                        return abort_and_reset_perf_tests(err, done, conn,
-                                            'sending notification email');
-                                    }
-                                    check_cluster_helper(perf_runs,
-                                        current_perf_runs_index + 1, conn, client,
-                                        done);
-                                });
-                            } else {
-                                check_cluster_helper(perf_runs,
-                                    current_perf_runs_index + 1, conn, client,
-                                    done);
+                        var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
+                        send_email(email_for_user(username), subject, '', function(err) {
+                            if (err) {
+                                return abort_and_reset_perf_tests(err, done, conn,
+                                    'sending notification email');
                             }
+                            check_cluster_helper(perf_runs,
+                                current_perf_runs_index + 1, conn, client,
+                                done);
                         });
-                    });
+                    } else {
+                        check_cluster_helper(perf_runs,
+                            current_perf_runs_index + 1, conn, client,
+                            done);
+                    }
+                });
                 });
             });
         }
@@ -2847,7 +2823,7 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
     if (i >= perf_runs.length) {
         done();
         disconnect_from_cluster(conn);
-        set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+        set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
     } else {
         var run = perf_runs[i];
         log('check_cluster_helper: ' + (i + 1) + '/' +
@@ -2860,7 +2836,7 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                 if (err) {
                   done();
                   disconnect_from_cluster(conn);
-                  set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+                  set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
                   return;
                 }
                 stdout = stdout.trim();
@@ -2896,7 +2872,7 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                             log('Error updating running perf tests: ' + err);
                             done();
                             disconnect_from_cluster(conn);
-                            set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+                            set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
                         });
                         query.on('end', function(result) {
                             check_cluster_helper(perf_runs, i + 1, conn, client, done);
@@ -2935,7 +2911,7 @@ function check_cluster() {
             query.on('error', function(err, result) {
                     done();
                     log('Error looking up running perf tests: ' + err);
-                    set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+                    set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
             });
             query.on('end', function(result) {
 
@@ -2945,7 +2921,7 @@ function check_cluster() {
                       log('Error connecting to cluster with ' +
                         CLUSTER_USER + '@' + CLUSTER_HOSTNAME + ', err=' + err);
                       done();
-                      set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+                      set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
                     } else {
                         var running_jobs_str = '[';
                         for (var i = 0; i < perf_runs.length; i++) {
@@ -2960,6 +2936,71 @@ function check_cluster() {
             });
         });
     }
+}
+
+function abort_and_reset_cluster_file_checking(conn, err) {
+  if (conn) disconnect_from_cluster(conn);
+  if (err) log('abort_and_reset_cluster_file_checking: err=' + err);
+  setTimeout(check_for_old_runs_on_cluster, CHECK_CLUSTER_FILES_PERIOD_MS);
+}
+
+function delete_old_folders(folder_index, folder_list, conn) {
+    if (folder_index >= folder_list.length) {
+        return abort_and_reset_cluster_file_checking(conn, null);
+    }
+
+    var folder = folder_list[folder_index];
+    run_cluster_cmd(conn, 'stat run dir', 'stat --format=%Y autograder/' + folder,
+            function(err, conn, stdout, stderr) {
+                if (err) {
+                    return abort_and_reset_cluster_file_checking(conn, err);
+                }
+                var current_epoch_time = Math.floor((new Date).getTime() / 1000);
+                var folder_epoch = parseInt(stdout);
+                if (current_epoch_time - folder_epoch >= CLUSTER_FOLDER_RETENTION_TIME_S) {
+                    log('delete_old_folders: deleting old cluster dir autograder/' + folder);
+
+                    run_cluster_cmd(conn, 'delete old cluster dir',
+                        'rm -r autograder/' + folder,
+                        function(err, conn, stdout, stderr) {
+                            if (err) {
+                                return abort_and_reset_cluster_file_checking(conn, err);
+                            }
+                            delete_old_folders(folder_index + 1, folder_list, conn);
+                        });
+                } else {
+                    delete_old_folders(folder_index + 1, folder_list, conn);
+                }
+            });
+}
+
+function check_for_old_runs_on_cluster() {
+    log('check_for_old_runs_on_cluster: starting...');
+
+    connect_to_cluster(function(conn, err) {
+        if (err) {
+            return abort_and_reset_cluster_file_checking(null, err);
+        }
+
+        run_cluster_cmd(conn, 'list run dirs', "ls -l autograder/",
+            function(err, conn, stdout, stderr) {
+                if (err) {
+                    return abort_and_reset_cluster_file_checking(conn, err);
+                }
+                var run_dirs = [];
+                var lines = stdout.split('\n');
+                for (var l = 1; l < lines.length; l++) {
+                    var line = lines[l];
+                    var tokens = line.split(' ');
+                    if (tokens.length == 9) {
+                        run_dirs.push(tokens[8]);
+                    }
+                }
+
+                delete_old_folders(0, run_dirs, conn);
+            });
+
+    });
 }
 
 pgclient(function(client, done) {
@@ -2978,6 +3019,7 @@ pgclient(function(client, done) {
     done();
 
     set_check_cluster_timeout(0);
+    setTimeout(check_for_old_runs_on_cluster, CHECK_CLUSTER_FILES_PERIOD_MS);
 
     var port = process.env.PORT || 8000;
 
