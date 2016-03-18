@@ -29,16 +29,6 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 
-import org.tmatesoft.svn.core.wc.SVNClientManager;
-import org.tmatesoft.svn.core.wc.SVNUpdateClient;
-import org.tmatesoft.svn.core.SVNURL;
-import org.tmatesoft.svn.core.wc.SVNRevision;
-import org.tmatesoft.svn.core.SVNException;
-import org.tmatesoft.svn.core.SVNDepth;
-import org.tmatesoft.svn.core.wc.SVNWCUtil;
-import org.tmatesoft.svn.core.auth.ISVNAuthenticationManager;
-import org.tmatesoft.svn.core.wc.ISVNOptions;
-
 public class Viola {
     // Executor for running the local tests
     private final static int poolSize = 4;
@@ -50,6 +40,7 @@ public class Viola {
 
     private static ViolaEnv env = null;
     private static final LinkedList<LocalTestRunner> toImport = new LinkedList<LocalTestRunner>();
+    private static final LinkedList<LocalTestRunner> toExport = new LinkedList<LocalTestRunner>();
     private static final LinkedList<LocalTestRunner> toNotify = new LinkedList<LocalTestRunner>();
 
     private static String getEnvVarOrFail(String varname) {
@@ -61,26 +52,14 @@ public class Viola {
     }
 
     public static void main(String[] args) throws IOException {
-        if (args.length != 3) {
-            System.err.println("usage: java Viola viola-port conductor-host conductor-port");
+        if (args.length != 4) {
+            System.err.println("usage: java Viola viola-port conductor-host conductor-port conductor-user");
             System.exit(1);
         }
         final int port = Integer.parseInt(args[0]);
         final String conductorHost = args[1];
         final int conductorPort = Integer.parseInt(args[2]);
-
-        final String svnUser =
-            System.getenv("SVN_USER") == null ? "jmg3" : System.getenv("SVN_USER");
-        final String svnPassword =
-            System.getenv("SVN_PASSWORD") == null ? "" :
-            System.getenv("SVN_PASSWORD");
-        String svnRepo = System.getenv("SVN_REPO");
-        if (svnRepo == null) {
-            svnRepo = "https://svn.rice.edu/r/parsoft/projects/AutoGrader/student-runs";
-        }
-        while (svnRepo.endsWith("/")) {
-            svnRepo = svnRepo.substring(0, svnRepo.length() - 1);
-        }
+        final String conductorUser = args[3];
 
         final String junit = getEnvVarOrFail("JUNIT_JAR");
         final String hamcrest = getEnvVarOrFail("HAMCREST_JAR");
@@ -96,7 +75,6 @@ public class Viola {
         System.out.println("============== Viola ==============");
         System.out.printf("Viola port = %d\n", port);
         System.out.printf("Conductor  = %s:%d\n", conductorHost, conductorPort);
-        System.out.printf("SVN        = %s @ %s\n", svnUser, svnRepo);
         System.out.printf("junit      = %s\n", junit);
         System.out.printf("hamcrest   = %s\n", hamcrest);
         System.out.printf("maven repo = %s\n", mavenRepo);
@@ -105,12 +83,16 @@ public class Viola {
         System.out.printf("checkstyle = %s\n", checkstyle);
         System.out.println("===================================");
 
-        env = new ViolaEnv(conductorHost, conductorPort, svnRepo, svnUser,
-                svnPassword, junit, hamcrest, mavenRepo, asm, checkstyle, autograderHome);
+        env = new ViolaEnv(conductorHost, conductorPort, conductorUser, junit, hamcrest, mavenRepo, asm, checkstyle,
+                autograderHome);
 
-        final SVNImportRunnable importRunner = new SVNImportRunnable(toImport, toNotify);
+        final ImportFromConductorRunnable importRunner = new ImportFromConductorRunnable(toImport, toNotify, executor);
         final Thread importThread = new Thread(importRunner);
         importThread.start();
+
+        final ExportToConductorRunnable exportRunner = new ExportToConductorRunnable(toExport, toNotify);
+        final Thread exportThread = new Thread(exportRunner);
+        exportThread.start();
 
         final NotifyConductorRunnable notifyRunner = new NotifyConductorRunnable(toNotify);
         final Thread notifyThread = new Thread(notifyRunner);
@@ -171,6 +153,10 @@ public class Viola {
                 err_msg = "Missing JVM args";
             } else if (!parms.containsKey("timeout")) {
                 err_msg = "Missing test timeout";
+            } else if (!parms.containsKey("submission_path")) {
+                err_msg = "Missing submission path";
+            } else if (!parms.containsKey("assignment_path")) {
+                err_msg = "Missing assignment path";
             }
 
             if (err_msg != null) {
@@ -185,14 +171,22 @@ public class Viola {
                 final int assignment_id = Integer.parseInt(parms.get("assignment_id"));
                 final String jvm_args = parms.get("jvm_args");
                 final int timeout = Integer.parseInt(parms.get("timeout"));
+                final String assignmentPath = parms.get("assignment_path");
+                final String submissionPath = parms.get("submission_path");
+
                 ViolaUtil.log("starting tests for user=%s assignment=%s run=%d " +
-                        "assignment_id=%d jvm_args=\"%s\" timeout=%d\n", user, assignment_name,
-                        run_id, assignment_id, jvm_args, timeout);
+                        "assignment_id=%d jvm_args=\"%s\" timeout=%d " +
+                        "submission_path=%s assignment_path=%s\n", user,
+                        assignment_name, run_id, assignment_id, jvm_args,
+                        timeout, submissionPath, assignmentPath);
 
                 final LocalTestRunner runnable = new LocalTestRunner(done_token,
                         user, assignment_name, run_id, assignment_id, jvm_args,
-                        timeout, env, toImport);
-                executor.execute(runnable);
+                        timeout, env, toExport, assignmentPath, submissionPath);
+                synchronized (toImport) {
+                    toImport.add(runnable);
+                    toImport.notify();
+                }
                 writeResponse(t, "{ \"status\": \"Success\" }");
             }
         }

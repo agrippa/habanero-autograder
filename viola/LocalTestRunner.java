@@ -31,23 +31,12 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 
-import org.tmatesoft.svn.core.wc.SVNClientManager;
-import org.tmatesoft.svn.core.wc.SVNUpdateClient;
-import org.tmatesoft.svn.core.SVNURL;
-import org.tmatesoft.svn.core.wc.SVNRevision;
-import org.tmatesoft.svn.core.SVNException;
-import org.tmatesoft.svn.core.SVNDepth;
-import org.tmatesoft.svn.core.wc.SVNWCUtil;
-import org.tmatesoft.svn.core.auth.ISVNAuthenticationManager;
-import org.tmatesoft.svn.core.wc.ISVNOptions;
-
 import org.apache.commons.io.FileUtils;
 
 /*
  * Logic for actually running single-threaded tests.
  */
 public class LocalTestRunner {
-    private static final long TIMEOUT_CHECK_INTERVAL = 5 * 1000;
 
     private final String done_token;
     private final String user;
@@ -56,23 +45,29 @@ public class LocalTestRunner {
     private final int assignment_id;
     private final String[] jvm_args;
     private final int timeout;
+    private final String submissionPath;
+    private final String assignmentPath;
+
+    private File createdAssignmentDir = null;
+    private File createdSubmissionDir = null;
+
     private final ViolaEnv env;
     private volatile boolean beingCancelled = false;
-
-    private final SVNClientManager svnClientManager;
 
     private final List<String> createdDirectories = new LinkedList<String>();
     private final List<Process> createdProcesses = new LinkedList<Process>();
 
+    private final List<String> createdFilesToSave = new LinkedList<String>();
+
     private File logDir = null;
-    private String errMsg = "";
-    private final String svnLoc;
+    private String errMsg = null;
 
     private final LinkedList<LocalTestRunner> toImport;
 
     public LocalTestRunner(String done_token, String user,
             String assignment_name, int run_id, int assignment_id,
-            String jvm_args, int timeout, ViolaEnv env, LinkedList<LocalTestRunner> toImport) {
+            String jvm_args, int timeout, ViolaEnv env, LinkedList<LocalTestRunner> toImport, String assignmentPath,
+            String submissionPath) {
         this.done_token = done_token;
         this.user = user;
         this.assignment_name = assignment_name;
@@ -86,13 +81,13 @@ public class LocalTestRunner {
         }
         this.timeout = timeout;
         this.env = env;
+        this.assignmentPath = assignmentPath;
+        this.submissionPath = submissionPath;
 
-        this.svnClientManager = SVNClientManager.newInstance(
-                SVNWCUtil.createDefaultOptions(true), env.svnUser, env.svnPassword);
-        this.svnLoc = env.svnRepo + "/" + user + "/" + run_id;
         this.toImport = toImport;
     }
-    
+   
+    public List<String> getFilesToSave() { return createdFilesToSave; }
     public String getUser() {  return user; }
     public int getRunId() {  return run_id; }
     public String getDoneToken() { return done_token; }
@@ -100,19 +95,32 @@ public class LocalTestRunner {
     public File getLogDir() { return logDir; }
     public String getErrMsg() { return errMsg; }
     public void setErrMsg(String msg) { errMsg = msg; }
-    public String getSVNLoc() { return svnLoc; }
-    public SVNClientManager getSVNClientManager() { return svnClientManager; }
+    public ViolaEnv getEnv() { return env; }
+    public String getSubmissionPath() { return submissionPath; }
+    public String getAssignmentPath() { return assignmentPath; }
 
     public void setBeingCancelled() {
         beingCancelled = true;
+    }
+
+    public void setCreatedAssignmentDir(File f) {
+        this.createdAssignmentDir = f;
+        createdDirectories.add(f.getAbsolutePath());
+    }
+
+    public void setCreatedSubmissionDir(File f) {
+        this.createdSubmissionDir = f;
+        createdDirectories.add(f.getAbsolutePath());
     }
 
     /*
      * Partially taken from http://stackoverflow.com/questions/4205980/java-sending-http-parameters-via-post-method-easily
      * TODO Problem here is we could fail silently to succeed.
      */
-    private void notifyConductor(String err_msg) {
-        String urlParameters = "done_token=" + done_token + "&err_msg=" + err_msg;
+    private void notifyConductor(String errMsg) {
+        if (errMsg == null) errMsg = "";
+
+        String urlParameters = "done_token=" + done_token + "&err_msg=" + errMsg;
         byte[] postData = urlParameters.getBytes(StandardCharsets.UTF_8);
         int postDataLength = postData.length;
         String request = "http://" + env.conductorHost + ":" +
@@ -146,7 +154,7 @@ public class LocalTestRunner {
             in.close();
 
             ViolaUtil.log("Conductor notification response for err_msg=%s " +
-                    "done_token=%s: %s\n", err_msg, done_token, response.toString());
+                    "done_token=%s: %s\n", errMsg, done_token, response.toString());
 
         } catch (Exception ex) {
             ex.printStackTrace();
@@ -161,7 +169,7 @@ public class LocalTestRunner {
         }
     }
 
-    private void merge_dirs(File dst, File src) {
+    private void mergeDirs(File dst, File src) {
         for (String filename : src.list()) {
           File curr = new File(src.getAbsolutePath(), filename);
           File target = new File(dst.getAbsolutePath(), filename);
@@ -170,7 +178,7 @@ public class LocalTestRunner {
               if (!target.exists()) {
                 target.mkdir();
               }
-              merge_dirs(target, curr);
+              mergeDirs(target, curr);
             }
           } else {
             if (!curr.getName().endsWith("PerformanceTest.java")) {
@@ -183,29 +191,6 @@ public class LocalTestRunner {
             }
           }
         }
-    }
-
-    private File getTempDirectory() throws IOException {
-        final File code_dir = File.createTempFile("temp", Long.toString(System.nanoTime()));
-        createdDirectories.add(code_dir.getAbsolutePath());
-
-        if(!(code_dir.delete())) {
-            throw new IOException("Could not delete temp file: " +
-                    code_dir.getAbsolutePath());
-        }
-        return code_dir;
-    }
-
-    class ProcessResults {
-      public final String stdout;
-      public final String stderr;
-      public final int code;
-
-      public ProcessResults(String stdout, String stderr, int code) {
-        this.stdout = stdout;
-        this.stderr = stderr;
-        this.code = code;
-      }
     }
 
     private void findAllJavaFilesHelper(File currDir, List<String> acc,
@@ -235,110 +220,48 @@ public class LocalTestRunner {
       return acc;
     }
 
-    private boolean processIsFinished(Process p) {
-      boolean finished = true;
-      try {
-        p.exitValue();
-      } catch (IllegalThreadStateException e) {
-        finished = false;
-      }
-      return finished;
-    }
-
-    private ProcessResults runInProcess(String[] cmd, File working_dir)
-        throws IOException, InterruptedException {
-      ViolaUtil.log("runInProcess: run_id=%d working_dir=%s cmd=%s\n",
-          run_id, working_dir.getAbsolutePath(), String.join(" ", cmd));
-      
-      ProcessBuilder pb = new ProcessBuilder(Arrays.asList(cmd));
-      pb.directory(working_dir);
-      Process p = pb.start();
-      createdProcesses.add(p);
-
-      final long startTime = System.currentTimeMillis();
-      while (System.currentTimeMillis() - startTime < this.timeout &&
-              !processIsFinished(p)) {
-
-          Thread.sleep(TIMEOUT_CHECK_INTERVAL);
-      }
-
-      if (!processIsFinished(p)) {
-        p.destroy();
-
-        return new ProcessResults("", "ERROR: The correctness tests took longer than " +
-            "the allowed " + this.timeout + " ms to complete.", 0);
-      } else {
-        BufferedReader stdInput = new BufferedReader(
-            new InputStreamReader(p.getInputStream()));
-        BufferedReader stdError = new BufferedReader(
-            new InputStreamReader(p.getErrorStream()));
-
-        String s = null;
-        final StringBuilder stdout = new StringBuilder();
-        while ((s = stdInput.readLine()) != null) {
-          stdout.append(s + "\n");
-        }
-
-        final StringBuilder stderr = new StringBuilder();
-        while ((s = stdError.readLine()) != null) {
-          stderr.append(s + "\n");
-        }
-
-        int exitCode = p.exitValue();
-
-        return new ProcessResults(stdout.toString(), stderr.toString(), exitCode);
-      }
-    }
-
     public void run() {
         ViolaUtil.log("Running local tests for user=%s assignment=%s run=%d " +
                 "jvm_args length=%d\n", user, assignment_name, run_id,
                 jvm_args.length);
 
-        File code_dir = null;
-        File instructor_dir = null;
-        File extract_code_dir = null;
-        File extract_instructor_dir = null;
+        File extractCodeDir = null;
+        File extractInstructorDir = null;
         try {
-            code_dir = getTempDirectory();
-            instructor_dir = getTempDirectory();
-            extract_code_dir = getTempDirectory();
-            extract_instructor_dir = getTempDirectory();
-            logDir = getTempDirectory();
+            extractCodeDir = CommonUtils.getTempDirectoryName();
+            createdDirectories.add(extractCodeDir.getAbsolutePath());
+            extractInstructorDir = CommonUtils.getTempDirectoryName();
+            createdDirectories.add(extractInstructorDir.getAbsolutePath());
+            logDir = CommonUtils.getTempDirectoryName();
+            createdDirectories.add(logDir.getAbsolutePath());
 
-            /*
-             * Check out the student code from SVN. This should check out a
-             * single directory with a single ZIP file inside.
-             */
-            SVNUpdateClient updateClient = svnClientManager.getUpdateClient();
-            updateClient.setIgnoreExternals(false);
+            final String lbl = String.format("run_id=%d", run_id);
 
-            ViolaUtil.log("Checking student code out to %s from %s\n", code_dir.getAbsolutePath(), svnLoc);
-            updateClient.doExport(SVNURL.parseURIDecoded(svnLoc), code_dir,
-                    SVNRevision.HEAD, SVNRevision.HEAD, null, false, SVNDepth.INFINITY);
-
-            ViolaUtil.log("Checking instructor code out to %s\n", instructor_dir.getAbsolutePath());
-            updateClient.doExport(SVNURL.parseURIDecoded(env.svnRepo +  "/assignments/" + assignment_id),
-                    instructor_dir, SVNRevision.HEAD, SVNRevision.HEAD, null, false, SVNDepth.INFINITY);
-
-            extract_code_dir.mkdir();
-            extract_instructor_dir.mkdir();
+            extractCodeDir.mkdir();
+            extractInstructorDir.mkdir();
             logDir.mkdir();
 
-            ViolaUtil.log("Target code directory = " + extract_code_dir.getAbsolutePath() + "\n");
-            ViolaUtil.log("Target instructor directory = " + extract_instructor_dir.getAbsolutePath() + "\n");
+            final String checkstyleOutputFile = logDir.getAbsolutePath() + "/checkstyle.txt";
+            final String findbugsOutputFile = logDir.getAbsolutePath() + "/findbugs.txt";
+            final String compileOutputFile = logDir.getAbsolutePath() + "/compile.txt";
+            final String correctnessOutputFile = logDir.getAbsolutePath() + "/correct.txt";
 
-            String[] unzip_code = new String[]{"unzip", code_dir.getAbsolutePath() + "/student.zip", "-d",
-              extract_code_dir.getAbsolutePath()};
-            String[] unzip_instructor = new String[]{"unzip", instructor_dir.getAbsolutePath() + "/instructor.zip",
-              "-d", extract_instructor_dir.getAbsolutePath()};
+            ViolaUtil.log("Target code directory = " + extractCodeDir.getAbsolutePath() + "\n");
+            ViolaUtil.log("Target instructor directory = " + extractInstructorDir.getAbsolutePath() + "\n");
 
-            final ProcessResults unzip_code_results = runInProcess(unzip_code, code_dir);
+            String[] unzip_code = new String[]{"unzip", createdSubmissionDir.getAbsolutePath() + "/student.zip", "-d",
+              extractCodeDir.getAbsolutePath()};
+            String[] unzip_instructor = new String[]{"unzip", createdAssignmentDir.getAbsolutePath() + "/instructor.zip",
+              "-d", extractInstructorDir.getAbsolutePath()};
+
+            final CommonUtils.ProcessResults unzip_code_results = CommonUtils.runInProcess(lbl, unzip_code,
+                    createdSubmissionDir, this.timeout, createdProcesses);
             if (unzip_code_results.code != 0) {
                 throw new TestRunnerException("Error unzipping code");
             }
 
-            final ProcessResults unzip_instructor_results = runInProcess(unzip_instructor, instructor_dir);
+            final CommonUtils.ProcessResults unzip_instructor_results = CommonUtils.runInProcess(lbl, unzip_instructor,
+                    createdAssignmentDir, this.timeout, createdProcesses);
             if (unzip_instructor_results.code != 0) {
                 throw new TestRunnerException("Error unzipping instructor");
             }
@@ -350,8 +273,8 @@ public class LocalTestRunner {
                 return !name.equals("__MACOSX") && new File(current, name).isDirectory();
               }
             };
-            String[] code_directories = extract_code_dir.list(dirsOnly);
-            String[] instructor_directories = extract_instructor_dir.list(dirsOnly);
+            String[] code_directories = extractCodeDir.list(dirsOnly);
+            String[] instructor_directories = extractInstructorDir.list(dirsOnly);
 
             if (code_directories.length != 1) {
               StringBuilder sb = new StringBuilder("Unexpected number of code " +
@@ -368,8 +291,8 @@ public class LocalTestRunner {
                   instructor_directories.length + ")");
             }
 
-            final File unzipped_code_dir = new File(extract_code_dir, code_directories[0]);
-            final File unzipped_instructor_dir = new File(extract_instructor_dir,
+            final File unzipped_code_dir = new File(extractCodeDir, code_directories[0]);
+            final File unzipped_instructor_dir = new File(extractInstructorDir,
                 instructor_directories[0]);
             final File unzipped_instructor_src_dir = new File(unzipped_instructor_dir, "src");
             if (!unzipped_instructor_src_dir.exists()) {
@@ -383,7 +306,7 @@ public class LocalTestRunner {
             /*
              * Run checkstyle
              */
-            final File checkstyle_config = new File(instructor_dir.getAbsolutePath() + "/checkstyle.xml");
+            final File checkstyle_config = new File(createdAssignmentDir.getAbsolutePath() + "/checkstyle.xml");
             ViolaUtil.log("Checkstyle config file = " + checkstyle_config.getAbsolutePath() + "\n");
 
             final File mainSrcFolder = new File(unzipped_code_dir, "src");
@@ -413,34 +336,17 @@ public class LocalTestRunner {
                 checkstyle_cmd[checkstyle_index++] = filename;
             }
 
-            ProcessResults checkstyle_results = runInProcess(checkstyle_cmd,
-                unzipped_code_dir);
-            PrintWriter writer = new PrintWriter(
-                logDir.getAbsolutePath() + "/checkstyle.txt", "UTF-8");
-            if (checkstyle_results.stderr.length() > 0) {
-                writer.println(checkstyle_results.stderr);
-            } else {
-                writer.println(checkstyle_results.stdout);
-            }
-            writer.close();
-
-            /*
-             * Run FindBugs
-             */
-            String[] findbugs_cmd = new String[]{"findbugs", "-textui",
-              "-low", mainCodeFolder.getAbsolutePath()};
-            ProcessResults findbugs_results = runInProcess(findbugs_cmd, unzipped_code_dir);
-            writer = new PrintWriter(
-                logDir.getAbsolutePath() + "/findbugs.txt", "UTF-8");
-            writer.println(findbugs_results.stdout);
-            writer.close();
+            CommonUtils.ProcessResults checkstyleResults = CommonUtils.runInProcess(lbl, checkstyle_cmd,
+                unzipped_code_dir, this.timeout, createdProcesses);
+            CommonUtils.saveResultsToFile(checkstyleResults, checkstyleOutputFile, false);
+            createdFilesToSave.add(checkstyleOutputFile);
 
             /*
              * Merge the student-provided test code with the instructor-provided
              * test code into a single folder hierarchy.
              */
-            merge_dirs(mainTestFolder, unzipped_instructor_test_dir);
-            final File pom = new File(instructor_dir, "instructor_pom.xml");
+            mergeDirs(mainTestFolder, unzipped_instructor_test_dir);
+            final File pom = new File(createdAssignmentDir, "instructor_pom.xml");
             if (!pom.exists()) {
                 throw new TestRunnerException("We appear to be missing the " +
                     "instructor-provided pom.xml. Please contact the " +
@@ -473,18 +379,28 @@ public class LocalTestRunner {
              * Compile the full application and testing suite
              */
             String[] cmd = new String[]{"mvn", "-Dcheckstyle.skip=true", "clean", "compile", "test-compile"};
-            ProcessResults mvn_results = runInProcess(cmd, unzipped_code_dir);
-            writer = new PrintWriter(logDir.getAbsolutePath() + "/compile.txt", "UTF-8");
-            writer.println("======= STDOUT =======");
-            writer.println(mvn_results.stdout);
-            writer.println("\n======= STDERR =======");
-            writer.println(mvn_results.stderr);
-            writer.close();
-            if (mvn_results.code != 0) {
+            CommonUtils.ProcessResults mvnResults = CommonUtils.runInProcess(lbl, cmd, unzipped_code_dir, this.timeout, createdProcesses);
+            CommonUtils.saveResultsToFile(mvnResults, compileOutputFile, true);
+            createdFilesToSave.add(compileOutputFile);
+            if (mvnResults.code != 0) {
               throw new TestRunnerException("Error compiling correctness " +
                   "tests from dir=" + unzipped_code_dir.getAbsolutePath() +
                   " with cmd=mvn clean compile test-compile");
             }
+
+            /*
+             * Run FindBugs
+             */
+            File targetFolder = new File(unzipped_code_dir, "target");
+            if (!targetFolder.exists()) {
+                throw new TestRunnerException("Maven failed to generate a target folder.");
+            }
+            String[] findbugsCmd = new String[]{"findbugs", "-textui",
+                "-low", targetFolder.getAbsolutePath()};
+            CommonUtils.ProcessResults findbugsResults = CommonUtils.runInProcess(lbl, findbugsCmd, unzipped_code_dir,
+                    this.timeout, createdProcesses);
+            CommonUtils.saveResultsToFile(findbugsResults, findbugsOutputFile, false);
+            createdFilesToSave.add(findbugsOutputFile);
 
             /*
              * Find all correctness tests and run them one-by-one, storing
@@ -527,7 +443,8 @@ public class LocalTestRunner {
               junit_cmd[junit_cmd_index++] = "org.junit.runner.JUnitCore";
               junit_cmd[junit_cmd_index++] = classname;
               assert junit_cmd_index == junit_cmd_length;
-              ProcessResults junit_results = runInProcess(junit_cmd, unzipped_code_dir);
+              CommonUtils.ProcessResults junit_results = CommonUtils.runInProcess(lbl, junit_cmd, unzipped_code_dir,
+                      this.timeout, createdProcesses);
               /*
                * A non-zero exit code here can simply indicate a test
                * failure, so we ignore all error checking and continue.
@@ -538,13 +455,13 @@ public class LocalTestRunner {
               stderr.append(junit_results.stderr);
             }
 
-            writer = new PrintWriter(
-                    logDir.getAbsolutePath() + "/correct.txt", "UTF-8");
+            final PrintWriter writer = new PrintWriter(correctnessOutputFile, "UTF-8");
             writer.println("======= STDOUT =======");
             writer.println(stdout.toString());
             writer.println("\n======= STDERR =======");
             writer.println(stderr.toString());
             writer.close();
+            createdFilesToSave.add(correctnessOutputFile);
 
             ViolaUtil.log("Filled correctness log file\n");
         } catch (TestRunnerException tr) {
@@ -566,9 +483,9 @@ public class LocalTestRunner {
     }
 
     public void cleanup(String errMsg) {
-        for (String path : createdDirectories) {
-            deleteDir(new File(path));
-        }
+        // for (String path : createdDirectories) {
+        //     deleteDir(new File(path));
+        // }
 
         for (Process p : createdProcesses) {
             p.destroy();
@@ -577,8 +494,6 @@ public class LocalTestRunner {
         ViolaUtil.log("Done with cleanup\n");
 
         notifyConductor(errMsg);
-
-        svnClientManager.dispose();
     }
 }
 

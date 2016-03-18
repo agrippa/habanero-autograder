@@ -1,12 +1,18 @@
-all: ViolaEnv.class TestRunnerException.class ViolaUtil.class LocalTestRunner.class FairViolaTaskExecutor.class Viola.class SVNImportRunnable.class NotifyConductorRunnable.class
+all: ViolaEnv.class TestRunnerException.class ViolaUtil.class LocalTestRunner.class FairViolaTaskExecutor.class Viola.class ExportToConductorRunnable.class NotifyConductorRunnable.class ImportFromConductorRunnable.class CommonUtils.class
 
-FLAGS=-Xlint:deprecation -classpath .:lib/svnkit-1.8.11/lib/svnkit-1.8.11.jar:commons-io-2.4.jar
+FLAGS=-Xlint:deprecation -classpath .:commons-io-2.4.jar
 
 ViolaEnv.class: ViolaEnv.java
 	javac ${FLAGS} ViolaEnv.java
 
-SVNImportRunnable.class: SVNImportRunnable.java
-	javac ${FLAGS} SVNImportRunnable.java
+CommonUtils.class: CommonUtils.java
+	javac ${FLAGS} CommonUtils.java
+
+ImportFromConductorRunnable.class: ImportFromConductorRunnable.java
+	javac ${FLAGS} ImportFromConductorRunnable.java
+
+ExportToConductorRunnable.class: ExportToConductorRunnable.java
+	javac ${FLAGS} ExportToConductorRunnable.java
 
 NotifyConductorRunnable.class: NotifyConductorRunnable.java
 	javac ${FLAGS} NotifyConductorRunnable.java

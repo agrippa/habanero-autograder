@@ -10,36 +10,6 @@
         $('#dropdown-button').text(lbl);
         $('#assignment_id').val(lbl);
       }
-
-      $(function() {
-          $.ajax({
-              url: '/assignments',
-              type: 'GET',
-              data: { get_not_visible: false },
-              ContentType: 'application/json; charset=utf-8',
-              dataType: 'json',
-              success: function(data) {
-                if (data.status === 'Success') {
-                  var assignments = data.assignments;
-                  $('#assignment-dropdown').empty();
-                  if (assignments.length > 0) {
-                    for (var i = 0; i < assignments.length; i++) {
-                        var curr = assignments[i];
-                        var entry_html = '<li><a href="#" onclick=set_dropdown_label("' + curr.name + '")>' + curr.name + '</a></li>';
-                        $('#assignment-dropdown').append(entry_html);
-                    }
-                  } else {
-                    $('#assignment-dropdown').append('<li><a href="#">No Assignments Available</a></li>');
-                  }
-                } else {
-                  show_error(data.msg);
-                }
-              },
-              failure: function() {
-                show_error('Internal failure');
-              },
-            });
-      });
     </script>
   </head>
 
@@ -58,7 +28,13 @@
             <div class="dropdown col-md-4 col-md-offset-2" style="padding-right: 30px; padding-bottom: 10px;">
               <button id='dropdown-button' class="btn btn-primary btn-block dropdown-toggle" type="button" data-toggle="dropdown" style="width: 100%">Select Assignment</button>
               <ul class="dropdown-menu" role="menu" id="assignment-dropdown" style="width: 100%">
-                <li><a href="#">Loading...</a></li>
+                  <% if (assignments.length === 0) { %>
+                  <li><a href="#">No Assignments Available</a></li>
+                  <% } else { %>
+                  <%     for (var i = 0; i < assignments.length; i++) { %>
+                  <li><a href="#" onclick=set_dropdown_label("<%= assignments[i].name %>")><%= assignments[i].name %></a></li>
+                  <%     } %>
+                  <% } %>
               </ul>
             </div>
 

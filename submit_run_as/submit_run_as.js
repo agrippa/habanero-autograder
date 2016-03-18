@@ -13,7 +13,7 @@ var svn_url = process.argv[5];
 request({
     url: 'http://ananke.cs.rice.edu/submit_run_as?svn_url=' + svn_url +
          '&username=' + username + '&assignment_name=' + assignment_name +
-        '&for_username=' + for_username,
+         '&for_username=' + for_username,
     method: "POST",
 }, function(err, response, body) {
     if (err) {
