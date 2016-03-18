@@ -465,6 +465,42 @@ app.get('/status/:run_id', function(req, res, next) {
     });
 });
 
+app.get('/latest_complete_run', function(req, res, next) {
+    pgclient(function(client, done) {
+        var query = client.query('SELECT MAX(run_id) FROM runs');
+        query.on('row', function(row, result) { result.addRow(row); });
+        query.on('error', function(err, result) {
+            done();
+            return res.send('INTERNAL FAILURE');
+        });
+        query.on('end', function(result) {
+            var max_run_id = result.rows[0].max;
+
+            var query = client.query("SELECT MIN(run_id) FROM runs WHERE status='" +
+                TESTING_CORRECTNESS_STATUS + "' OR status='" +
+                IN_CLUSTER_QUEUE_STATUS + "' OR status='" +
+                TESTING_PERFORMANCE_STATUS + "'");
+            query.on('row', function(row, result) { result.addRow(row); });
+            query.on('error', function(err, result) {
+                done();
+                return res.send('INTERNAL FAILURE');
+            });
+            query.on('end', function(result) {
+                done();
+                if (result.rows[0].min === null) {
+                    if (max_run_id === null) {
+                        return res.send('NO RUNS');
+                    } else {
+                        return res.send(max_run_id.toString());
+                    }
+                } else {
+                    return res.send((result.rows[0].min - 1).toString());
+                }
+            });
+        });
+    });
+});
+
 /*
  * login/logout routes should always be the only routes above the wildcard '*' route
  */
