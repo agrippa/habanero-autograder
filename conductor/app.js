@@ -2685,168 +2685,161 @@ function abort_and_reset_perf_tests(err, done, conn, lbl) {
   set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
 }
 
-function finish_perf_tests(query, run, conn, done, client, perf_runs,
+function finish_perf_tests(run_status, run, conn, done, client, perf_runs,
         current_perf_runs_index) {
+    var query = client.query(
+            'SELECT * FROM users WHERE user_id=($1)', [run.user_id]);
     query.on('row', function(row, result) { result.addRow(row); });
     query.on('error', function(err, result) {
-            log('Error updating running perf tests: ' + err);
+        log('Error finding user name: ' + err);
+        done();
+        disconnect_from_cluster(conn);
+        set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+    });
+    query.on('end', function(result) {
+        if (result.rows.length != 1) {
+            log('Missing user, user_id=' + run.user_id);
             done();
             disconnect_from_cluster(conn);
             set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
-    });
-    query.on('end', function(result) {
-      var query = client.query(
-        'SELECT * FROM users WHERE user_id=($1)', [run.user_id]);
-      query.on('row', function(row, result) { result.addRow(row); });
-      query.on('error', function(err, result) {
-              log('Error finding user name: ' + err);
-              done();
-              disconnect_from_cluster(conn);
-              set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
-      });
-      query.on('end', function(result) {
-        if (result.rows.length != 1) {
-          log('Missing user, user_id=' + run.user_id);
-          done();
-          disconnect_from_cluster(conn);
-          set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
         } else {
-          var username = result.rows[0].user_name;
-          var wants_notification = result.rows[0].receive_email_notifications;
+            var username = result.rows[0].user_name;
+            var wants_notification = result.rows[0].receive_email_notifications;
 
-          var REMOTE_FOLDER = 'autograder/' + run.run_id;
-          var REMOTE_PROFILER = REMOTE_FOLDER + '/profiler.txt';
-          var REMOTE_TRACES = REMOTE_FOLDER + '/traces.txt';
-          var REMOTE_DATARACE = REMOTE_FOLDER + '/datarace.txt';
-          var REMOTE_STDOUT = REMOTE_FOLDER + '/stdout.txt';
-          var REMOTE_STDERR = REMOTE_FOLDER + '/stderr.txt';
-          var LOCAL_FOLDER = __dirname + '/submissions/' +
-            username + '/' + run.run_id;
-          var LOCAL_PROFILER = LOCAL_FOLDER + '/profiler.txt';
-          var LOCAL_TRACES = LOCAL_FOLDER + '/traces.txt';
-          var LOCAL_DATARACE = LOCAL_FOLDER + '/datarace.txt';
-          var LOCAL_STDOUT = LOCAL_FOLDER + '/cluster-stdout.txt';
-          var LOCAL_STDERR = LOCAL_FOLDER + '/cluster-stderr.txt';
-          var LOCAL_SLURM = LOCAL_FOLDER + '/cello.slurm';
+            var REMOTE_FOLDER = 'autograder/' + run.run_id;
+            var REMOTE_PROFILER = REMOTE_FOLDER + '/profiler.txt';
+            var REMOTE_TRACES = REMOTE_FOLDER + '/traces.txt';
+            var REMOTE_DATARACE = REMOTE_FOLDER + '/datarace.txt';
+            var REMOTE_STDOUT = REMOTE_FOLDER + '/stdout.txt';
+            var REMOTE_STDERR = REMOTE_FOLDER + '/stderr.txt';
+            var LOCAL_FOLDER = __dirname + '/submissions/' +
+                username + '/' + run.run_id;
+            var LOCAL_PROFILER = LOCAL_FOLDER + '/profiler.txt';
+            var LOCAL_TRACES = LOCAL_FOLDER + '/traces.txt';
+            var LOCAL_DATARACE = LOCAL_FOLDER + '/datarace.txt';
+            var LOCAL_STDOUT = LOCAL_FOLDER + '/cluster-stdout.txt';
+            var LOCAL_STDERR = LOCAL_FOLDER + '/cluster-stderr.txt';
+            var LOCAL_SLURM = LOCAL_FOLDER + '/cello.slurm';
 
-          get_cluster_os(conn, function(err, os) {
-            if (err) {
-              return abort_and_reset_perf_tests(err, done, conn, 'OS');
-            }
+            get_cluster_os(conn, function(err, os) {
+                if (err) {
+                    return abort_and_reset_perf_tests(err, done, conn, 'OS');
+                }
 
-            var copies = [{ src: REMOTE_STDOUT, dst: LOCAL_STDOUT },
-                          { src: REMOTE_STDERR, dst: LOCAL_STDERR }];
+                var copies = [{ src: REMOTE_STDOUT, dst: LOCAL_STDOUT },
+                { src: REMOTE_STDERR, dst: LOCAL_STDERR }];
             if (run.enable_profiling) {
                 copies.push({ src: REMOTE_TRACES, dst: LOCAL_TRACES });
             }
-                          // { src: REMOTE_PROFILER, dst: LOCAL_PROFILER },
+            // { src: REMOTE_PROFILER, dst: LOCAL_PROFILER },
             // if (os !== 'Darwin') {
             //   copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
             // }
 
             var tests = get_scalability_tests(run.ncores);
             for (var i = 0; i < tests.length; i++) {
-              var curr_cores = tests[i];
-              var local = LOCAL_FOLDER + '/performance.' + curr_cores + '.txt';
-              var remote = REMOTE_FOLDER + '/performance.' + curr_cores + '.txt';
+                var curr_cores = tests[i];
+                var local = LOCAL_FOLDER + '/performance.' + curr_cores + '.txt';
+                var remote = REMOTE_FOLDER + '/performance.' + curr_cores + '.txt';
 
-              copies.push({ src: remote, dst: local });
+                copies.push({ src: remote, dst: local });
             }
 
             batched_cluster_scp(copies, false, function(stat) {
-              var any_missing_files = false;
-              var svn_add_cmd = ['add'];
-              for (var i = 0; i < stat.length; i++) {
-                if (stat[i].success) {
-                  log('finish_perf_tests: successfully copied back to ' + stat[i].dst);
-                  svn_add_cmd.push(stat[i].dst);
-                } else {
-                  log('finish_perf_tests: scp err copying to ' + stat[i].dst + ', err=' +
-                    stat[i].err);
-                  any_missing_files = true;
+                var any_missing_files = false;
+                var svn_add_cmd = ['add'];
+                for (var i = 0; i < stat.length; i++) {
+                    if (stat[i].success) {
+                        log('finish_perf_tests: successfully copied back to ' + stat[i].dst);
+                        svn_add_cmd.push(stat[i].dst);
+                    } else {
+                        log('finish_perf_tests: scp err copying to ' + stat[i].dst + ', err=' +
+                            stat[i].err);
+                        any_missing_files = true;
+                    }
                 }
-              }
 
-              if (svn_add_cmd.length === 1) {
-                // No successful copies
-                return abort_and_reset_perf_tests(err, done, conn, 'svn-add');
-              }
+                if (svn_add_cmd.length === 1) {
+                    // No successful copies
+                    return abort_and_reset_perf_tests(err, done, conn, 'svn-add');
+                }
 
-              var characteristic_speedup = ""
-              if (!any_missing_files) {
-                  var rubric_file = rubric_file_path(run.assignment_id);
-                  var validated = load_and_validate_rubric(rubric_file);
-                  if (validated.success) {
-                      var rubric = validated.rubric;
-                      var characteristic_test = rubric.performance.characteristic_test;
-                      var performance_path = LOCAL_FOLDER + '/performance.' +
-                          run.ncores + '.txt';
-                      if (get_file_size(performance_path) < MAX_FILE_SIZE) {
-                          var test_contents = fs.readFileSync(performance_path, 'utf8');
-                          var test_lines = test_contents.split('\n');
-                          for (var i = 0; i < test_lines.length; i++) {
-                              var line = test_lines[i];
-                              if (string_starts_with(line, PERF_TEST_LBL)) {
-                                  var tokens = line.split(' ');
-                                  var testname = tokens[2];
-                                  if (testname === characteristic_test) {
-                                      var seq_time = parseInt(tokens[3]);
-                                      var parallel_time = parseInt(tokens[4]);
-                                      var speedup = seq_time / parallel_time;
-                                      characteristic_speedup = speedup.toFixed(3);
-                                      break;
-                                  }
-                              }
-                          }
-                      }
-                  }
-              }
-
-              delete_cluster_dir('autograder/' + run.run_id, conn,
-                function(err, conn, stdout, stderr) {
-                  if (err) {
-                    return abort_and_reset_perf_tests(err, done, conn, 'delete');
-                  }
-
-                  var query = client.query(
-                      'UPDATE runs SET passed_performance=($1),characteristic_speedup=($2) WHERE run_id=($3)',
-                      [!any_missing_files, characteristic_speedup, run.run_id]);
-                  query.on('row', function(row, result) { result.addRow(row); });
-                  query.on('error', function(err, result) {
-                      log('Error updating performance run state: ' + err);
-                      done();
-                      disconnect_from_cluster(conn);
-                      set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
-                  });
-                  query.on('end', function(result) {
-                      if (wants_notification) {
-                        var email = username + '@rice.edu';
-                        if (username === 'admin') {
-                          email = 'jmg3@rice.edu';
+                var characteristic_speedup = ""
+                if (!any_missing_files) {
+                    var rubric_file = rubric_file_path(run.assignment_id);
+                    var validated = load_and_validate_rubric(rubric_file);
+                    if (validated.success) {
+                        var rubric = validated.rubric;
+                        var characteristic_test = rubric.performance.characteristic_test;
+                        var performance_path = LOCAL_FOLDER + '/performance.' +
+                            run.ncores + '.txt';
+                        if (get_file_size(performance_path) < MAX_FILE_SIZE) {
+                            var test_contents = fs.readFileSync(performance_path, 'utf8');
+                            var test_lines = test_contents.split('\n');
+                            for (var i = 0; i < test_lines.length; i++) {
+                                var line = test_lines[i];
+                                if (string_starts_with(line, PERF_TEST_LBL)) {
+                                    var tokens = line.split(' ');
+                                    var testname = tokens[2];
+                                    if (testname === characteristic_test) {
+                                        var seq_time = parseInt(tokens[3]);
+                                        var parallel_time = parseInt(tokens[4]);
+                                        var speedup = seq_time / parallel_time;
+                                        characteristic_speedup = speedup.toFixed(3);
+                                        break;
+                                    }
+                                }
+                            }
                         }
-                        var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
-                        // TODO add finish time
-                        send_email(email_for_user(username), subject, '', function(err) {
-                          if (err) {
-                            return abort_and_reset_perf_tests(err, done, conn,
-                              'sending notification email');
-                          }
-                          check_cluster_helper(perf_runs,
-                              current_perf_runs_index + 1, conn, client,
-                              done);
-                        });
-                      } else {
-                        check_cluster_helper(perf_runs,
-                            current_perf_runs_index + 1, conn, client,
-                            done);
-                      }
-                  });
-                });
-              });
-          });
-        }
-      });
+                    }
+                }
 
+                delete_cluster_dir('autograder/' + run.run_id, conn,
+                    function(err, conn, stdout, stderr) {
+                        if (err) {
+                            return abort_and_reset_perf_tests(err, done, conn, 'delete');
+                        }
+
+                        var query = client.query(
+                            "UPDATE runs SET status='" + run_status + "'," +
+                            "finish_time=CURRENT_TIMESTAMP," +
+                            "passed_performance=($1)," +
+                            "characteristic_speedup=($2) WHERE run_id=($3)",
+                            [!any_missing_files, characteristic_speedup, run.run_id]);
+                        query.on('row', function(row, result) { result.addRow(row); });
+                        query.on('error', function(err, result) {
+                            log('Error updating performance run state: ' + err);
+                            done();
+                            disconnect_from_cluster(conn);
+                            set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+                        });
+
+                        query.on('end', function(result) {
+                            if (wants_notification) {
+                                var email = username + '@rice.edu';
+                                if (username === 'admin') {
+                                    email = 'jmg3@rice.edu';
+                                }
+                                var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
+                                send_email(email_for_user(username), subject, '', function(err) {
+                                    if (err) {
+                                        return abort_and_reset_perf_tests(err, done, conn,
+                                            'sending notification email');
+                                    }
+                                    check_cluster_helper(perf_runs,
+                                        current_perf_runs_index + 1, conn, client,
+                                        done);
+                                });
+                            } else {
+                                check_cluster_helper(perf_runs,
+                                    current_perf_runs_index + 1, conn, client,
+                                    done);
+                            }
+                        });
+                    });
+                });
+            });
+        }
     });
 }
 
@@ -2875,45 +2868,40 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                 log('check_cluster_helper: got status "' + stdout + '" back from cluster for job ' + run.job_id);
 
                 var finished = false;
-                var query = null;
+                var run_status = null;
                 if (stdout === 'FAILED' || stdout === 'TIMEOUT') {
                     log('check_cluster_helper: marking ' + run.run_id + ' FAILED');
-                    query = client.query(
-                        "UPDATE runs SET status='FAILED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
-                        [run.run_id]);
+                    run_status = 'FAILED';
                     finished = true;
                 } else if (string_starts_with(stdout, 'CANCELLED')) {
                     log('check_cluster_helper: marking ' + run.run_id + ' CANCELLED');
-                    query = client.query(
-                        "UPDATE runs SET status='CANCELLED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
-                        [run.run_id]);
+                    run_status = 'CANCELLED';
                     finished = true;
                 } else if (stdout === 'COMPLETED') {
                     log('check_cluster_helper: marking ' + run.run_id + ' FINISHED');
-                    query = client.query(
-                        "UPDATE runs SET status='FINISHED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
-                        [run.run_id]);
+                    run_status = 'FINISHED';
                     finished = true;
                 } else if (stdout === 'RUNNING') {
                     log('check_cluster_helper: marking ' + run.run_id + ' as TESTING PERFORMANCE');
-                    query = client.query(
-                        "UPDATE runs SET status='TESTING PERFORMANCE' WHERE run_id=($1)",
-                        [run.run_id]);
+                    run_status = 'TESTING PERFORMANCE';
                 }
 
-                if (finished) {
-                    finish_perf_tests(query, run, conn, done, client, perf_runs, i);
-                } else if (query) {
-                    query.on('row', function(row, result) { result.addRow(row); });
-                    query.on('error', function(err, result) {
-                        log('Error updating running perf tests: ' + err);
-                        done();
-                        disconnect_from_cluster(conn);
-                        set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
-                    });
-                    query.on('end', function(result) {
-                        check_cluster_helper(perf_runs, i + 1, conn, client, done);
-                    });
+                if (run_status) {
+                    if (finished) {
+                        finish_perf_tests(run_status, run, conn, done, client, perf_runs, i);
+                    } else {
+                        var query = client.query("UPDATE runs SET status='TESTING PERFORMANCE' WHERE run_id=($1)", [run.run_id]);
+                        query.on('row', function(row, result) { result.addRow(row); });
+                        query.on('error', function(err, result) {
+                            log('Error updating running perf tests: ' + err);
+                            done();
+                            disconnect_from_cluster(conn);
+                            set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+                        });
+                        query.on('end', function(result) {
+                            check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                        });
+                    }
                 } else {
                     check_cluster_helper(perf_runs, i + 1, conn, client, done);
                 }
