@@ -1506,7 +1506,13 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   } else {
     slurmFileContents += "echo Local job\n";
   }
-  slurmFileContents += "echo CELLO_WORK_DIR=$CELLO_WORK_DIR\n";
+  slurmFileContents += "echo CELLO_WORK_DIR=$CELLO_WORK_DIR\n\n";
+
+  slurmFileContents += 'function cleanup() {\n';
+  slurmFileContents += '    echo Cleaning up\n';
+  slurmFileContents += '    rm -f /tmp/performance*\n';
+  slurmFileContents += '}\n';
+  slurmFileContents += 'trap cleanup SIGHUP SIGINT SIGTERM\n\n';
 
   slurmFileContents += 'mkdir $CELLO_WORK_DIR/submission/student\n';
   slurmFileContents += 'unzip -qq $CELLO_WORK_DIR/submission/student.zip -d $CELLO_WORK_DIR/submission/student/\n';
