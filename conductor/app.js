@@ -120,6 +120,14 @@ var CHECK_CLUSTER_PERIOD_MS = 30 * 1000; // 30 seconds
 var CHECK_CLUSTER_FILES_PERIOD_MS = 60 * 60 * 1000; // 60 minutes
 var CLUSTER_FOLDER_RETENTION_TIME_S = 24 * 60 * 60; // 24 hours
 
+// All run statuses
+var TESTING_CORRECTNESS_STATUS = 'TESTING CORRECTNESS';
+var IN_CLUSTER_QUEUE_STATUS = 'IN CLUSTER QUEUE';
+var TESTING_PERFORMANCE_STATUS = 'TESTING PERFORMANCE';
+var FINISHED_STATUS = 'FINISHED';
+var CANCELLED_STATUS = 'CANCELLED';
+var FAILED_STATUS = 'FAILED';
+
 log('Connecting to remote cluster at ' + CLUSTER_HOSTNAME +
   ' of type ' + CLUSTER_TYPE + ' as ' + CLUSTER_USER);
 
@@ -1219,7 +1227,7 @@ function run_setup_failed(run_id, res, req, err_msg, svn_err) {
     log('run_setup_failed: run_id=' + run_id + ' err_msg="' + err_msg +
             '" err="' + svn_err + '"');
     pgclient(function(client, done) {
-        var query = client.query("UPDATE runs SET status='FAILED'," +
+        var query = client.query("UPDATE runs SET status='" + FAILED_STATUS + "'," +
             "finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)", [run_id]);
         query.on('row', function(row, result) { result.addRow(row); }); // unnecessary?
         query.on('error', function(err, result) {
@@ -1271,7 +1279,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
 
               var query = client.query("INSERT INTO runs (user_id, " +
                   "assignment_id, done_token, status, correctness_only, enable_profiling) VALUES " +
-                  "($1,$2,$3,'TESTING CORRECTNESS',$4,$5) RETURNING run_id",
+                  "($1,$2,$3,'" + TESTING_CORRECTNESS_STATUS + "',$4,$5) RETURNING run_id",
                   [user_id, assignment_id, done_token, correctness_only, enable_profiling]);
               register_query_helpers(query, res, done, username);
               query.on('end', function(result) {
@@ -1604,7 +1612,7 @@ function failed_starting_perf_tests(res, failure_msg, done, client, run_id, conn
   if (conn) disconnect_from_cluster(conn);
 
   query = client.query(
-      "UPDATE runs SET status='FAILED',finish_time=CURRENT_TIMESTAMP," +
+      "UPDATE runs SET status='" + FAILED_STATUS + "',finish_time=CURRENT_TIMESTAMP," +
       "cello_msg='An internal error occurred initiating the performance " +
       "tests, please contact the teaching staff' WHERE run_id=($1)",
       [run_id]);
@@ -1650,7 +1658,7 @@ app.post('/local_run_finished', function(req, res, next) {
         query.on('end', function(result) {
           if (result.rows.length != 1) {
             return failed_starting_perf_tests(res, 'Unexpected # of rows', done, client, -1, null);
-          } else if (result.rows[0].status !== 'TESTING CORRECTNESS') {
+          } else if (result.rows[0].status !== TESTING_CORRECTNESS_STATUS) {
               log('local_run_finished: received duplicate local run ' +
                   'completion notifications from viola for run ' +
                   result.rows[0].run_id);
@@ -1726,11 +1734,11 @@ app.post('/local_run_finished', function(req, res, next) {
                 register_query_helpers(query, res, done, 'unknown');
                 query.on('end', function(result) {
 
-                  var run_status = 'FINISHED';
+                  var run_status = FINISHED_STATUS;
                   if (viola_err_msg === 'Cancelled by user') {
-                      run_status = 'CANCELLED';
+                      run_status = CANCELLED_STATUS;
                   }
-                  if (correctness_only || run_status === 'CANCELLED') {
+                  if (correctness_only || run_status === CANCELLED_STATUS) {
                       query = client.query(
                           "UPDATE runs SET status='" + run_status + "',viola_msg=$1,finish_time=CURRENT_TIMESTAMP WHERE run_id=($2)",
                           [viola_err_msg, run_id]);
@@ -1775,7 +1783,7 @@ app.post('/local_run_finished', function(req, res, next) {
                               custom_slurm_flags_str.split(',');
 
                             var query = client.query(
-                                "UPDATE runs SET status='IN CLUSTER QUEUE',viola_msg=$1,ncores=$2 WHERE run_id=($3)", [viola_err_msg, ncores, run_id]);
+                                "UPDATE runs SET status='" + IN_CLUSTER_QUEUE_STATUS + "',viola_msg=$1,ncores=$2 WHERE run_id=($3)", [viola_err_msg, ncores, run_id]);
                             register_query_helpers(query, res, done, username);
                             query.on('end', function(result) {
 
@@ -2193,7 +2201,7 @@ function check_for_empty_stderr(lines) {
 }
 
 function run_completed(run_status) {
-  return run_status !== 'FAILED' && run_status !== 'CANCELLED';
+  return run_status !== FAILED_STATUS && run_status !== CANCELLED_STATUS;
 }
 
 function assignment_path(assignment_id) {
@@ -2571,7 +2579,8 @@ app.post('/cancel/:run_id', function(req, res, next) {
             var correctness_only = result.rows[0].correctness_only;
             var run_status = result.rows[0].status;
 
-            if (run_status === 'FINISHED' || run_status === 'CANCELLED' || run_status === 'FAILED') {
+            if (run_status === FINISHED_STATUS ||
+                run_status === CANCELLED_STATUS || run_status === FAILED_STATUS) {
                 done();
                 return redirect_with_success('/overview', res, req,
                     'That run has already completed');
@@ -2845,28 +2854,31 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
 
                 var finished = false;
                 var run_status = null;
-                if (stdout === 'FAILED' || stdout === 'TIMEOUT') {
-                    log('check_cluster_helper: marking ' + run.run_id + ' FAILED');
-                    run_status = 'FAILED';
+                if (stdout === FAILED_STATUS || stdout === 'TIMEOUT') {
+                    log('check_cluster_helper: marking ' + run.run_id + ' ' + FAILED_STATUS);
+                    run_status = FAILED_STATUS;
                     finished = true;
-                } else if (string_starts_with(stdout, 'CANCELLED')) {
-                    log('check_cluster_helper: marking ' + run.run_id + ' CANCELLED');
-                    run_status = 'CANCELLED';
+                } else if (string_starts_with(stdout, CANCELLED_STATUS)) {
+                    log('check_cluster_helper: marking ' + run.run_id + ' ' + CANCELLED_STATUS);
+                    run_status = CANCELLED_STATUS;
                     finished = true;
                 } else if (stdout === 'COMPLETED') {
-                    log('check_cluster_helper: marking ' + run.run_id + ' FINISHED');
-                    run_status = 'FINISHED';
+                    log('check_cluster_helper: marking ' + run.run_id + ' ' + FINISHED_STATUS);
+                    run_status = FINISHED_STATUS;
                     finished = true;
                 } else if (stdout === 'RUNNING') {
-                    log('check_cluster_helper: marking ' + run.run_id + ' as TESTING PERFORMANCE');
-                    run_status = 'TESTING PERFORMANCE';
+                    log('check_cluster_helper: marking ' + run.run_id + ' as ' +
+                            TESTING_PERFORMANCE_STATUS);
+                    run_status = TESTING_PERFORMANCE_STATUS;
                 }
 
                 if (run_status) {
                     if (finished) {
                         finish_perf_tests(run_status, run, conn, done, client, perf_runs, i);
                     } else {
-                        var query = client.query("UPDATE runs SET status='TESTING PERFORMANCE' WHERE run_id=($1)", [run.run_id]);
+                        var query = client.query("UPDATE runs SET status='" +
+                                TESTING_PERFORMANCE_STATUS +
+                                "' WHERE run_id=($1)", [run.run_id]);
                         query.on('row', function(row, result) { result.addRow(row); });
                         query.on('error', function(err, result) {
                             log('Error updating running perf tests: ' + err);
@@ -2887,9 +2899,9 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                 log('Unexpected job_id "' + run.job_id + '" for local cluster');
                 check_cluster_helper(perf_runs, i + 1, conn, client, done);
             } else {
-                log('check_cluster_helper: marking ' + run.run_id + ' FINISHED');
+                log('check_cluster_helper: marking ' + run.run_id + ' ' + FINISHED_STATUS);
                 var query = client.query(
-                    "UPDATE runs SET status='FINISHED',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
+                    "UPDATE runs SET status='" + FINISHED_STATUS + "',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
                     [run.run_id]);
                 finish_perf_tests(query, run, conn, done, client, perf_runs, i);
             }
@@ -2905,8 +2917,8 @@ function check_cluster() {
         checkClusterActive = true;
         pgclient(function(client, done) {
             var query = client.query("SELECT * FROM runs WHERE (job_id IS NOT " +
-                "NULL) AND ((status='TESTING PERFORMANCE') OR (status='IN CLUSTER " +
-                "QUEUE'))");
+                "NULL) AND ((status='" + TESTING_PERFORMANCE_STATUS + "') OR " +
+                "(status='IN CLUSTER QUEUE'))");
             query.on('row', function(row, result) { result.addRow(row); });
             query.on('error', function(err, result) {
                     done();
@@ -3007,8 +3019,11 @@ pgclient(function(client, done) {
   /*
    * Mark any in-progress tests as failed on reboot.
    */
-  var query = client.query("UPDATE runs SET status='FAILED',finish_time=CURRENT_TIMESTAMP WHERE " +
-    "status='TESTING CORRECTNESS' OR status='TESTING PERFORMANCE' OR status='IN CLUSTER QUEUE'");
+  var query = client.query("UPDATE runs SET status='" + FAILED_STATUS + "'," +
+      "finish_time=CURRENT_TIMESTAMP WHERE status='" +
+      TESTING_CORRECTNESS_STATUS + "' OR status='" +
+      TESTING_PERFORMANCE_STATUS + "' OR status='" + IN_CLUSTER_QUEUE_STATUS +
+      "'");
   query.on('row', function(row, result) { result.addRow(row); });
   query.on('error', function(err, result) {
     done();
