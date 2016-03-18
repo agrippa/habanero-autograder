@@ -510,7 +510,7 @@ app.get('/login', function(req, res, next) {
 
 app.post('/login', function(req, res, next) {
   var username = req.body.username;
-  var password = req.body.pw;
+  var password = req.body.pw.replace(/[^\x00-\x7F]/g, ""); // delete non-ascii
 
   log('login: username=' + username);
 
