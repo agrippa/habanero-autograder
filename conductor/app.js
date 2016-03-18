@@ -18,6 +18,9 @@ var moment = require('moment');
 var archiver = require('archiver');
 var temp = require('temp');
 
+var maintenanceMsg = 'Job submission failed because the autograder is not ' +
+    'currently accepting new submissions. This is most likely due to a ' +
+    'planned maintenance.';
 var permissionDenied = 'Permission denied. But you should shoot me an e-mail at jmaxg3@gmail.com. If you like playing around with systems, we have interesting research for you in the Habanero group.';
 
 var upload = multer({ dest: 'uploads/' });
@@ -1487,6 +1490,11 @@ app.post('/submit_run_as', function(req, res, next) {
 });
 
 app.post('/submit_run', upload.single('zip'), function(req, res, next) {
+
+    if (fs.existsSync(__dirname + '/block_submissions')) {
+        return redirect_with_err('/overview', res, req, maintenanceMsg);
+    }
+
     var assignment_name = req.body.assignment;
     var correctness_only = false;
     if ('correctness_only' in req.body && req.body.correctness_only === 'on') {
