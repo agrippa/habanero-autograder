@@ -21,6 +21,9 @@ var temp = require('temp');
 var permissionDenied = 'Permission denied. But you should shoot me an e-mail ' +
     'at jmaxg3@gmail.com. If you like playing around with systems, we have ' +
     'interesting research for you in the Habanero group.';
+var excessiveFileSizeMsg = 'The submission appears to perform excessive ' +
+    'prints, resulting in large log files. Please reduce the prints performed ' +
+    'and resubmit.';
 
 var upload = multer({ dest: 'uploads/' });
 
@@ -1194,52 +1197,36 @@ function get_user_id_for_name(username, client, done, res, cb) {
 }
 
 function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
-      assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb) {
-  svn_cmd(['add', run_dir + '/student.zip'], function(err, data) {
-    if (is_actual_svn_err(err)) {
-      return redirect_with_err('/overview', res, req,
-        'An error occurred backing up your submission, adding submission');
-    } else {
-      var commit_msg = '"add ' + username + ' ' + assignment_name + ' ' + run_id + '"';
-      svn_cmd(['commit', '--message', commit_msg, run_dir], function(err, data) {
-        if (is_actual_svn_err(err)) {
-          return redirect_with_err('/overview', res, req,
-              'An error occurred backing up your submission, committing submission');
-        } else {
-          var viola_params = 'done_token=' + done_token + '&user=' + username +
-            '&assignment=' + assignment_name + '&run=' + run_id +
-            '&assignment_id=' + assignment_id + '&jvm_args=' + jvm_args +
-            '&timeout=' + correctness_timeout + '&submission_path=' +
-            run_dir_path(username, run_id) + '&assignment_path=' +
-            assignment_path(assignment_id);
-          var viola_options = { host: VIOLA_HOST,
-              port: VIOLA_PORT, path: '/run?' + encodeURI(viola_params) };
-          log('submit_run: sending viola request for run ' + run_id);
-          http.get(viola_options, function(viola_res) {
-              var bodyChunks = [];
-              viola_res.on('data', function(chunk) {
-                  bodyChunks.push(chunk);
-              });
-              viola_res.on('end', function() {
-                  var body = Buffer.concat(bodyChunks);
-                  var result = JSON.parse(body);
-                  if (result.status === 'Success') {
-                      return success_cb(run_id);
-                      return res.redirect('/overview');
-                  } else {
-                      return redirect_with_err('/overview', res, req,
-                          'Viola error: ' + result.msg);
-                  }
-              });
-          }).on('error', function(err) {
-              log('VIOLA err="' + err + '"');
-              return redirect_with_err('/overview', res, req,
-                  'An error occurred launching the local tests');
-          });
-        }
-      });
-    }
-  });
+        assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb) {
+    var viola_params = 'done_token=' + done_token + '&user=' + username +
+        '&assignment=' + assignment_name + '&run=' + run_id +
+        '&assignment_id=' + assignment_id + '&jvm_args=' + jvm_args +
+        '&timeout=' + correctness_timeout + '&submission_path=' +
+        run_dir_path(username, run_id) + '&assignment_path=' +
+        assignment_path(assignment_id);
+    var viola_options = { host: VIOLA_HOST,
+        port: VIOLA_PORT, path: '/run?' + encodeURI(viola_params) };
+    log('submit_run: sending viola request for run ' + run_id);
+    http.get(viola_options, function(viola_res) {
+        var bodyChunks = [];
+        viola_res.on('data', function(chunk) {
+            bodyChunks.push(chunk);
+        });
+        viola_res.on('end', function() {
+            var body = Buffer.concat(bodyChunks);
+            var result = JSON.parse(body);
+            if (result.status === 'Success') {
+                return success_cb(run_id);
+            } else {
+                return redirect_with_err('/overview', res, req,
+                    'Viola error: ' + result.msg);
+            }
+        });
+    }).on('error', function(err) {
+        log('VIOLA err="' + err + '"');
+        return redirect_with_err('/overview', res, req,
+            'An error occurred launching the local tests');
+    });
 }
 
 function run_setup_failed(run_id, res, req, err_msg, svn_err) {
@@ -1312,60 +1299,47 @@ function submit_run(user_id, username, assignment_name, correctness_only,
 
                 // Create run directory to store information on this run
                 var mkdir_msg = '"mkdir ' + username + ' ' + assignment_name + ' ' + run_id + '"';
-                svn_cmd(['mkdir', '--parents', '--message', mkdir_msg, svn_dir], function(err, data) {
-                  // Special-case an error message from the Habanero repo that we can safely ignore
-                  if (is_actual_svn_err(err)) {
-                      return run_setup_failed(run_id, res, req,
-                          'An error occurred backing up your submission, creating repo location for submission', err);
-                  } else {
-                    svn_cmd(['checkout', svn_dir, run_dir], function(err, data) {
+                fs.mkdirSync(run_dir);
+
+                // Move submitted file into newly created local SVN working copy
+                if (use_zip) {
+                  fs.renameSync(req.file.path, run_dir + '/student.zip');
+                  return trigger_viola_run(run_dir,
+                      assignment_name, run_id, done_token,
+                      assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb);
+                } else {
+                  temp.mkdir('conductor', function(err, temp_dir) {
+                    if (err) {
+                        return run_setup_failed(run_id, res, req,
+                            'Internal error creating temporary directory', err);
+                    }
+
+                    // Export student submission from their SVN folder
+                    svn_cmd(['export', svn_url, temp_dir + '/submission_svn_folder'], function(err, data) {
                       if (is_actual_svn_err(err)) {
                           return run_setup_failed(run_id, res, req,
-                              'An error occurred backing up your submission, checking out repo location for submission', err);
-                      } else {
-                        // Move submitted file into newly created local SVN working copy
-                        if (use_zip) {
-                          fs.renameSync(req.file.path, run_dir + '/student.zip');
-                          return trigger_viola_run(run_dir,
-                              assignment_name, run_id, done_token,
-                              assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb);
-                        } else {
-                          temp.mkdir('conductor', function(err, temp_dir) {
-                            if (err) {
-                                return run_setup_failed(run_id, res, req,
-                                    'Internal error creating temporary directory', err);
-                            }
+                              'An error occurred exporting from "' + svn_url + '"', err);
+                      } 
 
-                            svn_cmd(['export', svn_url,
-                                temp_dir + '/submission_svn_folder'], function(err, data) {
-                              if (is_actual_svn_err(err)) {
-                                  return run_setup_failed(run_id, res, req,
-                                      'An error occurred exporting from "' + svn_url + '"', err);
-                              } 
-
-                              var output = fs.createWriteStream(run_dir + '/student.zip');
-                              var archive = archiver('zip');
-                              output.on('close', function() {
-                                temp.cleanupSync();
-                                return trigger_viola_run(run_dir,
-                                    assignment_name, run_id, done_token,
-                                    assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb);
-                              });
-                              archive.on('error', function(err){
-                                  return run_setup_failed(run_id, res, req,
-                                      'An error occurred zipping your submission.', err);
-                              });
-                              archive.pipe(output);
-                              archive.bulk([{expand: true, cwd: temp_dir, src: ["**/*"], dot: true }
-                                    ]);
-                              archive.finalize();
-                            });
-                          });
-                        }
-                      }
+                      var output = fs.createWriteStream(run_dir + '/student.zip');
+                      var archive = archiver('zip');
+                      output.on('close', function() {
+                        temp.cleanupSync();
+                        return trigger_viola_run(run_dir,
+                            assignment_name, run_id, done_token,
+                            assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb);
+                      });
+                      archive.on('error', function(err){
+                          return run_setup_failed(run_id, res, req,
+                              'An error occurred zipping your submission.', err);
+                      });
+                      archive.pipe(output);
+                      archive.bulk([{expand: true, cwd: temp_dir, src: ["**/*"], dot: true }
+                            ]);
+                      archive.finalize();
                     });
-                  }
-                });
+                  });
+                }
               });
           });
         }
@@ -1582,7 +1556,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
       curr_cores + ' -javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
       'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
     slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c); ' +
-      'if [[ "$NBYTES" -gt "4194304" ]]; then echo "Excessive file size" > ' +
+      'if [[ "$NBYTES" -gt "4194304" ]]; then echo "' + excessiveFileSizeMsg + '"" > ' +
       final_output_file + '; else mv ' + output_file + ' ' + final_output_file +
       '; fi; rm -f ' + output_file + ';';
   }
@@ -2819,52 +2793,39 @@ function finish_perf_tests(query, run, conn, done, client, perf_runs,
                   if (err) {
                     return abort_and_reset_perf_tests(err, done, conn, 'delete');
                   }
-                  svn_cmd(svn_add_cmd, function(err, data) {
-                    if (err) {
-                      return abort_and_reset_perf_tests(err, done, conn,
-                        'adding local files');
-                    }
-                    svn_cmd(['commit', '--message', 'add local files', LOCAL_FOLDER],
-                      function(err, data) {
-                        if (err) {
-                          return abort_and_reset_perf_tests(err, done, conn,
-                            'committing local files');
-                        }
 
-                        var query = client.query(
-                            'UPDATE runs SET passed_performance=($1),characteristic_speedup=($2) WHERE run_id=($3)',
-                            [!any_missing_files, characteristic_speedup, run.run_id]);
-                        query.on('row', function(row, result) { result.addRow(row); });
-                        query.on('error', function(err, result) {
-                            log('Error updating performance run state: ' + err);
-                            done();
-                            disconnect_from_cluster(conn);
-                            set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+                  var query = client.query(
+                      'UPDATE runs SET passed_performance=($1),characteristic_speedup=($2) WHERE run_id=($3)',
+                      [!any_missing_files, characteristic_speedup, run.run_id]);
+                  query.on('row', function(row, result) { result.addRow(row); });
+                  query.on('error', function(err, result) {
+                      log('Error updating performance run state: ' + err);
+                      done();
+                      disconnect_from_cluster(conn);
+                      set_check_cluster_timeout(CHECK_CLUSTER_PERIOD);
+                  });
+                  query.on('end', function(result) {
+                      if (wants_notification) {
+                        var email = username + '@rice.edu';
+                        if (username === 'admin') {
+                          email = 'jmg3@rice.edu';
+                        }
+                        var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
+                        // TODO add finish time
+                        send_email(email_for_user(username), subject, '', function(err) {
+                          if (err) {
+                            return abort_and_reset_perf_tests(err, done, conn,
+                              'sending notification email');
+                          }
+                          check_cluster_helper(perf_runs,
+                              current_perf_runs_index + 1, conn, client,
+                              done);
                         });
-                        query.on('end', function(result) {
-                            if (wants_notification) {
-                              var email = username + '@rice.edu';
-                              if (username === 'admin') {
-                                email = 'jmg3@rice.edu';
-                              }
-                              var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
-                              // TODO add finish time
-                              send_email(email_for_user(username), subject, '', function(err) {
-                                if (err) {
-                                  return abort_and_reset_perf_tests(err, done, conn,
-                                    'sending notification email');
-                                }
-                                check_cluster_helper(perf_runs,
-                                    current_perf_runs_index + 1, conn, client,
-                                    done);
-                              });
-                            } else {
-                              check_cluster_helper(perf_runs,
-                                  current_perf_runs_index + 1, conn, client,
-                                  done);
-                            }
-                        });
-                      });
+                      } else {
+                        check_cluster_helper(perf_runs,
+                            current_perf_runs_index + 1, conn, client,
+                            done);
+                      }
                   });
                 });
               });
