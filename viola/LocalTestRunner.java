@@ -220,7 +220,7 @@ public class LocalTestRunner {
       return acc;
     }
 
-    public void run() {
+    public void run(final int tid) {
         ViolaUtil.log("Running local tests for user=%s assignment=%s run=%d " +
                 "jvm_args length=%d\n", user, assignment_name, run_id,
                 jvm_args.length);
@@ -421,15 +421,27 @@ public class LocalTestRunner {
               assert test.endsWith(java_suffix);
               test = test.substring(0, test.length() - java_suffix.length());
 
+              final String osName = System.getProperty("os.name");
+              final boolean isMacOs = osName.equals("Mac OS X");
+
               final String classname = test.replace('/', '.');
 
               final String classpath =
                   ".:target/classes:target/test-classes:" + env.junit + ":" +
                   env.hamcrest + ":" + hjJar + ":" + env.asm;
               final String policyPath = env.autograderHome + "/shared/security.policy";
-              final int junit_cmd_length = 9 + jvm_args.length;
-              final String[] junit_cmd = new String[junit_cmd_length];
               int junit_cmd_index = 0;
+              final String[] junit_cmd;
+              if (isMacOs) {
+                  junit_cmd = new String[9 + jvm_args.length];
+              } else {
+                  // Linux?
+                  junit_cmd = new String[12 + jvm_args.length];
+                  junit_cmd[junit_cmd_index++] = "taskset";
+                  junit_cmd[junit_cmd_index++] = "--cpu-list";
+                  junit_cmd[junit_cmd_index++] = Integer.toString(tid);
+              }
+
               junit_cmd[junit_cmd_index++] = "java";
               junit_cmd[junit_cmd_index++] = "-Djava.security.manager";
               junit_cmd[junit_cmd_index++] = "-Djava.security.policy==" + policyPath;
@@ -442,7 +454,7 @@ public class LocalTestRunner {
               }
               junit_cmd[junit_cmd_index++] = "org.junit.runner.JUnitCore";
               junit_cmd[junit_cmd_index++] = classname;
-              assert junit_cmd_index == junit_cmd_length;
+              assert junit_cmd_index == junit_cmd.length;
               CommonUtils.ProcessResults junit_results = CommonUtils.runInProcess(lbl, junit_cmd, unzipped_code_dir,
                       this.timeout, createdProcesses);
               /*

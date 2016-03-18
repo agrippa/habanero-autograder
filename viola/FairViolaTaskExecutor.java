@@ -160,7 +160,7 @@ public class FairViolaTaskExecutor {
               LocalTestRunner r = null;
               try {
                   r = getPendingTask(tid);
-                  r.run();
+                  r.run(tid);
               } finally {
                   if (r == null) {
                       ViolaUtil.log("thread %d notifying of completion of null run\n", tid);
