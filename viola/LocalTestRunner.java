@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.FilenameFilter;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.MalformedURLException;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Arrays;
@@ -117,7 +118,7 @@ public class LocalTestRunner {
      * Partially taken from http://stackoverflow.com/questions/4205980/java-sending-http-parameters-via-post-method-easily
      * TODO Problem here is we could fail silently to succeed.
      */
-    private void notifyConductor(String errMsg) {
+    private void notifyConductor(String errMsg) throws MalformedURLException, IOException {
         if (errMsg == null) errMsg = "";
 
         String urlParameters = "done_token=" + done_token + "&err_msg=" + errMsg;
@@ -125,40 +126,35 @@ public class LocalTestRunner {
         int postDataLength = postData.length;
         String request = "http://" + env.conductorHost + ":" +
           env.conductorPort + "/local_run_finished";
-        ViolaUtil.log("Notifying conductor at " + request + " of run completion\n");
+        ViolaUtil.log("Notifying conductor at " + request + " of run " + run_id + " completion\n");
 
-        try {
-            URL url = new URL(request);
-            HttpURLConnection conn = (HttpURLConnection)url.openConnection();
-            conn.setDoOutput(true);
-            conn.setInstanceFollowRedirects(false);
-            conn.setRequestMethod("POST");
-            conn.setUseCaches(false);
+        URL url = new URL(request);
+        HttpURLConnection conn = (HttpURLConnection)url.openConnection();
+        conn.setDoOutput(true);
+        conn.setInstanceFollowRedirects(false);
+        conn.setRequestMethod("POST");
+        conn.setUseCaches(false);
 
-            DataOutputStream wr = new DataOutputStream(conn.getOutputStream());
-            wr.writeBytes(urlParameters);
-            wr.flush();
-            wr.close();
+        DataOutputStream wr = new DataOutputStream(conn.getOutputStream());
+        wr.writeBytes(urlParameters);
+        wr.flush();
+        wr.close();
 
-            int responseCode = conn.getResponseCode();
-            assert(responseCode == 200);
+        int responseCode = conn.getResponseCode();
+        assert(responseCode == 200);
 
-            BufferedReader in = new BufferedReader(
-                    new InputStreamReader(conn.getInputStream()));
-            String inputLine;
-            StringBuilder response = new StringBuilder();
+        BufferedReader in = new BufferedReader(
+                new InputStreamReader(conn.getInputStream()));
+        String inputLine;
+        StringBuilder response = new StringBuilder();
 
-            while ((inputLine = in.readLine()) != null) {
-                response.append(inputLine);
-            }
-            in.close();
-
-            ViolaUtil.log("Conductor notification response for err_msg=%s " +
-                    "done_token=%s: %s\n", errMsg, done_token, response.toString());
-
-        } catch (Exception ex) {
-            ex.printStackTrace();
+        while ((inputLine = in.readLine()) != null) {
+            response.append(inputLine);
         }
+        in.close();
+
+        ViolaUtil.log("Conductor notification response for err_msg=%s " +
+                "done_token=%s: %s\n", errMsg, done_token, response.toString());
     }
 
     private void deleteDir(File dir) {
@@ -494,10 +490,10 @@ public class LocalTestRunner {
         }
     }
 
-    public void cleanup(String errMsg) {
-        // for (String path : createdDirectories) {
-        //     deleteDir(new File(path));
-        // }
+    public void cleanup(String errMsg) throws MalformedURLException, IOException {
+        for (String path : createdDirectories) {
+            deleteDir(new File(path));
+        }
 
         for (Process p : createdProcesses) {
             p.destroy();

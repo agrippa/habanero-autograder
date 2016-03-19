@@ -30,7 +30,8 @@ public class NotifyConductorRunnable implements Runnable {
                 success = true;
                 ViolaUtil.log("successfully notified conductor of run %d completion\n", curr.getRunId());
             } catch (Throwable t) {
-                ViolaUtil.log("conductor notification for run %d appears to have failed\n", curr.getRunId());
+                ViolaUtil.log("conductor notification for run %d appears to have failed, message = %s\n",
+                        curr.getRunId(), t.getMessage());
                 synchronized (toNotify) {
                     toNotify.push(curr);
                 }

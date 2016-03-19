@@ -457,8 +457,8 @@ app.get('/status/:run_id', function(req, res, next) {
             [run_id]);
         query.on('row', function(row, result) { result.addRow(row); });
         query.on('error', function(err, result) {
-                done();
-                return res.send('INTERNAL FAILURE');
+            done();
+            return res.send('INTERNAL FAILURE');
         });
         query.on('end', function(result) {
             done();
@@ -1270,9 +1270,9 @@ function run_setup_failed(run_id, res, req, err_msg, svn_err) {
             "finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)", [run_id]);
         query.on('row', function(row, result) { result.addRow(row); }); // unnecessary?
         query.on('error', function(err, result) {
+            done();
             log('Error storing failure setting up tests for run_id=' +
                 run_id + ': ' + err);
-            done();
             return redirect_with_err('/overview', res, req, err_msg);
         });
         query.on('end', function(result) {
@@ -1700,8 +1700,9 @@ app.post('/local_run_finished', function(req, res, next) {
         register_query_helpers(query, res, done, 'unknown');
         query.on('end', function(result) {
           if (result.rows.length != 1) {
-            return failed_starting_perf_tests(res, 'Unexpected # of rows', done, client, -1, null);
+              return failed_starting_perf_tests(res, 'Unexpected # of rows', done, client, -1, null);
           } else if (result.rows[0].status !== TESTING_CORRECTNESS_STATUS) {
+              done();
               log('local_run_finished: received duplicate local run ' +
                   'completion notifications from viola for run ' +
                   result.rows[0].run_id);
@@ -1722,7 +1723,7 @@ app.post('/local_run_finished', function(req, res, next) {
             register_query_helpers(query, res, done, 'unknown');
             query.on('end', function(result) {
               if (result.rows.length != 1) {
-                return failed_starting_perf_tests(res, 'Invalid user ID', done, client, run_id, null);
+                  return failed_starting_perf_tests(res, 'Invalid user ID', done, client, run_id, null);
               } else {
                 var username = result.rows[0].user_name;
                 var wants_notification = result.rows[0].receive_email_notifications;
@@ -1782,7 +1783,7 @@ app.post('/local_run_finished', function(req, res, next) {
                       run_status = CANCELLED_STATUS;
                   }
                   if (correctness_only || run_status === CANCELLED_STATUS) {
-                      query = client.query(
+                      var query = client.query(
                           "UPDATE runs SET status='" + run_status + "',viola_msg=$1,finish_time=CURRENT_TIMESTAMP WHERE run_id=($2)",
                           [viola_err_msg, run_id]);
                       register_query_helpers(query, res, done, 'unknown');
@@ -1878,7 +1879,9 @@ app.post('/local_run_finished', function(req, res, next) {
                                                 return failed_starting_perf_tests(res,
                                                      'Failed checking out student code', done, client, run_id, conn);
                                               }
-                                              run_cluster_cmd(conn, 'instructor files cp', 'cp -r autograder-assignments/' + assignment_id + ' autograder/' + run_id + '/assignment', function(err, conn, stdout, stderr) {
+                                              run_cluster_cmd(conn,
+                                                      'instructor files cp',
+                                                      'cp -r autograder-assignments/' + assignment_id + ' autograder/' + run_id + '/assignment', function(err, conn, stdout, stderr) {
                                                   if (err) {
                                                     return failed_starting_perf_tests(res,
                                                           'Failed checking out assignment code', done, client, run_id, conn);
@@ -1909,7 +1912,6 @@ app.post('/local_run_finished', function(req, res, next) {
                                                       if (hj === null) {
                                                         return failed_starting_perf_tests(res, 'Unable to find HJ JAR on cluster', done, client, run_id, conn);
                                                       }
-
 
                                                       fs.appendFileSync(run_dir + '/cello.slurm',
                                                         get_slurm_file_contents(run_id, home_dir,
@@ -2050,8 +2052,8 @@ function get_runs_for_username(username, cb) {
         [username]);
     query.on('row', function(row, result) { result.addRow(row); });
     query.on('error', function(err, result) {
-            done();
-            cb(null, err);
+        done();
+        cb(null, err);
     });
     query.on('end', function(result) {
       var user_id = result.rows[0].user_id;
@@ -2060,8 +2062,8 @@ function get_runs_for_username(username, cb) {
               [user_id]);
       query.on('row', function(row, result) { result.addRow(row); });
       query.on('error', function(err, result) {
-              done();
-              cb(null, err);
+          done();
+          cb(null, err);
       });
       query.on('end', function(result) {
           var runs = result.rows;
@@ -2069,8 +2071,8 @@ function get_runs_for_username(username, cb) {
           var query = client.query("SELECT * FROM assignments");
           query.on('row', function(row, result) { result.addRow(row); });
           query.on('error', function(err, result) {
-                  done();
-                  cb(null, err);
+              done();
+              cb(null, err);
           });
           query.on('end', function(result) {
               done();
@@ -2458,7 +2460,7 @@ app.get('/run/:run_id', function(req, res, next) {
         query.on('end', function(result) {
             if (result.rows.length == 0) {
                 done();
-                return render_page('overview.html', res, req, { err_msg: 'Unknown run' });
+                return redirect_with_err('/overview', res, req, 'Unknown run');
             }
             var user_id = result.rows[0].user_id;
             var run_status = result.rows[0].status;
@@ -2762,113 +2764,113 @@ function finish_perf_tests(run_status, run, conn, done, client, perf_runs,
                 }
 
                 var copies = [{ src: REMOTE_STDOUT, dst: LOCAL_STDOUT },
-                { src: REMOTE_STDERR, dst: LOCAL_STDERR }];
-            if (run.enable_profiling) {
-                copies.push({ src: REMOTE_TRACES, dst: LOCAL_TRACES });
-            }
-            // { src: REMOTE_PROFILER, dst: LOCAL_PROFILER },
-            // if (os !== 'Darwin') {
-            //   copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
-            // }
+                    { src: REMOTE_STDERR, dst: LOCAL_STDERR }];
+                if (run.enable_profiling) {
+                    copies.push({ src: REMOTE_TRACES, dst: LOCAL_TRACES });
+                }
+                // { src: REMOTE_PROFILER, dst: LOCAL_PROFILER },
+                // if (os !== 'Darwin') {
+                //   copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
+                // }
 
-            var tests = get_scalability_tests(run.ncores);
-            for (var i = 0; i < tests.length; i++) {
-                var curr_cores = tests[i];
-                var local = LOCAL_FOLDER + '/performance.' + curr_cores + '.txt';
-                var remote = REMOTE_FOLDER + '/performance.' + curr_cores + '.txt';
+                var tests = get_scalability_tests(run.ncores);
+                for (var i = 0; i < tests.length; i++) {
+                    var curr_cores = tests[i];
+                    var local = LOCAL_FOLDER + '/performance.' + curr_cores + '.txt';
+                    var remote = REMOTE_FOLDER + '/performance.' + curr_cores + '.txt';
 
-                copies.push({ src: remote, dst: local });
-            }
+                    copies.push({ src: remote, dst: local });
+                }
 
-            batched_cluster_scp(copies, false, function(stat) {
-                var any_missing_files = false;
-                var any_infrastructure_failures = false;
-                for (var i = 0; i < stat.length; i++) {
-                    if (stat[i].success) {
-                        log('finish_perf_tests: successfully copied back to ' + stat[i].dst);
-                    } else {
-                        if (string_ends_with(stat[i].err.toString().trim(), 'No such file or directory')) {
-                            log('finish_perf_tests: failed copying ' + stat[i].dst + ' because it didn\'t exist on the cluster');
-                            any_missing_files = true;
+                batched_cluster_scp(copies, false, function(stat) {
+                    var any_missing_files = false;
+                    var any_infrastructure_failures = false;
+                    for (var i = 0; i < stat.length; i++) {
+                        if (stat[i].success) {
+                            log('finish_perf_tests: successfully copied back to ' + stat[i].dst);
                         } else {
-                            log('finish_perf_tests: scp err copying to ' + stat[i].dst + ', err=' +
-                                stat[i].err);
-                            any_infrastructure_failures = true;
+                            if (string_ends_with(stat[i].err.toString().trim(), 'No such file or directory')) {
+                                log('finish_perf_tests: failed copying ' + stat[i].dst + ' because it didn\'t exist on the cluster');
+                                any_missing_files = true;
+                            } else {
+                                log('finish_perf_tests: scp err copying to ' + stat[i].dst + ', err=' +
+                                    stat[i].err);
+                                any_infrastructure_failures = true;
+                            }
                         }
                     }
-                }
 
-                if (any_infrastructure_failures) {
-                    return abort_and_reset_perf_tests(err, done, conn,
-                        'cluster infrastructure');
-                }
+                    if (any_infrastructure_failures) {
+                        return abort_and_reset_perf_tests(err, done, conn,
+                            'cluster infrastructure');
+                    }
 
-                var characteristic_speedup = ""
-                if (!any_missing_files) {
-                    var rubric_file = rubric_file_path(run.assignment_id);
-                    var validated = load_and_validate_rubric(rubric_file);
-                    if (validated.success) {
-                        var rubric = validated.rubric;
-                        var characteristic_test = rubric.performance.characteristic_test;
-                        var performance_path = LOCAL_FOLDER + '/performance.' +
-                            run.ncores + '.txt';
-                        if (get_file_size(performance_path) < MAX_FILE_SIZE) {
-                            var test_contents = fs.readFileSync(performance_path, 'utf8');
-                            var test_lines = test_contents.split('\n');
-                            for (var i = 0; i < test_lines.length; i++) {
-                                var line = test_lines[i];
-                                if (string_starts_with(line, PERF_TEST_LBL)) {
-                                    var tokens = line.split(' ');
-                                    var testname = tokens[2];
-                                    if (testname === characteristic_test) {
-                                        var seq_time = parseInt(tokens[3]);
-                                        var parallel_time = parseInt(tokens[4]);
-                                        var speedup = seq_time / parallel_time;
-                                        characteristic_speedup = speedup.toFixed(3);
-                                        break;
+                    var characteristic_speedup = ""
+                    if (!any_missing_files) {
+                        var rubric_file = rubric_file_path(run.assignment_id);
+                        var validated = load_and_validate_rubric(rubric_file);
+                        if (validated.success) {
+                            var rubric = validated.rubric;
+                            var characteristic_test = rubric.performance.characteristic_test;
+                            var performance_path = LOCAL_FOLDER + '/performance.' +
+                                run.ncores + '.txt';
+                            if (get_file_size(performance_path) < MAX_FILE_SIZE) {
+                                var test_contents = fs.readFileSync(performance_path, 'utf8');
+                                var test_lines = test_contents.split('\n');
+                                for (var i = 0; i < test_lines.length; i++) {
+                                    var line = test_lines[i];
+                                    if (string_starts_with(line, PERF_TEST_LBL)) {
+                                        var tokens = line.split(' ');
+                                        var testname = tokens[2];
+                                        if (testname === characteristic_test) {
+                                            var seq_time = parseInt(tokens[3]);
+                                            var parallel_time = parseInt(tokens[4]);
+                                            var speedup = seq_time / parallel_time;
+                                            characteristic_speedup = speedup.toFixed(3);
+                                            break;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                var query = client.query(
-                    "UPDATE runs SET status='" + run_status + "'," +
-                    "finish_time=CURRENT_TIMESTAMP," +
-                    "passed_performance=($1)," +
-                    "characteristic_speedup=($2) WHERE run_id=($3)",
-                    [!any_missing_files, characteristic_speedup, run.run_id]);
-                query.on('row', function(row, result) { result.addRow(row); });
-                query.on('error', function(err, result) {
-                    log('Error updating performance run state: ' + err);
-                    done();
-                    disconnect_from_cluster(conn);
-                    set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
-                });
+                    var query = client.query(
+                        "UPDATE runs SET status='" + run_status + "'," +
+                        "finish_time=CURRENT_TIMESTAMP," +
+                        "passed_performance=($1)," +
+                        "characteristic_speedup=($2) WHERE run_id=($3)",
+                        [!any_missing_files, characteristic_speedup, run.run_id]);
+                    query.on('row', function(row, result) { result.addRow(row); });
+                    query.on('error', function(err, result) {
+                        log('Error updating performance run state: ' + err);
+                        done();
+                        disconnect_from_cluster(conn);
+                        set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
+                    });
 
-                query.on('end', function(result) {
-                    if (wants_notification) {
-                        var email = username + '@rice.edu';
-                        if (username === 'admin') {
-                            email = 'jmg3@rice.edu';
-                        }
-                        var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
-                        send_email(email_for_user(username), subject, '', function(err) {
-                            if (err) {
-                                return abort_and_reset_perf_tests(err, done, conn,
-                                    'sending notification email');
+                    query.on('end', function(result) {
+                        if (wants_notification) {
+                            var email = username + '@rice.edu';
+                            if (username === 'admin') {
+                                email = 'jmg3@rice.edu';
                             }
+                            var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
+                            send_email(email_for_user(username), subject, '', function(err) {
+                                if (err) {
+                                    return abort_and_reset_perf_tests(err, done, conn,
+                                        'sending notification email');
+                                }
+                                check_cluster_helper(perf_runs,
+                                    current_perf_runs_index + 1, conn, client,
+                                    done);
+                            });
+                        } else {
                             check_cluster_helper(perf_runs,
                                 current_perf_runs_index + 1, conn, client,
                                 done);
-                        });
-                    } else {
-                        check_cluster_helper(perf_runs,
-                            current_perf_runs_index + 1, conn, client,
-                            done);
-                    }
-                });
+                        }
+                    });
                 });
             });
         }
@@ -2968,12 +2970,11 @@ function check_cluster() {
                 "(status='IN CLUSTER QUEUE'))");
             query.on('row', function(row, result) { result.addRow(row); });
             query.on('error', function(err, result) {
-                    done();
-                    log('Error looking up running perf tests: ' + err);
-                    set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
+                done();
+                log('Error looking up running perf tests: ' + err);
+                set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
             });
             query.on('end', function(result) {
-
                 var perf_runs = result.rows;
                 connect_to_cluster(function(conn, err) {
                     if (err) {
@@ -2989,7 +2990,7 @@ function check_cluster() {
                         running_jobs_str = running_jobs_str + ' ]';
                         log('check_cluster: found ' + perf_runs.length +
                             ' running jobs ' + running_jobs_str);
-                      check_cluster_helper(perf_runs, 0, conn, client, done);
+                        check_cluster_helper(perf_runs, 0, conn, client, done);
                     }
                 });
             });
@@ -3062,22 +3063,52 @@ function check_for_old_runs_on_cluster() {
     });
 }
 
+function launch() {
+    set_check_cluster_timeout(0);
+    setTimeout(check_for_old_runs_on_cluster, CHECK_CLUSTER_FILES_PERIOD_MS);
+
+    var port = process.env.PORT || 8000;
+
+    var oneDay = 86400000;
+    app.use(express.static(__dirname + '/views', { maxAge: oneDay }));
+
+    var server = app.listen(port, function() {
+        log('Server listening at http://%s:%s', 
+            server.address().address,
+            server.address().port);
+    });
+}
+
 /*
  * At one point, we conservatively marked all running jobs as failed on startup.
  * However, Viola has been refactored to continually retry conductor
  * notifications and the cluster job status can be checked at any time, so it
- * appears it is safe to pick up running jobs on reboot.
+ * appears it is safe to pick up running jobs on reboot. We still allow this to
+ * enabled by a CLI flag, but it is disabled by default.
  */
-set_check_cluster_timeout(0);
-setTimeout(check_for_old_runs_on_cluster, CHECK_CLUSTER_FILES_PERIOD_MS);
 
-var port = process.env.PORT || 8000;
+if (process.argv.length > 2 && process.argv[2] === 'kill-running-jobs') {
+    pgclient(function(client, done) {
+        /*
+         * Mark any in-progress tests as failed on reboot.
+         */
+        var query = client.query("UPDATE runs SET status='" + FAILED_STATUS + "'," +
+            "finish_time=CURRENT_TIMESTAMP WHERE status='" +
+            TESTING_CORRECTNESS_STATUS + "' OR status='" +
+            TESTING_PERFORMANCE_STATUS + "' OR status='" + IN_CLUSTER_QUEUE_STATUS +
+            "'");
+        query.on('row', function(row, result) { result.addRow(row); });
+        query.on('error', function(err, result) {
+            done();
+            log('Error on initial cleanup, err=' + err);
+            process.exit(1);
+        });
+        query.on('end', function(result) {
+            done();
 
-var oneDay = 86400000;
-app.use(express.static(__dirname + '/views', { maxAge: oneDay }));
-
-var server = app.listen(port, function() {
-  log('Server listening at http://%s:%s', 
-    server.address().address,
-    server.address().port);
-});
+            launch();
+        });
+    });
+} else {
+    launch();
+}
