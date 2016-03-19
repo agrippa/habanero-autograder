@@ -403,6 +403,10 @@ function string_starts_with(st, prefix) {
 }
 
 function string_ends_with(st, suffix) {
+    return st.indexOf(suffix, st.length - suffix.length) !== -1;
+}
+
+function string_ends_with(st, suffix) {
   return st.indexOf(suffix, st.length - suffix.length) !== -1;
 };
 
@@ -1597,7 +1601,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
       curr_cores + ' -javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
       'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
     slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c); ' +
-      'if [[ "$NBYTES" -gt "4194304" ]]; then echo "' + excessiveFileSizeMsg + '"" > ' +
+      'if [[ "$NBYTES" -gt "4194304" ]]; then echo "' + excessiveFileSizeMsg + '" > ' +
       final_output_file + '; else mv ' + output_file + ' ' + final_output_file +
       '; fi; rm -f ' + output_file + ';';
   }
@@ -2775,21 +2779,25 @@ function finish_perf_tests(run_status, run, conn, done, client, perf_runs,
 
             batched_cluster_scp(copies, false, function(stat) {
                 var any_missing_files = false;
-                var svn_add_cmd = ['add'];
+                var any_infrastructure_failures = false;
                 for (var i = 0; i < stat.length; i++) {
                     if (stat[i].success) {
                         log('finish_perf_tests: successfully copied back to ' + stat[i].dst);
-                        svn_add_cmd.push(stat[i].dst);
                     } else {
-                        log('finish_perf_tests: scp err copying to ' + stat[i].dst + ', err=' +
-                            stat[i].err);
-                        any_missing_files = true;
+                        if (string_ends_with(stat[i].err.toString().trim(), 'No such file or directory')) {
+                            log('finish_perf_tests: failed copying ' + stat[i].dst + ' because it didn\'t exist on the cluster');
+                            any_missing_files = true;
+                        } else {
+                            log('finish_perf_tests: scp err copying to ' + stat[i].dst + ', err=' +
+                                stat[i].err);
+                            any_infrastructure_failures = true;
+                        }
                     }
                 }
 
-                if (svn_add_cmd.length === 1) {
-                    // No successful copies
-                    return abort_and_reset_perf_tests(err, done, conn, 'svn-add');
+                if (any_infrastructure_failures) {
+                    return abort_and_reset_perf_tests(err, done, conn,
+                        'cluster infrastructure');
                 }
 
                 var characteristic_speedup = ""
@@ -3055,18 +3063,18 @@ pgclient(function(client, done) {
   /*
    * Mark any in-progress tests as failed on reboot.
    */
-  var query = client.query("UPDATE runs SET status='" + FAILED_STATUS + "'," +
-      "finish_time=CURRENT_TIMESTAMP WHERE status='" +
-      TESTING_CORRECTNESS_STATUS + "' OR status='" +
-      TESTING_PERFORMANCE_STATUS + "' OR status='" + IN_CLUSTER_QUEUE_STATUS +
-      "'");
-  query.on('row', function(row, result) { result.addRow(row); });
-  query.on('error', function(err, result) {
-    done();
-    log('Error on initial cleanup, err=' + err);
-    process.exit(1);
-  });
-  query.on('end', function(result) {
+//   var query = client.query("UPDATE runs SET status='" + FAILED_STATUS + "'," +
+//       "finish_time=CURRENT_TIMESTAMP WHERE status='" +
+//       TESTING_CORRECTNESS_STATUS + "' OR status='" +
+//       TESTING_PERFORMANCE_STATUS + "' OR status='" + IN_CLUSTER_QUEUE_STATUS +
+//       "'");
+//   query.on('row', function(row, result) { result.addRow(row); });
+//   query.on('error', function(err, result) {
+//     done();
+//     log('Error on initial cleanup, err=' + err);
+//     process.exit(1);
+//   });
+//   query.on('end', function(result) {
     done();
 
     set_check_cluster_timeout(0);
@@ -3082,5 +3090,5 @@ pgclient(function(client, done) {
         server.address().address,
         server.address().port);
     });
-  });
+  // });
 });
