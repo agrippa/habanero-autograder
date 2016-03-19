@@ -26,7 +26,7 @@ var permissionDenied = 'Permission denied. But you should shoot me an e-mail ' +
     'interesting research for you in the Habanero group.';
 var excessiveFileSizeMsg = 'The submission appears to perform excessive ' +
     'prints, resulting in large log files. Please reduce the prints performed ' +
-    'and resubmit.';
+    'and resubmit. A truncated version of your output is included below.';
 
 var upload = multer({ dest: 'uploads/' });
 
@@ -1600,10 +1600,14 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     slurmFileContents += loop_over_all_perf_tests('java ' + securityFlags + ' -Dhj.numWorkers=' +
       curr_cores + ' -javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
       'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
-    slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c); ' +
-      'if [[ "$NBYTES" -gt "' + MAX_FILE_SIZE + '" ]]; then echo "' + excessiveFileSizeMsg + '" > ' +
-      final_output_file + '; else mv ' + output_file + ' ' + final_output_file +
-      '; fi; rm -f ' + output_file + ';';
+    slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c)\n';
+    slurmFileContents += 'if [[ "$NBYTES" -gt "' + MAX_FILE_SIZE + '" ]]; then\n';
+    slurmFileContents += '    echo "' + excessiveFileSizeMsg + '" > ' + final_output_file + '\n';
+    slurmFileContents += '    echo "" >> ' + final_output_file + '\n';
+    slurmFileContents += '    truncate --size ' + MAX_FILE_SIZE + ' ' + output_file + '\n';
+    slurmFileContents += 'fi\n';
+    slurmFileContents += 'cat ' + output_file + ' >> ' + final_output_file + '\n';
+    slurmFileContents += 'rm -f ' + output_file + '\n';
   }
   slurmFileContents += '\n';
 
@@ -3059,36 +3063,22 @@ function check_for_old_runs_on_cluster() {
     });
 }
 
-pgclient(function(client, done) {
-  /*
-   * Mark any in-progress tests as failed on reboot.
-   */
-//   var query = client.query("UPDATE runs SET status='" + FAILED_STATUS + "'," +
-//       "finish_time=CURRENT_TIMESTAMP WHERE status='" +
-//       TESTING_CORRECTNESS_STATUS + "' OR status='" +
-//       TESTING_PERFORMANCE_STATUS + "' OR status='" + IN_CLUSTER_QUEUE_STATUS +
-//       "'");
-//   query.on('row', function(row, result) { result.addRow(row); });
-//   query.on('error', function(err, result) {
-//     done();
-//     log('Error on initial cleanup, err=' + err);
-//     process.exit(1);
-//   });
-//   query.on('end', function(result) {
-    done();
+/*
+ * At one point, we conservatively marked all running jobs as failed on startup.
+ * However, Viola has been refactored to continually retry conductor
+ * notifications and the cluster job status can be checked at any time, so it
+ * appears it is safe to pick up running jobs on reboot.
+ */
+set_check_cluster_timeout(0);
+setTimeout(check_for_old_runs_on_cluster, CHECK_CLUSTER_FILES_PERIOD_MS);
 
-    set_check_cluster_timeout(0);
-    setTimeout(check_for_old_runs_on_cluster, CHECK_CLUSTER_FILES_PERIOD_MS);
+var port = process.env.PORT || 8000;
 
-    var port = process.env.PORT || 8000;
+var oneDay = 86400000;
+app.use(express.static(__dirname + '/views', { maxAge: oneDay }));
 
-    var oneDay = 86400000;
-    app.use(express.static(__dirname + '/views', { maxAge: oneDay }));
-
-    var server = app.listen(port, function() {
-      log('Server listening at http://%s:%s', 
-        server.address().address,
-        server.address().port);
-    });
-  // });
+var server = app.listen(port, function() {
+  log('Server listening at http://%s:%s', 
+    server.address().address,
+    server.address().port);
 });

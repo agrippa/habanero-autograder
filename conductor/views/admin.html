@@ -109,27 +109,33 @@
                       <center>
                           <form action="/upload_zip/<%= curr.assignment_id %>" method="post" enctype="multipart/form-data">
                               <input name="zip" type="file">
-                              <input value="Upload" name="submit" type="submit">
+                              <input value="Upload ZIP" name="submit" type="submit">
                           </form>
                       </center>
                   </td>
                   <td>
-                      <form action="/upload_instructor_pom/<%= curr.assignment_id %>" method="post" enctype="multipart/form-data">
-                          <input name="pom" type="file">
-                          <input value="Upload" name="submit" type="submit">
-                      </form>
+                      <center>
+                          <form action="/upload_instructor_pom/<%= curr.assignment_id %>" method="post" enctype="multipart/form-data">
+                              <input name="pom" type="file">
+                              <input value="Upload POM" name="submit" type="submit">
+                          </form>
+                      </center>
                   </td>
                   <td>
-                      <form action="/upload_rubric/<%= curr.assignment_id %>" method="post" enctype="multipart/form-data">
-                          <input name="rubric" type="file">
-                          <input value="Upload" name="submit" type="submit">
-                      </form>
+                      <center>
+                          <form action="/upload_rubric/<%= curr.assignment_id %>" method="post" enctype="multipart/form-data">
+                              <input name="rubric" type="file">
+                              <input value="Upload Rubric" name="submit" type="submit">
+                          </form>
+                      </center>
                   </td>
                   <td>
-                      <form action="/upload_checkstyle/<%= curr.assignment_id %>" method="post" enctype="multipart/form-data">
-                          <input name="checkstyle_config" type="file">
-                          <input value="Upload" name="submit" type="submit">
-                      </form>
+                      <center>
+                          <form action="/upload_checkstyle/<%= curr.assignment_id %>" method="post" enctype="multipart/form-data">
+                              <input name="checkstyle_config" type="file">
+                              <input value="Upload checkstyle.xml" name="submit" type="submit">
+                          </form>
+                      </center>
                   </td>
               </tr>
           <% } %>
