@@ -427,6 +427,7 @@ function render_page(html_doc, res, req, render_vars) {
 }
 
 function redirect_with_err(target, res, req, err_msg) {
+    log('redirect_with_err: target=' + target + ' err_msg=' + err_msg);
     req.session.err_msg = err_msg;
     return res.redirect(target);
 }
@@ -837,38 +838,37 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
   } else {
     var assignment_name = req.body.assignment_name;
     if (assignment_name.length == 0) {
-      return render_page('admin.html', res, req,
-        {err_msg: 'Please provide a non-empty assignment name'});
+      return redirect_with_err('/admin', res, req,
+        'Please provide a non-empty assignment name');
     }
-
     if (!req.files.zip) {
-      return render_page('admin.html', res, req,
-        {err_msg: 'Please provide test files for the assignment'});
+      return redirect_with_err('/admin', res, req,
+        'Please provide test files for the assignment');
     }
     if (!req.files.instructor_pom) {
-      return render_page('admin.html', res, req,
-        {err_msg: 'Please provide an instructor pom for the assignment'});
+      return redirect_with_err('/admin', res, req,
+        'Please provide an instructor pom for the assignment');
     }
     if (!req.files.rubric) {
-      return render_page('admin.html', res, req,
-        {err_msg: 'Please provide a rubric for the assignment'});
+      return redirect_with_err('/admin', res, req,
+        'Please provide a rubric for the assignment');
     }
     if (!req.files.checkstyle_config) {
-      return render_page('admin.html', res, req,
-        {err_msg: 'Please provide a checkstyle configuration for the assignment'});
+      return redirect_with_err('/admin', res, req,
+        'Please provide a checkstyle configuration for the assignment');
     }
 
     pgclient(function(client, done) {
           var rubric_validated = load_and_validate_rubric(req.files.rubric[0].path);
           if (!rubric_validated.success) {
               done();
-              return render_page('admin.html', res, req, {err_msg: 'Error in rubric: ' + rubric_validated.msg});
+              return redirect_with_err('/admin', res, req, 'Error in rubric: ' + rubric_validated.msg);
           }
 
           var pom_validated = validate_instructor_pom(req.files.instructor_pom[0].path);
           if (!pom_validated.success) {
               done();
-              return render_page('admin.html', res, req, {err_msg: 'Error in POM: ' + pom_validated.msg});
+              return redirect_with_err('/admin', res, req, 'Error in POM: ' + pom_validated.msg);
           }
 
           var query = client.query(
@@ -895,21 +895,21 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
 
               connect_to_cluster(function(conn, err) {
                   if (err) {
-                      return render_page('admin.html', res, req,
-                          {err_msg: 'Error connecting to cluster'});
+                      return redirect_with_err('/admin', res, req,
+                          'Error connecting to cluster');
                   } else {
                       create_cluster_dir('autograder-assignments', conn, function(err, conn, stdout, stderr) {
                           if (err) {
                               disconnect_from_cluster(conn);
-                              return render_page('admin.html', res, req,
-                                  {err_msg: 'Unable to create directory on cluster'});
+                              return redirect_with_err('/admin', res, req,
+                                  'Unable to create directory on cluster');
                           }
 
                           cluster_scp(assignment_dir, 'autograder-assignments/' + assignment_id, true, function(err) {
                               disconnect_from_cluster(conn);
                               if (err) {
-                                  return render_page('admin.html', res, req,
-                                      {err_msg: 'Unable to upload to cluster'});
+                                  return redirect_with_err('/admin', res, req,
+                                      'Unable to upload to cluster');
                               }
 
                               return res.redirect('/admin');
@@ -929,7 +929,7 @@ function handle_reupload(req, res, missing_msg, target_filename) {
     var assignment_id = req.params.assignment_id;
 
     if (!req.file) {
-      return render_page('admin.html', res, req, {err_msg: missing_msg});
+        return redirect_with_err('/admin', res, req, missing_msg);
     }
 
     pgclient(function(client, done) {
@@ -939,22 +939,22 @@ function handle_reupload(req, res, missing_msg, target_filename) {
       query.on('end', function(result) {
         done();
         if (result.rows.length != 1) {
-          return render_page('admin.html', res, req,
-            {err_msg: 'That assignment doesn\'t seem to exist'});
+            return redirect_with_err('/admin', res, req,
+                'That assignment doesn\'t seem to exist');
         } else {
             var assignment_dir = assignment_path(assignment_id);
             fs.renameSync(req.file.path, assignment_dir + '/' + target_filename);
 
             connect_to_cluster(function(conn, err) {
                 if (err) {
-                    return render_page('admin.html', res, req,
-                        {err_msg: 'Error connecting to cluster'});
+                    return redirect_with_err('/admin', res, req,
+                        'Error connecting to cluster');
                 }
                 cluster_scp(assignment_dir + '/' + target_filename, 'autograder-assignments/' + assignment_id + '/', true, function(err) {
                     disconnect_from_cluster(conn);
                     if (err) {
-                        return render_page('admin.html', res, req,
-                            {err_msg: 'Unable to upload to cluster'});
+                        return redirect_with_err('/admin.html', res, req,
+                            'Unable to upload to cluster');
                     }
                     return res.redirect('/admin');
                 });
@@ -968,10 +968,10 @@ function handle_reupload(req, res, missing_msg, target_filename) {
 app.post('/update_jvm_args/:assignment_id', function(req, res, next) {
   log('update_jvm_args: is_admin=' + req.session.is_admin + ', jvm_args=' + req.body.jvm_args);
   if (!req.session.is_admin) {
-    return render_page('admin.html', res, req, {err_msg: permissionDenied});
+    return redirect_with_err('/overview', res, req, permissionDenied);
   } else {
     if (!req.body.jvm_args) {
-      return render_page('admin.html', res, req, {err_msg: 'Malformed request, missing JVM args field?'});
+      return redirect_with_err('/admin', res, req, 'Malformed request, missing JVM args field?');
     }
     var assignment_id = req.params.assignment_id;
 
@@ -982,8 +982,8 @@ app.post('/update_jvm_args/:assignment_id', function(req, res, next) {
       query.on('end', function(result) {
         if (result.rows.length != 1) {
           done();
-          return render_page('admin.html', res, req,
-            {err_msg: 'That assignment doesn\'t seem to exist'});
+          return redirect_with_err('/admin', res, req,
+            'That assignment doesn\'t seem to exist');
         } else {
           var query = client.query("UPDATE assignments SET jvm_args=($1) WHERE assignment_id=($2);",
               [req.body.jvm_args, assignment_id]);
@@ -1006,8 +1006,8 @@ function update_assignment_field(timeout_val, column_name, assignment_id, res, r
       query.on('end', function(result) {
         if (result.rows.length != 1) {
           done();
-          return render_page('admin.html', res, req,
-            {err_msg: 'That assignment doesn\'t seem to exist'});
+          return redirect_with_err('/admin', res, req,
+            'That assignment doesn\'t seem to exist');
         } else {
           var query = client.query("UPDATE assignments SET " +
               column_name + "=" + timeout_val + " WHERE assignment_id=($1);",
@@ -1026,11 +1026,11 @@ app.post('/update_correctness_timeout/:assignment_id', function(req, res, next) 
   log('update_correctness_timeout: is_admin=' + req.session.is_admin +
       ', new timeout=' + req.body.correctness_timeout);
   if (!req.session.is_admin) {
-    return render_page('admin.html', res, req, {err_msg: permissionDenied});
+    return redirect_with_err('/overview', res, req, permissionDenied);
   } else {
     if (!req.body.correctness_timeout) {
-      return render_page('admin.html', res, req,
-          {err_msg: 'Malformed request, missing correctness timeout field?'});
+      return redirect_with_err('/admin', res, req,
+          'Malformed request, missing correctness timeout field?');
     }
     var assignment_id = req.params.assignment_id;
     var correctness_timeout = req.body.correctness_timeout;
@@ -1044,11 +1044,11 @@ app.post('/update_custom_slurm_flags/:assignment_id', function(req, res, next) {
     log('update_custom_slurm_flags: is_admin=' + req.session.is_admin +
         ', new slurm flags = "' + req.body.custom_slurm_flags + '"');
   if (!req.session.is_admin) {
-    return render_page('admin.html', res, req, {err_msg: permissionDenied});
+    return redirect_with_err('/overview', res, req, permissionDenied);
   } else {
     if (!req.body.custom_slurm_flags) {
-      return render_page('admin.html', res, req,
-          {err_msg: 'Malformed request, missing custom slurm flags field?'});
+      return redirect_with_err('/admin', res, req,
+          'Malformed request, missing custom slurm flags field?');
     }
     var assignment_id = req.params.assignment_id;
     var custom_slurm_flags = req.body.custom_slurm_flags;
@@ -1062,11 +1062,11 @@ app.post('/update_performance_timeout/:assignment_id', function(req, res, next) 
   log('update_performance_timeout: is_admin=' + req.session.is_admin +
       ', new timeout=' + req.body.performance_timeout);
   if (!req.session.is_admin) {
-    return render_page('admin.html', res, req, {err_msg: permissionDenied});
+    return redirect_with_err('/overview', res, req, permissionDenied);
   } else {
     if (!req.body.performance_timeout) {
-      return render_page('admin.html', res, req,
-          {err_msg: 'Malformed request, missing performance timeout field?'});
+      return redirect_with_err('/admin', res, req,
+          'Malformed request, missing performance timeout field?');
     }
     var assignment_id = req.params.assignment_id;
     var performance_timeout = req.body.performance_timeout;
@@ -1080,11 +1080,11 @@ app.post('/update_ncores/:assignment_id', function(req, res, next) {
   log('update_ncores: is_admin=' + req.session.is_admin +
       ', new timeout=' + req.body.performance_timeout);
   if (!req.session.is_admin) {
-    return render_page('admin.html', res, req, {err_msg: permissionDenied});
+    return redirect_with_err('/overview', res, req, permissionDenied);
   } else {
     if (!req.body.ncores) {
-      return render_page('admin.html', res, req,
-          {err_msg: 'Malformed request, missing ncores field?'});
+      return redirect_with_err('/admin', res, req,
+          'Malformed request, missing ncores field?');
     }
     var assignment_id = req.params.assignment_id;
     var ncores = req.body.ncores;
@@ -1092,7 +1092,6 @@ app.post('/update_ncores/:assignment_id', function(req, res, next) {
     return update_assignment_field(ncores, 'ncores', assignment_id, res, req);
   }
 });
-
 
 app.post('/upload_zip/:assignment_id', upload.single('zip'),
     function(req, res, next) {
@@ -1105,12 +1104,12 @@ app.post('/upload_instructor_pom/:assignment_id', upload.single('pom'),
       log('upload_instructor_pom: is_admin=' + req.session.is_admin);
 
       if (!req.file) {
-          return render_page('admin.html', res, req, {err_msg: 'No POM provided'});
+          return redirect_with_err('/admin', res, req, 'No POM provided');
       }
 
       var validated = validate_instructor_pom(req.file.path);
       if (!validated.success) {
-          return render_page('admin.html', res, req, {err_msg: 'Error in POM: ' + validated.msg});
+          return redirect_with_err('/admin', res, req, 'Error in POM: ' + validated.msg);
       }
 
       return handle_reupload(req, res, 'Please provide an instructor pom.xml',
@@ -1122,12 +1121,12 @@ app.post('/upload_rubric/:assignment_id', upload.single('rubric'),
       log('upload_rubric: is_admin=' + req.session.is_admin);
 
       if (!req.file) {
-          return render_page('admin.html', res, req, {err_msg: 'No rubric provided'});
+          return redirect_with_err('/admin', res, req, 'No rubric provided');
       }
 
       var validated = load_and_validate_rubric(req.file.path);
       if (!validated.success) {
-          return render_page('admin.html', res, req, {err_msg: 'Error in rubric: ' + validated.msg});
+          return redirect_with_err('/admin', res, req, 'Error in rubric: ' + validated.msg);
       }
 
       return handle_reupload(req, res, 'Please provide a rubric', 'rubric.json');
