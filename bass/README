@@ -1,0 +1,8 @@
+The Bass component is used for backing up files from student submissions. Bass
+should be run on a physically separate machine from the Conductor. It reaches
+out to the conductor periodically to back up any runs that have completed since
+the last backup (i.e. these are incremental backups).
+
+Bass configuration is simple. Running the setup.sh script will add a CRON entry
+for Bass that runs every night at 3am local time. Bass will store all back ups
+in the bass/backups folder.
