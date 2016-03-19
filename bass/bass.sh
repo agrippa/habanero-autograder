@@ -45,10 +45,11 @@ fi
 
 if [[ $START_FROM -le $MAX_RUN ]]; then
     for RUN in $(seq $START_FROM $MAX_RUN); do
-        REMOTE_PATH=$(ssh $CONDUCTOR_USER@$CONDUCTOR "find $CONDUCTOR_RUNS_DIR -name $RUN")
+        REMOTE_PATH=$(ssh $CONDUCTOR_USER@$CONDUCTOR "find $CONDUCTOR_RUNS_DIR -maxdepth 2 -name $RUN")
         if [[ ${#REMOTE_PATH} -ne 0 ]]; then
-            echo $RUN
+            echo "Downloading $RUN from \"$REMOTE_PATH\" to \"$BACKUPS_DIR/$RUN\""
             scp -r $CONDUCTOR_USER@$CONDUCTOR:$REMOTE_PATH $BACKUPS_DIR/$RUN
+            echo "Done downloading $RUN"
         fi
     done
 fi
