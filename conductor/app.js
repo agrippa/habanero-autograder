@@ -255,7 +255,7 @@ function run_cluster_cmd(conn, lbl, cluster_cmd, cb) {
     }
 }
 
-var MAX_FILE_SIZE = 1 * 1024 * 1024;
+var MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 function get_file_size(path) {
     var stats = fs.statSync(path);
@@ -1601,7 +1601,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
       curr_cores + ' -javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
       'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
     slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c); ' +
-      'if [[ "$NBYTES" -gt "4194304" ]]; then echo "' + excessiveFileSizeMsg + '" > ' +
+      'if [[ "$NBYTES" -gt "' + MAX_FILE_SIZE + '" ]]; then echo "' + excessiveFileSizeMsg + '" > ' +
       final_output_file + '; else mv ' + output_file + ' ' + final_output_file +
       '; fi; rm -f ' + output_file + ';';
   }
