@@ -85,17 +85,13 @@ public class CommonUtils {
 
     public static void saveResultsToFile(ProcessResults results, String dest, boolean saveAll) throws IOException {
         PrintWriter writer = new PrintWriter(dest, "UTF-8");
-        if (saveAll) {
+        if (results.code != 0 || saveAll) {
             writer.println("======= STDOUT =======");
             writer.println(results.stdout);
             writer.println("\n======= STDERR =======");
             writer.println(results.stderr);
         } else {
-            if (results.code != 0) {
-                writer.println(results.stderr);
-            } else {
-                writer.println(results.stdout);
-            }
+            writer.println(results.stdout);
         }
         writer.close();
     }
