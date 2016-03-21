@@ -43,7 +43,7 @@ public class ImportFromConductorRunnable implements Runnable {
                 assignmentDir = CommonUtils.getTempDirectoryName();
                 submissionDir = CommonUtils.getTempDirectoryName();
             } catch (IOException io) {
-                curr.setErrMsg("Failed creating directories for Viola import");
+                curr.setErrMsg("Failed reserving directories for Viola import");
             }
 
             if (assignmentDir != null && submissionDir != null) {

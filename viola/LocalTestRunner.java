@@ -95,7 +95,10 @@ public class LocalTestRunner {
     public String getAssignmentName() { return assignment_name; }
     public File getLogDir() { return logDir; }
     public String getErrMsg() { return errMsg; }
-    public void setErrMsg(String msg) { errMsg = msg; }
+    public void setErrMsg(String msg) {
+        ViolaUtil.log("Setting error message for run %d to %s\n", run_id, msg);
+        errMsg = msg;
+    }
     public ViolaEnv getEnv() { return env; }
     public String getSubmissionPath() { return submissionPath; }
     public String getAssignmentPath() { return assignmentPath; }

@@ -196,6 +196,29 @@ function svn_cmd(cmd, cb) {
 }
 
 var cluster_connection = null;
+var cluster_sftp = null;
+
+function sftp_connect_to_cluster(cb) {
+    log('sftp_connect_to_cluster: Connecting to cluster ' + CLUSTER_HOSTNAME);
+    if (CLUSTER_TYPE === 'slurm') {
+        if (cluster_sftp) {
+            cb();
+        } else {
+            cluster_connection.sftp(function(err, sftp) {
+                if (err) {
+                    log('sftp_connect_to_cluster: Error sftp-ing to ' +
+                        CLUSTER_HOSTNAME + ' as user ' + CLUSTER_USER + ': ' +
+                        err);
+                    return sftp_connect_to_cluster(cb);
+                }
+                cluster_sftp = sftp;
+                cb();
+            });
+        }
+    } else {
+        cb();
+    }
+}
 
 // Should only be used from run_cluster_cmd or cluster_scp
 function connect_to_cluster(cb) {
@@ -208,14 +231,18 @@ function connect_to_cluster(cb) {
             var conn = new ssh.Client();
             conn.on('ready', function() {
                 cluster_connection = conn;
-                cb();
+                sftp_connect_to_cluster(cb);
             }).on('error', function(err) {
                 log('connect_to_cluster: Error connecting to ' + CLUSTER_HOSTNAME +
                     ' as user ' + CLUSTER_USER + ': ' + err);
                 connect_to_cluster(cb);
             }).on('end', function() {
                 log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME +
-                    ' ends');
+                    ' emitted end event');
+            }).on('timeout', function() {
+                log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME + ' emitted timeout event');
+            }).on('close', function() {
+                log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME + ' emitted close event');
             }).connect({
                 host: CLUSTER_HOSTNAME,
                 port: 22,
@@ -324,26 +351,19 @@ function cluster_scp(src_file, dst_file, is_upload, cb) {
 
       // Ensure cluster_connection is initialized
       connect_to_cluster(function() {
-          cluster_connection.sftp(function(err, sftp) {
-              if (err) {
-                  log('cluster_scp: setting up sftp returned an err: ' + err);
-                  return cb(err);
-              }
-
-              if (is_upload) {
-                  sftp.fastPut(src_file, dst_file, function(err) {
-                      log('cluster_scp: upload from ' + src_file + ' took ' +
-                          (new Date().getTime() - start_time) + ' ms, err=' + err);
-                      cb(err);
-                  });
-              } else {
-                  log('cluster_scp: download to ' + dst_file + ' took ' +
+          if (is_upload) {
+              cluster_sftp.fastPut(src_file, dst_file, function(err) {
+                  log('cluster_scp: upload from ' + src_file + ' took ' +
                       (new Date().getTime() - start_time) + ' ms, err=' + err);
-                  sftp.fastGet(src_file, dst_file, function(err) {
-                      cb(err);
-                  });
-              }
-          });
+                  cb(err);
+              });
+          } else {
+              log('cluster_scp: download to ' + dst_file + ' took ' +
+                  (new Date().getTime() - start_time) + ' ms, err=' + err);
+              cluster_sftp.fastGet(src_file, dst_file, function(err) {
+                  cb(err);
+              });
+          }
       });
   } else {
       if (is_upload) {
@@ -2444,9 +2464,9 @@ app.post('/cancel/:run_id', function(req, res, next) {
     }
 
     // Check permission to cancel this run
-    pgquery('SELECT * FROM runs WHERE (user_id=($1)) AND (run_id=($2))',
+    pgquery_no_err('SELECT * FROM runs WHERE (user_id=($1)) AND (run_id=($2))',
         [req.session.user_id, req.params.run_id], res, req, function(rows) {
-        if (rowCount != 1) {
+        if (rows.length != 1) {
             return redirect_with_err('/overview', res, req,
                 'You do not appear to have permission to cancel that run');
         }
