@@ -10,7 +10,7 @@ var fs = require('fs-extra');
 var svn = require('svn-spawn');
 var crypto = require('crypto');
 var ssh = require('ssh2');
-var scp = require('scp')
+var scp = require('scp');
 var child_process = require('child_process');
 var nodemailer = require('nodemailer');
 var url = require('url');
@@ -83,7 +83,7 @@ function send_email(to, subject, body, cb) {
 var POSTGRES_USERNAME = process.env.PGSQL_USER || 'postgres';
 var POSTGRES_PASSWORD = process.env.PGSQL_PASSWORD || 'foobar';
 var POSTGRES_USER_TOKEN = null;
-if (POSTGRES_PASSWORD.length == 0) {
+if (POSTGRES_PASSWORD.length === 0) {
   POSTGRES_USER_TOKEN = POSTGRES_USERNAME;
 } else {
   POSTGRES_USER_TOKEN = POSTGRES_USERNAME + ":" + POSTGRES_PASSWORD;
@@ -141,21 +141,47 @@ temp.track();
 function pgclient(cb) {
   log('pgclient: acquiring PGSQL client...');
   pg.connect(conString, function(err, client, done) {
-          log("pgclient: finished acquiring PGSQL client, err=" + err);
-          if (err) {
-            done();
-            return console.error('error fetching client from pool', err);
-          }
-          cb(client, done);
-        });
+      log("pgclient: finished acquiring PGSQL client, err=" + err);
+      if (err) {
+        done();
+        return console.error('error fetching client from pool', err);
+      }
+      cb(client, done);
+  });
 }
 
-function register_query_helpers(query, res, done, username) {
-    query.on('row', function(row, result) { result.addRow(row); });
-    query.on('error', function(err, result) {
-            done();
-            res.send(JSON.stringify({ status: 'Failure',
-                    msg: 'Internal error (' + err + ')', user: username }));
+function pgquery(query, query_args, cb) {
+  log('pgquery: acquiring PGSQL client...');
+  pg.connect(conString, function(err, client, done) {
+      log("pgquery: finished acquiring PGSQL client, err=" + err);
+      if (err) {
+          log('pgquery: hit an err = ' + err);
+          done();
+          return cb(err, null);
+      } else {
+          var q = client.query(query, query_args);
+          q.on('row', function(row, result) { result.addRow(row); });
+          q.on('error', function(err, result) {
+              done();
+              return cb(err, null);
+          });
+          q.on('end', function(result) {
+              done();
+              return cb(null, result.rows);
+          });
+      }
+  });
+}
+
+// A simpler pgquery that doesn't pass the error back to the user, simply redirects
+function pgquery_no_err(query, query_args, res, req, cb) {
+    pgquery(query, query_args, function(err, rows) {
+        if (err) {
+            log('pgquery_no_err: hit an err = ' + err);
+            return redirect_with_err('/overview', res, req,
+                'Internal error (pgquery_no_err)');
+        }
+        cb(rows);
     });
 }
 
@@ -213,7 +239,7 @@ function run_cluster_cmd(conn, lbl, cluster_cmd, cb) {
             var acc_stdout = '';
             var acc_stderr = '';
             stream.on('close', function(code, signal) {
-                if (code != 0) {
+                if (code !== 0) {
                     disconnect_from_cluster(conn);
                     log('[' + lbl + '] code=' + code + ' signal=' + signal);
                     return cb(lbl, conn, acc_stdout, acc_stderr);
@@ -240,7 +266,7 @@ function run_cluster_cmd(conn, lbl, cluster_cmd, cb) {
       run.stdout.on('data', function(data) { acc_stdout = acc_stdout + data; });
       run.stderr.on('data', function(data) { acc_stderr = acc_stderr + data; });
       run.on('close', function(code) {
-        if (code != 0) {
+        if (code !== 0) {
           log('[' + lbl + '] code=' + code + ', cluster_cmd=' + cluster_cmd);
           return cb(lbl, conn, acc_stdout, acc_stderr);
         } else {
@@ -259,7 +285,7 @@ var MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 function get_file_size(path) {
     var stats = fs.statSync(path);
-    return stats["size"];
+    return stats.size;
 }
 
 function cluster_scp(src_file, dst_file, is_upload, cb) {
@@ -408,7 +434,7 @@ function string_ends_with(st, suffix) {
 
 function string_ends_with(st, suffix) {
   return st.indexOf(suffix, st.length - suffix.length) !== -1;
-};
+}
 
 function render_page(html_doc, res, req, render_vars) {
     render_vars = typeof render_vars !== 'undefined' ? render_vars : {};
@@ -452,56 +478,41 @@ app.get('/status/:run_id', function(req, res, next) {
      * Deliberately don't check permissions, it's okay to leave this endpoint
      * in the open.
      */
-    pgclient(function(client, done) {
-        var query = client.query("SELECT * FROM runs WHERE run_id=($1)",
-            [run_id]);
-        query.on('row', function(row, result) { result.addRow(row); });
-        query.on('error', function(err, result) {
-            done();
+    pgquery("SELECT * FROM runs WHERE run_id=($1)", [run_id], function(err, rows) {
+        if (err) {
             return res.send('INTERNAL FAILURE');
-        });
-        query.on('end', function(result) {
-            done();
-            if (result.rowCount != 1) {
-                return res.send('UNKNOWN RUN');
-            }
-            return res.send(result.rows[0].status);
-        });
+        }
+        if (rows.length != 1) {
+            return res.send('UNKNOWN RUN');
+        }
+        return res.send(rows[0].status);
     });
 });
 
 app.get('/latest_complete_run', function(req, res, next) {
-    pgclient(function(client, done) {
-        var query = client.query('SELECT MAX(run_id) FROM runs');
-        query.on('row', function(row, result) { result.addRow(row); });
-        query.on('error', function(err, result) {
-            done();
+    pgquery('SELECT MAX(run_id) FROM runs', [], function(err, rows) {
+        if (err) {
             return res.send('INTERNAL FAILURE');
-        });
-        query.on('end', function(result) {
-            var max_run_id = result.rows[0].max;
+        }
+        var max_run_id = rows[0].max;
 
-            var query = client.query("SELECT MIN(run_id) FROM runs WHERE status='" +
+        pgquery("SELECT MIN(run_id) FROM runs WHERE status='" +
                 TESTING_CORRECTNESS_STATUS + "' OR status='" +
                 IN_CLUSTER_QUEUE_STATUS + "' OR status='" +
-                TESTING_PERFORMANCE_STATUS + "'");
-            query.on('row', function(row, result) { result.addRow(row); });
-            query.on('error', function(err, result) {
-                done();
+                TESTING_PERFORMANCE_STATUS + "'", [], function(err, rows) {
+            if (err) {
                 return res.send('INTERNAL FAILURE');
-            });
-            query.on('end', function(result) {
-                done();
-                if (result.rows[0].min === null) {
-                    if (max_run_id === null) {
-                        return res.send('NO RUNS');
-                    } else {
-                        return res.send(max_run_id.toString());
-                    }
+            }
+
+            if (rows[0].min === null) {
+                if (max_run_id === null) {
+                    return res.send('NO RUNS');
                 } else {
-                    return res.send((result.rows[0].min - 1).toString());
+                    return res.send(max_run_id.toString());
                 }
-            });
+            } else {
+                return res.send((rows[0].min - 1).toString());
+            }
         });
     });
 });
@@ -520,31 +531,27 @@ app.post('/login', function(req, res, next) {
   log('login: username=' + username);
 
   // Check that user exists
-  pgclient(function(client, done) {
-        var query = client.query("SELECT * FROM users WHERE user_name=($1)", [username]);
-        register_query_helpers(query, res, done, username);
-        query.on('end', function(result) {
-              done();
-              if (result.rowCount == 0) {
-                  return redirect_with_err('/login', res, req,
-                      'User "' + username + '" does not exist');
-              } else if (result.rowCount == 1) {
-                // Check that password matches
-                if (bcrypt.compareSync(password, result.rows[0].password_hash)) {
-                  req.session.username = username;
-                  req.session.user_id = result.rows[0].user_id;
-                  req.session.is_admin = result.rows[0].is_admin;
+  pgquery_no_err("SELECT * FROM users WHERE user_name=($1)", [username], res,
+      req, function(rows) {
+          if (rows.length === 0) {
+              return redirect_with_err('/login', res, req,
+                  'User "' + username + '" does not exist');
+          } else if (rows.length == 1) {
+            // Check that password matches
+            if (bcrypt.compareSync(password, rows[0].password_hash)) {
+              req.session.username = username;
+              req.session.user_id = rows[0].user_id;
+              req.session.is_admin = rows[0].is_admin;
 
-                  return res.redirect('/overview');
-                } else {
-                  return redirect_with_err('/login', res, req,
-                      'Incorrect password for user "' + username + '"');
-                }
-              } else {
-                return redirect_with_err('/login', res, req,
-                    'Internal error (' + result.rowCount + ')');
-              }
-            });
+              return res.redirect('/overview');
+            } else {
+              return redirect_with_err('/login', res, req,
+                  'Incorrect password for user "' + username + '"');
+            }
+          } else {
+            return redirect_with_err('/login', res, req,
+                'Internal error (' + rows.length + ')');
+          }
       });
 });
 
@@ -580,47 +587,35 @@ app.get('/profile', function(req, res, next) {
   var username = req.session.username;
   log('profile: username=' + username);
 
-  pgclient(function(client, done) {
-    var query = client.query('SELECT * FROM users WHERE user_name=($1)',
-        [username]);
-    register_query_helpers(query, res, done, username);
-    query.on('end', function(result) {
-      if (result.rowCount != 1) {
-        done();
-        return redirect_with_err('/overview', res, req,
-            'User "' + username + '" does not exist');
-      } else {
-        var user_id = result.rows[0].user_id;
-        var has_notifications_enabled = result.rows[0].receive_email_notifications;
+  pgquery_no_err('SELECT * FROM users WHERE user_name=($1)', [username], res,
+      req, function(rows) {
+          if (rows.length != 1) {
+            return redirect_with_err('/overview', res, req,
+                'User "' + username + '" does not exist');
+          } else {
+            var user_id = rows[0].user_id;
+            var has_notifications_enabled = rows[0].receive_email_notifications;
 
-        var query = client.query('SELECT COUNT(*) FROM runs WHERE user_id=($1)', [user_id]);
-        register_query_helpers(query, res, done, username);
-        query.on('end', function(result) {
-          done();
-          var render_vars = {username: req.session.username,
-                             nruns: result.rows[0].count,
-                             notifications_enabled: has_notifications_enabled};
-          return render_page('profile.html', res, req, render_vars);
-        });
-      }
-    });
-  });
+            pgquery_no_err('SELECT COUNT(*) FROM runs WHERE user_id=($1)',
+                [user_id], res, req, function(rows) {
+                    var render_vars = {username: req.session.username,
+                                       nruns: rows[0].count,
+                                       notifications_enabled: has_notifications_enabled};
+                    return render_page('profile.html', res, req, render_vars);
+                });
+          }
+      });
 });
 
 app.post('/notifications/', function(req, res, next) {
   var enable_notifications = ('enable' in req.body);
   log('notifications: user=' + req.session.username +
       ' enable_notifications=' + enable_notifications);
-  pgclient(function(client, done) {
-    var query = client.query('UPDATE users SET ' +
-        'receive_email_notifications=($1) WHERE user_name=($2)',
-        [enable_notifications, req.session.username]);
-    register_query_helpers(query, res, done, req.session.username);
-    query.on('end', function(result) {
-      done();
-      res.redirect('/profile');
-    });
-  });
+  pgquery_no_err('UPDATE users SET receive_email_notifications=($1) WHERE ' +
+      'user_name=($2)', [enable_notifications, req.session.username], res, req,
+      function(rows) {
+          return res.redirect('/profile');
+      });
 });
 
 app.get('/overview/:page?', function(req, res, next) {
@@ -681,102 +676,95 @@ app.get('/leaderboard/:assignment_id?/:page?', function(req, res, next) {
   log('leaderboard: username=' + req.session.username +
       ' target_assignment_id=' + target_assignment_id + ' page=' + page);
 
-  pgclient(function(client, done) {
-    var query = client.query("SELECT assignment_id,name,correctness_only FROM " +
-        "assignments WHERE visible=true ORDER BY assignment_id DESC;");
-    register_query_helpers(query, res, done, req.session.username);
-    query.on('end', function(result) {
-      var render_vars = {assignments: result.rows};
+  pgquery_no_err("SELECT assignment_id,name,correctness_only FROM " +
+        "assignments WHERE visible=true ORDER BY assignment_id DESC", [], res,
+        req, function(rows) {
+            var render_vars = {assignments: rows};
 
-      if (target_assignment_id) {
-        var has_performance_tests = false;
-        for (var i = 0; i < result.rows.length; i++) {
-            if (result.rows[i].assignment_id === target_assignment_id) {
-                if (!result.rows[i].correctness_only) {
-                    has_performance_tests = true;
+            if (target_assignment_id) {
+                var has_performance_tests = false;
+                for (var i = 0; i < rows.length; i++) {
+                    if (rows[i].assignment_id === target_assignment_id) {
+                        if (!rows[i].correctness_only) {
+                            has_performance_tests = true;
+                        }
+                        break;
+                    }
                 }
-                break;
+                render_vars.has_performance_tests = has_performance_tests;
+
+                pgquery_no_err("SELECT run_id,status,passed_checkstyle,compiled," +
+                    "passed_all_correctness,passed_performance,characteristic_speedup,user_id " +
+                    "FROM runs WHERE assignment_id=($1) ORDER BY run_id DESC",
+                    [target_assignment_id], res, req, function(rows) {
+                        render_vars.runs = rows;
+
+                        // Find the best runs for each user
+                        var max_runs_only = {};
+                        for (i = 0; i < rows.length; i++) {
+                            if (rows[i].characteristic_speedup.length !== 0) {
+                                var user_id = rows[i].user_id;
+                                var user_speedup = parseFloat(rows[i].characteristic_speedup);
+
+                                if (user_id in max_runs_only) {
+                                    if (user_speedup > max_runs_only[user_id]) {
+                                        max_runs_only[user_id] = user_speedup;
+                                    }
+                                } else {
+                                    max_runs_only[user_id] = user_speedup;
+                                }
+                            }
+                        }
+
+                        // Find the min and max out of the best runs
+                        var nbins = 10;
+                        var bins = [];
+                        for (var i = 0; i < nbins; i++) bins.push(0);
+                        var max_speedup = -1.0;
+                        var min_speedup = -1.0;
+                        for (var min_max_user in max_runs_only) {
+                            if (max_runs_only.hasOwnProperty(min_max_user)) {
+                                var speedup = max_runs_only[min_max_user];
+                                if (max_speedup < speedup) max_speedup = speedup;
+                                if (min_speedup < 0.0 || speedup < min_speedup) min_speedup = speedup;
+                            }
+                        }
+
+                        log('leaderboard: found min speedup=' + min_speedup +
+                                ' max speedup=' + max_speedup + ', using bin width=' +
+                                bin_width + ' for nbins=' + nbins);
+                        max_speedup += 0.001;
+                        var bin_width = (max_speedup - min_speedup) / nbins;
+                        for (var bin_user in max_runs_only) {
+                            if (max_runs_only.hasOwnProperty(bin_user)) {
+                                var bin_speedup = max_runs_only[bin_user];
+                                var delta_from_min = bin_speedup - min_speedup;
+                                var bin = Math.floor(delta_from_min / bin_width);
+                                log('leaderboard: placing speedup ' + bin_speedup + ' in bin ' + bin);
+                                bins[bin] = bins[bin] + 1;
+                            }
+                        }
+
+                        render_vars.speedup_bins = [];
+                        for (var b = 0; b < nbins; b++) {
+                            var lower_bound = min_speedup + b * bin_width;
+                            var upper_bound = min_speedup + (b + 1) * bin_width;
+                            var lbl = '[' + lower_bound.toFixed(2).toString() + ', ' + upper_bound.toFixed(2).toString() + ')';
+                            render_vars.speedup_bins.push({lbl: lbl, count: bins[b] });
+                        }
+
+                        pgquery_no_err('SELECT name FROM assignments where ' +
+                                'assignment_id=($1)', [target_assignment_id],
+                                res, req, function(rows) {
+                                    render_vars.assignment_name = rows[0].name;
+                                    return render_page('leaderboard.html', res,
+                                        req, render_vars);
+                                });
+                    });
+            } else {
+                return render_page('leaderboard.html', res, req, render_vars);
             }
-        }
-        render_vars['has_performance_tests'] = has_performance_tests;
-
-        var query = client.query(
-          "SELECT run_id,status,passed_checkstyle,compiled," +
-          "passed_all_correctness,passed_performance,characteristic_speedup,user_id " +
-          "FROM runs WHERE assignment_id=($1) ORDER BY run_id DESC", [target_assignment_id]);
-        register_query_helpers(query, res, done, req.session.username);
-        query.on('end', function(result) {
-          render_vars['runs'] = result.rows;
-
-          // Find the best runs for each user
-          var max_runs_only = {};
-          for (i = 0; i < result.rows.length; i++) {
-              if (result.rows[i].characteristic_speedup.length != 0) {
-                  var user = result.rows[i].user_id;
-                  var speedup = parseFloat(result.rows[i].characteristic_speedup);
-
-                  if (user in max_runs_only) {
-                      if (speedup > max_runs_only[user]) {
-                          max_runs_only[user] = speedup;
-                      }
-                  } else {
-                      max_runs_only[user] = speedup;
-                  }
-              }
-          }
-
-          // Find the min and max out of the best runs
-          var nbins = 10;
-          var bins = [];
-          for (var i = 0; i < nbins; i++) bins.push(0);
-          var max_speedup = -1.0;
-          var min_speedup = -1.0;
-          for (var user in max_runs_only) {
-              if (max_runs_only.hasOwnProperty(user)) {
-                  var speedup = max_runs_only[user];
-                  if (max_speedup < speedup) max_speedup = speedup;
-                  if (min_speedup < 0.0 || speedup < min_speedup) min_speedup = speedup;
-              }
-          }
-
-          log('leaderboard: found min speedup=' + min_speedup +
-                  ' max speedup=' + max_speedup + ', using bin width=' +
-                  bin_width + ' for nbins=' + nbins);
-          max_speedup += 0.001;
-          var bin_width = (max_speedup - min_speedup) / nbins;
-          for (var user in max_runs_only) {
-              if (max_runs_only.hasOwnProperty(user)) {
-                  var speedup = max_runs_only[user];
-                  var delta_from_min = speedup - min_speedup;
-                  var bin = Math.floor(delta_from_min / bin_width);
-                  log('leaderboard: placing speedup ' + speedup + ' in bin ' + bin);
-                  bins[bin] = bins[bin] + 1;
-              }
-          }
-
-          render_vars['speedup_bins'] = [];
-          for (var i = 0; i < nbins; i++) {
-              var lower_bound = min_speedup + i * bin_width;
-              var upper_bound = min_speedup + (i + 1) * bin_width;
-              var lbl = '[' + lower_bound.toFixed(2).toString() + ', ' + upper_bound.toFixed(2).toString() + ')';
-              render_vars['speedup_bins'].push({lbl: lbl, count: bins[i] });
-          }
-
-          var query = client.query('SELECT name FROM assignments where ' +
-              'assignment_id=($1)', [target_assignment_id]);
-          register_query_helpers(query, res, done, req.session.username);
-          query.on('end', function(result) {
-            render_vars['assignment_name'] = result.rows[0].name;
-            done();
-            return render_page('leaderboard.html', res, req, render_vars);
-          });
         });
-      } else {
-        done();
-        return render_page('leaderboard.html', res, req, render_vars);
-      }
-    });
-  });
 });
 
 app.get('/comments', function(req, res, next) {
@@ -837,7 +825,7 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
       return redirect_with_err('/overview', res, req, permissionDenied);
   } else {
     var assignment_name = req.body.assignment_name;
-    if (assignment_name.length == 0) {
+    if (assignment_name.length === 0) {
       return redirect_with_err('/admin', res, req,
         'Please provide a non-empty assignment name');
     }
@@ -858,67 +846,61 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
         'Please provide a checkstyle configuration for the assignment');
     }
 
-    pgclient(function(client, done) {
-          var rubric_validated = load_and_validate_rubric(req.files.rubric[0].path);
-          if (!rubric_validated.success) {
-              done();
-              return redirect_with_err('/admin', res, req, 'Error in rubric: ' + rubric_validated.msg);
-          }
+    var rubric_validated = load_and_validate_rubric(req.files.rubric[0].path);
+    if (!rubric_validated.success) {
+        return redirect_with_err('/admin', res, req, 'Error in rubric: ' + rubric_validated.msg);
+    }
 
-          var pom_validated = validate_instructor_pom(req.files.instructor_pom[0].path);
-          if (!pom_validated.success) {
-              done();
-              return redirect_with_err('/admin', res, req, 'Error in POM: ' + pom_validated.msg);
-          }
+    var pom_validated = validate_instructor_pom(req.files.instructor_pom[0].path);
+    if (!pom_validated.success) {
+        return redirect_with_err('/admin', res, req, 'Error in POM: ' + pom_validated.msg);
+    }
 
-          var query = client.query(
-              "INSERT INTO assignments (name, visible) VALUES ($1,false) RETURNING assignment_id",
-              [assignment_name]);
-          register_query_helpers(query, res, done, req.session.username);
-          query.on('end', function(result) {
-              done();
-              var assignment_id = result.rows[0].assignment_id;
-              var assignment_dir = assignment_path(assignment_id);
+    pgquery_no_err("INSERT INTO assignments (name, visible) VALUES " +
+            "($1,false) RETURNING assignment_id", [assignment_name], res, req,
+            function(rows) {
+                var assignment_id = rows[0].assignment_id;
+                var assignment_dir = assignment_path(assignment_id);
 
-              // Create the assignment directory on the conductor
-              fs.mkdirSync(assignment_dir);
+                // Create the assignment directory on the conductor
+                fs.mkdirSync(assignment_dir);
 
-              // Copy all of the submitted instructor files into the assignment directory
-              fs.renameSync(req.files.zip[0].path,
-                  assignment_dir + '/instructor.zip');
-              fs.renameSync(req.files.instructor_pom[0].path,
-                  assignment_dir + '/instructor_pom.xml');
-              fs.renameSync(req.files.rubric[0].path,
-                  assignment_dir + '/rubric.json');
-              fs.renameSync(req.files.checkstyle_config[0].path,
-                  assignment_dir + '/checkstyle.xml');
+                // Copy all of the submitted instructor files into the assignment directory
+                fs.renameSync(req.files.zip[0].path,
+                    assignment_dir + '/instructor.zip');
+                fs.renameSync(req.files.instructor_pom[0].path,
+                    assignment_dir + '/instructor_pom.xml');
+                fs.renameSync(req.files.rubric[0].path,
+                    assignment_dir + '/rubric.json');
+                fs.renameSync(req.files.checkstyle_config[0].path,
+                    assignment_dir + '/checkstyle.xml');
 
-              connect_to_cluster(function(conn, err) {
-                  if (err) {
-                      return redirect_with_err('/admin', res, req,
-                          'Error connecting to cluster');
-                  } else {
-                      create_cluster_dir('autograder-assignments', conn, function(err, conn, stdout, stderr) {
-                          if (err) {
-                              disconnect_from_cluster(conn);
-                              return redirect_with_err('/admin', res, req,
-                                  'Unable to create directory on cluster');
-                          }
+                connect_to_cluster(function(conn, err) {
+                    if (err) {
+                        return redirect_with_err('/admin', res, req,
+                            'Error connecting to cluster');
+                    } else {
+                        create_cluster_dir('autograder-assignments', conn, function(err, conn, stdout, stderr) {
+                            if (err) {
+                                disconnect_from_cluster(conn);
+                                return redirect_with_err('/admin', res, req,
+                                    'Unable to create directory on cluster');
+                            }
 
-                          cluster_scp(assignment_dir, 'autograder-assignments/' + assignment_id, true, function(err) {
-                              disconnect_from_cluster(conn);
-                              if (err) {
-                                  return redirect_with_err('/admin', res, req,
-                                      'Unable to upload to cluster');
-                              }
+                            cluster_scp(assignment_dir, 'autograder-assignments/' + assignment_id, true, function(err) {
+                                disconnect_from_cluster(conn);
+                                if (err) {
+                                    return redirect_with_err('/admin', res, req,
+                                        'Unable to upload to cluster');
+                                }
 
-                              return res.redirect('/admin');
-                          });
-                      });
-                  }
-              });
-          });
-    });
+                                return res.redirect('/admin');
+                            });
+                        });
+                    }
+                });
+
+            });
   }
 });
 
@@ -932,37 +914,47 @@ function handle_reupload(req, res, missing_msg, target_filename) {
         return redirect_with_err('/admin', res, req, missing_msg);
     }
 
-    pgclient(function(client, done) {
-      var query = client.query(
-        "SELECT * FROM assignments WHERE assignment_id=($1)", [assignment_id]);
-      register_query_helpers(query, res, done, req.session.username);
-      query.on('end', function(result) {
-        done();
-        if (result.rows.length != 1) {
-            return redirect_with_err('/admin', res, req,
-                'That assignment doesn\'t seem to exist');
-        } else {
-            var assignment_dir = assignment_path(assignment_id);
-            fs.renameSync(req.file.path, assignment_dir + '/' + target_filename);
-
-            connect_to_cluster(function(conn, err) {
-                if (err) {
+    pgquery_no_err("SELECT * FROM assignments WHERE assignment_id=($1)",
+            [assignment_id], res, req, function(rows) {
+                if (rows.length != 1) {
                     return redirect_with_err('/admin', res, req,
-                        'Error connecting to cluster');
+                        'That assignment doesn\'t seem to exist');
                 }
-                cluster_scp(assignment_dir + '/' + target_filename, 'autograder-assignments/' + assignment_id + '/', true, function(err) {
-                    disconnect_from_cluster(conn);
+                var assignment_dir = assignment_path(assignment_id);
+                fs.renameSync(req.file.path, assignment_dir + '/' + target_filename);
+
+                connect_to_cluster(function(conn, err) {
                     if (err) {
-                        return redirect_with_err('/admin.html', res, req,
-                            'Unable to upload to cluster');
+                        return redirect_with_err('/admin', res, req,
+                            'Error connecting to cluster');
                     }
-                    return res.redirect('/admin');
+                    cluster_scp(assignment_dir + '/' + target_filename, 'autograder-assignments/' + assignment_id + '/', true, function(err) {
+                        disconnect_from_cluster(conn);
+                        if (err) {
+                            return redirect_with_err('/admin.html', res, req,
+                                'Unable to upload to cluster');
+                        }
+                        return res.redirect('/admin');
+                    });
                 });
             });
-        }
-      });
-    });
   }
+}
+
+function update_assignment_field(timeout_val, column_name, assignment_id, res, req) {
+    pgquery_no_err("SELECT * FROM assignments WHERE assignment_id=($1)",
+            [assignment_id], res, req, function(rows) {
+                if (rows.length != 1) {
+                  return redirect_with_err('/admin', res, req,
+                    'That assignment doesn\'t seem to exist');
+                }
+                pgquery_no_err("UPDATE assignments SET " + column_name + "=" +
+                    timeout_val + " WHERE assignment_id=($1)", [assignment_id], res,
+                    req, function(rows) {
+                        return redirect_with_success('/admin', res, req,
+                            'Updated ' + column_name + ' to ' + timeout_val);
+                    });
+            });
 }
 
 app.post('/update_jvm_args/:assignment_id', function(req, res, next) {
@@ -974,53 +966,11 @@ app.post('/update_jvm_args/:assignment_id', function(req, res, next) {
       return redirect_with_err('/admin', res, req, 'Malformed request, missing JVM args field?');
     }
     var assignment_id = req.params.assignment_id;
+    var jvm_args = req.body.jvm_args;
 
-    pgclient(function(client, done) {
-      var query = client.query(
-        "SELECT * FROM assignments WHERE assignment_id=($1)", [assignment_id]);
-      register_query_helpers(query, res, done, req.session.username);
-      query.on('end', function(result) {
-        if (result.rows.length != 1) {
-          done();
-          return redirect_with_err('/admin', res, req,
-            'That assignment doesn\'t seem to exist');
-        } else {
-          var query = client.query("UPDATE assignments SET jvm_args=($1) WHERE assignment_id=($2);",
-              [req.body.jvm_args, assignment_id]);
-          register_query_helpers(query, res, done, req.session.username);
-          query.on('end', function(result) {
-            done();
-            return res.redirect('/admin');
-          });
-        }
-      });
-    });
+    return update_assignment_field("'" + jvm_args + "'", 'jvm_args', assignment_id, res, req);
   }
 });
-
-function update_assignment_field(timeout_val, column_name, assignment_id, res, req) {
-    pgclient(function(client, done) {
-      var query = client.query(
-        "SELECT * FROM assignments WHERE assignment_id=($1)", [assignment_id]);
-      register_query_helpers(query, res, done, req.session.username);
-      query.on('end', function(result) {
-        if (result.rows.length != 1) {
-          done();
-          return redirect_with_err('/admin', res, req,
-            'That assignment doesn\'t seem to exist');
-        } else {
-          var query = client.query("UPDATE assignments SET " +
-              column_name + "=" + timeout_val + " WHERE assignment_id=($1);",
-              [assignment_id]);
-          register_query_helpers(query, res, done, req.session.username);
-          query.on('end', function(result) {
-            done();
-            return res.redirect('/admin');
-          });
-        }
-      });
-    });
-}
 
 app.post('/update_correctness_timeout/:assignment_id', function(req, res, next) {
   log('update_correctness_timeout: is_admin=' + req.session.is_admin +
@@ -1148,27 +1098,8 @@ app.post('/set_assignment_correctness_only/:assignment_id', function(req, res, n
   var assignment_id = req.params.assignment_id;
   var set_correctness_only = req.body.set_correctness_only;
 
-  pgclient(function(client, done) {
-      var query = client.query(
-          "SELECT * FROM assignments WHERE assignment_id=($1);",
-          [assignment_id]);
-      register_query_helpers(query, res, done, req.session.username);
-      query.on('end', function(result) {
-          if (result.rowCount == 0) {
-              done();
-              return redirect_with_err('/admin', res, req,
-                  'Invalid assignment ID, does not exist');
-          }
-          var query = client.query(
-              "UPDATE assignments SET correctness_only=($1) WHERE assignment_id=($2);",
-              [set_correctness_only, assignment_id]);
-          register_query_helpers(query, res, done, req.session.username);
-          query.on('end', function(result) {
-              done();
-              return redirect_with_success('/admin', res, req, 'Updated correctness only');
-          });
-      });
-  });
+  return update_assignment_field(set_correctness_only, 'correctness_only',
+      assignment_id, res, req);
 });
 
 app.post('/set_assignment_visible/:assignment_id', function(req, res, next) {
@@ -1180,53 +1111,29 @@ app.post('/set_assignment_visible/:assignment_id', function(req, res, next) {
   var assignment_id = req.params.assignment_id;
   var set_visible = req.body.set_visible;
 
-  pgclient(function(client, done) {
-      var query = client.query(
-          "SELECT * FROM assignments WHERE assignment_id=($1);",
-          [assignment_id]);
-      register_query_helpers(query, res, done, req.session.username);
-      query.on('end', function(result) {
-          if (result.rowCount == 0) {
-              done();
-              return redirect_with_err('/admin', res, req,
-                  'Invalid assignment ID, does not exist');
-          } else {
-              var query = client.query(
-                  "UPDATE assignments SET visible=($1) WHERE assignment_id=($2);",
-                  [set_visible, assignment_id]);
-              register_query_helpers(query, res, done, req.session.username);
-              query.on('end', function(result) {
-                  done();
-                  return redirect_with_success('/admin', res, req,
-                      'Updated visibility');
-              });
-          }
-      });
-  });
+
+  return update_assignment_field(set_visible, 'visible',
+      assignment_id, res, req);
 });
 
-function get_user_name_for_id(user_id, client, done, res, cb) {
-  var query = client.query("SELECT * FROM users WHERE user_id=($1)", [user_id]);
-}
+function get_user_id_for_name(username, cb) {
+    pgquery("SELECT * FROM users WHERE user_name=($1)", [username], function(err, rows) {
+        if (err) {
+           return cb(null, err);
+        }
+        if (rows.length === 0) {
+            return cb(0, 'User ' + username + ' does not seem to exist');
+        } else if (rows.length > 1) {
+            return cb(0, 'There appear to be duplicate users ' + username);
+        } else {
+            // Got the user ID, time to get the assignment ID
+            var user_id = rows[0].user_id;
+            log('get_user_id_for_name: got user_id=' + user_id +
+                ' for username=' + username);
 
-function get_user_id_for_name(username, client, done, res, cb) {
-  var query = client.query("SELECT * FROM users WHERE user_name=($1)",
-      [username]);
-  register_query_helpers(query, res, done, username);
-  query.on('end', function(result) {
-    if (result.rowCount == 0) {
-      return cb(0, 'User ' + username + ' does not seem to exist');
-    } else if (result.rowCount > 1) {
-      return cb(0, 'There appear to be duplicate users ' + username);
-    } else {
-      // Got the user ID, time to get the assignment ID
-      var user_id = result.rows[0].user_id;
-      log('get_user_id_for_name: got user_id=' + user_id +
-          ' for username=' + username);
-
-      return cb(user_id, null);
-    }
-  });
+            return cb(user_id, null);
+        }
+    });
 }
 
 function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
@@ -1265,65 +1172,53 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
 function run_setup_failed(run_id, res, req, err_msg, svn_err) {
     log('run_setup_failed: run_id=' + run_id + ' err_msg="' + err_msg +
             '" err="' + svn_err + '"');
-    pgclient(function(client, done) {
-        var query = client.query("UPDATE runs SET status='" + FAILED_STATUS + "'," +
-            "finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)", [run_id]);
-        query.on('row', function(row, result) { result.addRow(row); }); // unnecessary?
-        query.on('error', function(err, result) {
-            done();
-            log('Error storing failure setting up tests for run_id=' +
-                run_id + ': ' + err);
-            return redirect_with_err('/overview', res, req, err_msg);
-        });
-        query.on('end', function(result) {
-            done();
-            log('Failure initiating tests for run_id=' + run_id + ': ' +
-                err_msg);
-            return redirect_with_err('/overview', res, req, err_msg);
-        });
-    });
+    pgquery("UPDATE runs SET status='" + FAILED_STATUS + "'," +
+            "finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)", [run_id],
+            function(err, rows) {
+                if (err) {
+                    log('Error storing failure setting up tests for run_id=' +
+                        run_id + ': ' + err);
+                    return redirect_with_err('/overview', res, req, err_msg);
+                }
+                log('Failure initiating tests for run_id=' + run_id + ': ' +
+                    err_msg);
+                return redirect_with_err('/overview', res, req, err_msg);
+            });
 }
 
 function submit_run(user_id, username, assignment_name, correctness_only,
         enable_profiling, use_zip, svn_url, res, req, success_cb) {
-    pgclient(function(client, done) {
 
-      var query = client.query("SELECT * FROM assignments WHERE name=($1)",
-        [assignment_name]);
-      register_query_helpers(query, res, done, username);
-      query.on('end', function(result) {
-        if (result.rowCount == 0) {
-          done();
+      pgquery_no_err("SELECT * FROM assignments WHERE name=($1)", [assignment_name], res, req, function(rows) {
+        if (rows.length === 0) {
           return redirect_with_err('/overview', res, req,
             'Assignment ' + assignment_name + ' does not seem to exist');
-        } else if (result.rowCount > 1) {
-          done();
+        } else if (rows.length > 1) {
           return redirect_with_err('/overview', res, req,
             'There appear to be duplicate assignments ' + assignment_name);
         } else {
-          var assignment_id = result.rows[0].assignment_id;
-          var jvm_args = result.rows[0].jvm_args;
-          var correctness_timeout = result.rows[0].correctness_timeout_ms;
+          var assignment_id = rows[0].assignment_id;
+          var jvm_args = rows[0].jvm_args;
+          var correctness_timeout = rows[0].correctness_timeout_ms;
           log('submit_run: found assignment_id=' + assignment_id +
               ' jvm_args="' + jvm_args + '" correctness_timeout=' +
               correctness_timeout + ' for user_id=' + user_id);
 
           // Allow assignment settings to override user-provided setting
-          var assignment_correctness_only = result.rows[0].correctness_only;
+          var assignment_correctness_only = rows[0].correctness_only;
           if (assignment_correctness_only) correctness_only = true;
 
           crypto.randomBytes(48, function(ex, buf) {
               log('submit_run: got random bytes');
               var done_token = buf.toString('hex');
 
-              var query = client.query("INSERT INTO runs (user_id, " +
-                  "assignment_id, done_token, status, correctness_only, enable_profiling) VALUES " +
-                  "($1,$2,$3,'" + TESTING_CORRECTNESS_STATUS + "',$4,$5) RETURNING run_id",
-                  [user_id, assignment_id, done_token, correctness_only, enable_profiling]);
-              register_query_helpers(query, res, done, username);
-              query.on('end', function(result) {
-                done();
-                var run_id = result.rows[0].run_id;
+              pgquery_no_err("INSERT INTO runs (user_id,assignment_id," +
+                  "done_token,status,correctness_only,enable_profiling) " +
+                  "VALUES ($1,$2,$3,'" + TESTING_CORRECTNESS_STATUS +
+                  "',$4,$5) RETURNING run_id", [user_id, assignment_id,
+                  done_token, correctness_only, enable_profiling], res, req,
+                  function(rows) {
+                var run_id = rows[0].run_id;
                 log('submit_run: got run_id=' + run_id +
                     ' for user_id=' + user_id + ' on assignment_id=' +
                     assignment_id);
@@ -1377,7 +1272,6 @@ function submit_run(user_id, username, assignment_name, correctness_only,
           });
         }
       });
-    });
 }
 
 app.post('/submit_run_as', function(req, res, next) {
@@ -1387,7 +1281,7 @@ app.post('/submit_run_as', function(req, res, next) {
     }
 
     var required_fields = ['username', 'for_username', 'svn_url', 'assignment_name'];
-    for (field in required_fields) {
+    for (var field in required_fields) {
         if (!(required_fields[field] in req.query)) {
             return res.send('Missing "' + required_fields[field] +
                 '" parameter to submit_run_as');
@@ -1402,32 +1296,26 @@ app.post('/submit_run_as', function(req, res, next) {
         for_username + '" svn_url="' + svn_url + '" assignment_name="' +
         assignment_name + '"');
 
-    pgclient(function(client, done) {
-        get_user_id_for_name(username, client, done, res, function(user_id, err) {
+    get_user_id_for_name(username, function(user_id, err) {
+        if (err) {
+            return res.send('Failed getting user ID for "' + username + '"');
+        }
+        get_user_id_for_name(for_username, function(for_user_id, err) {
             if (err) {
-                done();
-                return res.send('Failed getting user ID for "' + username + '"');
+                return res.send('Failed getting user ID for "' + for_username + '"');
             }
-            get_user_id_for_name(for_username, client, done, res, function(for_user_id, err) {
-                done();
-                if (err) {
-                    return res.send('Failed getting user ID for "' + for_username + '"');
-                }
-                return submit_run(user_id, username, assignment_name, false, false,
-                    false, svn_url, res, req, function(run_id) {
-                        pgclient(function(client, done) {
-                            var query = client.query(
-                                "UPDATE runs SET on_behalf_of=($1) WHERE run_id=($2)",
-                                [for_user_id, run_id]);
-                            register_query_helpers(query, res, done, username);
-                            query.on('end', function(result) {
-                                done();
-                                return res.send('submitted ' + run_id + ' as ' +
-                                    username + ' on behalf of ' + for_username);
-                            });
-                        });
+            return submit_run(user_id, username, assignment_name, false, false,
+                false, svn_url, res, req, function(run_id) {
+                    pgquery("UPDATE runs SET on_behalf_of=($1) WHERE " +
+                        "run_id=($2)", [for_user_id, run_id],
+                        function(err, rows) {
+                            if (err) {
+                                return res.send('Failed updating on_behalf_of');
+                            }
+                            return res.send('submitted ' + run_id + ' as ' +
+                                username + ' on behalf of ' + for_username);
                     });
-            });
+                });
         });
     });
 });
@@ -1589,8 +1477,8 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   var tests = get_scalability_tests(ncores);
   var classpath = ['.', 'target/classes', 'target/test-classes', junit_jar,
                    hamcrest_jar, hj_jar, asm_jar];
-  for (var i = 0; i < tests.length; i++) {
-    var curr_cores = tests[i];
+  for (var t = 0; t < tests.length; t++) {
+    var curr_cores = tests[t];
     var output_file = '/tmp/performance.' + run_id + '.' + curr_cores + '.txt';
     var final_output_file = '$CELLO_WORK_DIR/performance.' + curr_cores + '.txt';
 
@@ -1651,24 +1539,20 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   return slurmFileContents;
 }
 
-function failed_starting_perf_tests(res, failure_msg, done, client, run_id, conn) {
+function failed_starting_perf_tests(res, failure_msg, run_id, conn) {
   if (conn) disconnect_from_cluster(conn);
 
-  query = client.query(
+  pgquery(
       "UPDATE runs SET status='" + FAILED_STATUS + "',finish_time=CURRENT_TIMESTAMP," +
       "cello_msg='An internal error occurred initiating the performance " +
       "tests, please contact the teaching staff' WHERE run_id=($1)",
-      [run_id]);
-  query.on('row', function(row, result) { result.addRow(row); }); // unnecessary?
-  query.on('error', function(err, result) {
-    log('Error storing failure starting perf tests: ' + err);
-    done();
-  });
-  query.on('end', function(result) {
-    done();
-    log('Failure initiating performance tests: ' + failure_msg);
-    return res.send(JSON.stringify({status: 'Failure', msg: failure_msg}));
-  });
+      [run_id], function(err, rows) {
+          if (err) {
+              return log('Error storing failure starting perf tests: ' + err);
+          }
+          log('Failure initiating performance tests: ' + failure_msg);
+          return res.send(JSON.stringify({status: 'Failure', msg: failure_msg}));
+      });
 }
 
 function email_for_user(username) {
@@ -1694,405 +1578,349 @@ app.post('/local_run_finished', function(req, res, next) {
     log('local_run_finished: done_token=' + done_token + ' err_msg="' +
         viola_err_msg + '"');
 
-    pgclient(function(client, done) {
-        // Can only be one match here because of SQL schema constraints
-        var query = client.query("SELECT * FROM runs WHERE done_token=($1)", [done_token]);
-        register_query_helpers(query, res, done, 'unknown');
-        query.on('end', function(result) {
-          if (result.rows.length != 1) {
-              return failed_starting_perf_tests(res, 'Unexpected # of rows', done, client, -1, null);
-          } else if (result.rows[0].status !== TESTING_CORRECTNESS_STATUS) {
-              done();
-              log('local_run_finished: received duplicate local run ' +
-                  'completion notifications from viola for run ' +
-                  result.rows[0].run_id);
-              return res.send(JSON.stringify({ status: 'Success' }));
+    // Can only be one match here because of SQL schema constraints
+    pgquery_no_err("SELECT * FROM runs WHERE done_token=($1)", [done_token],
+        res, req, function(rows) {
+      if (rows.length != 1) {
+          return failed_starting_perf_tests(res, 'Unexpected # of rows', -1, null);
+      } else if (rows[0].status !== TESTING_CORRECTNESS_STATUS) {
+          log('local_run_finished: received duplicate local run ' +
+              'completion notifications from viola for run ' +
+              rows[0].run_id);
+          return res.send(JSON.stringify({ status: 'Success' }));
+      } else {
+        var run_id = rows[0].run_id;
+        var user_id = rows[0].user_id;
+        var assignment_id = rows[0].assignment_id;
+        var correctness_only = rows[0].correctness_only;
+        var enable_profiling = rows[0].enable_profiling;
+
+        log('local_run_finished: run_id=' + run_id + ' user_id=' +
+            user_id + ' assignment_id=' + assignment_id +
+            ' correctness_only=' + correctness_only + ' enable_profiling=' +
+            enable_profiling);
+
+        pgquery_no_err("SELECT * FROM users WHERE user_id=($1)", [user_id], res,
+                req, function(rows) {
+          if (rows.length != 1) {
+              return failed_starting_perf_tests(res, 'Invalid user ID', run_id, null);
           } else {
-            var run_id = result.rows[0].run_id;
-            var user_id = result.rows[0].user_id;
-            var assignment_id = result.rows[0].assignment_id;
-            var correctness_only = result.rows[0].correctness_only;
-            var enable_profiling = result.rows[0].enable_profiling;
+            var username = rows[0].user_name;
+            var wants_notification = rows[0].receive_email_notifications;
+            var run_dir = run_dir_path(username, run_id);
 
-            log('local_run_finished: run_id=' + run_id + ' user_id=' +
-                user_id + ' assignment_id=' + assignment_id +
-                ' correctness_only=' + correctness_only + ' enable_profiling=' +
-                enable_profiling);
-
-            var query = client.query("SELECT * FROM users WHERE user_id=($1)", [user_id]);
-            register_query_helpers(query, res, done, 'unknown');
-            query.on('end', function(result) {
-              if (result.rows.length != 1) {
-                  return failed_starting_perf_tests(res, 'Invalid user ID', done, client, run_id, null);
-              } else {
-                var username = result.rows[0].user_name;
-                var wants_notification = result.rows[0].receive_email_notifications;
-                var run_dir = run_dir_path(username, run_id);
-
-                /*
-                 * Update the status of these tests in the 'runs' table for
-                 * display in the leaderboard. These files should have already
-                 * been transferred on to the conductor by the viola component.
-                 */
-                var compile_txt = run_dir + '/compile.txt';
-                var checkstyle_txt = run_dir + '/checkstyle.txt';
-                var correct_txt = run_dir + '/correct.txt';
-                var compile_passed = false;
-                var checkstyle_passed = false;
-                var correctness_tests_passed = false;
-                 
-                if (fs.existsSync(checkstyle_txt) &&
-                      get_file_size(checkstyle_txt) < MAX_FILE_SIZE) {
-                    // Checkstyle passed?
-                    var checkstyle_contents = fs.readFileSync(checkstyle_txt, 'utf8');
-                    var checkstyle_new_lines = count_new_lines(checkstyle_contents);
-                    checkstyle_passed = (checkstyle_new_lines == 0);
-                    if (checkstyle_passed && fs.existsSync(compile_txt) &&
-                        get_file_size(compile_txt) < MAX_FILE_SIZE) {
-                      // Successfully compiled?
-                      var compile_contents = fs.readFileSync(compile_txt, 'utf8');
-                      compile_passed = (compile_contents.indexOf('BUILD SUCCESS') != -1);
-                      if (compile_passed && fs.existsSync(correct_txt) &&
-                              get_file_size(correct_txt) < MAX_FILE_SIZE) {
-                        // Correctness tests passed?
-                        var correct_contents = fs.readFileSync(correct_txt, 'utf8');
-                        var lines = correct_contents.split('\n');
-                        var any_failures = false;
-                        for (var l = 0; l < lines.length && !any_failures; l++) {
-                          var line = lines[l];
-                          if (string_starts_with(line, 'There were ') && string_ends_with(line, ' failures:')) {
-                            any_failures = true;
-                          } else if (string_starts_with(line, 'There was ') && string_ends_with(line, ' failure:')) {
-                            any_failures = true;
-                          }
-                        }
-                        var any_nonempty_stderr_lines = check_for_empty_stderr(lines);
-                        correctness_tests_passed = !any_failures && !any_nonempty_stderr_lines;
+            /*
+             * Update the status of these tests in the 'runs' table for
+             * display in the leaderboard. These files should have already
+             * been transferred on to the conductor by the viola component.
+             */
+            var compile_txt = run_dir + '/compile.txt';
+            var checkstyle_txt = run_dir + '/checkstyle.txt';
+            var correct_txt = run_dir + '/correct.txt';
+            var compile_passed = false;
+            var checkstyle_passed = false;
+            var correctness_tests_passed = false;
+             
+            if (fs.existsSync(checkstyle_txt) &&
+                  get_file_size(checkstyle_txt) < MAX_FILE_SIZE) {
+                // Checkstyle passed?
+                var checkstyle_contents = fs.readFileSync(checkstyle_txt, 'utf8');
+                var checkstyle_new_lines = count_new_lines(checkstyle_contents);
+                checkstyle_passed = (checkstyle_new_lines === 0);
+                if (checkstyle_passed && fs.existsSync(compile_txt) &&
+                    get_file_size(compile_txt) < MAX_FILE_SIZE) {
+                  // Successfully compiled?
+                  var compile_contents = fs.readFileSync(compile_txt, 'utf8');
+                  compile_passed = (compile_contents.indexOf('BUILD SUCCESS') != -1);
+                  if (compile_passed && fs.existsSync(correct_txt) &&
+                          get_file_size(correct_txt) < MAX_FILE_SIZE) {
+                    // Correctness tests passed?
+                    var correct_contents = fs.readFileSync(correct_txt, 'utf8');
+                    var lines = correct_contents.split('\n');
+                    var any_failures = false;
+                    for (var l = 0; l < lines.length && !any_failures; l++) {
+                      var line = lines[l];
+                      if (string_starts_with(line, 'There were ') && string_ends_with(line, ' failures:')) {
+                        any_failures = true;
+                      } else if (string_starts_with(line, 'There was ') && string_ends_with(line, ' failure:')) {
+                        any_failures = true;
                       }
                     }
-                }
-
-                var query = client.query('UPDATE runs SET passed_checkstyle=($1),' +
-                    'compiled=($2),passed_all_correctness=($3) WHERE run_id=($4)',
-                    [checkstyle_passed, compile_passed, correctness_tests_passed, run_id]);
-                register_query_helpers(query, res, done, 'unknown');
-                query.on('end', function(result) {
-
-                  var run_status = FINISHED_STATUS;
-                  if (viola_err_msg === 'Cancelled by user') {
-                      run_status = CANCELLED_STATUS;
+                    var any_nonempty_stderr_lines = check_for_empty_stderr(lines);
+                    correctness_tests_passed = !any_failures && !any_nonempty_stderr_lines;
                   }
-                  if (correctness_only || run_status === CANCELLED_STATUS) {
-                      var query = client.query(
-                          "UPDATE runs SET status='" + run_status + "',viola_msg=$1,finish_time=CURRENT_TIMESTAMP WHERE run_id=($2)",
-                          [viola_err_msg, run_id]);
-                      register_query_helpers(query, res, done, 'unknown');
-                      query.on('end', function(result) {
-                          if (wants_notification) {
-                            var subject = 'Habanero AutoGrader Run ' + run_id + ' Finished';
-                            send_email(email_for_user(username), subject, '', function(err) {
-                              if (err) {
-                                return failed_starting_perf_tests(res,
-                                  'Failed sending notification e-mail, err=' + err, done, client, run_id, null);
-                              } else {
-                                done();
-                                return res.send(
-                                  JSON.stringify({ status: 'Success' }));
-                              }
-                            });
+                }
+            }
+
+            pgquery_no_err('UPDATE runs SET passed_checkstyle=($1),' +
+                'compiled=($2),passed_all_correctness=($3) WHERE run_id=($4)',
+                [checkstyle_passed, compile_passed, correctness_tests_passed,
+                run_id], res, req, function(rows) {
+              var run_status = FINISHED_STATUS;
+              if (viola_err_msg === 'Cancelled by user') {
+                  run_status = CANCELLED_STATUS;
+              }
+              if (correctness_only || run_status === CANCELLED_STATUS) {
+                  pgquery_no_err("UPDATE runs SET status='" + run_status +
+                      "',viola_msg=$1,finish_time=CURRENT_TIMESTAMP WHERE run_id=($2)",
+                      [viola_err_msg, run_id], res, req, function(rows) {
+                      if (wants_notification) {
+                        var subject = 'Habanero AutoGrader Run ' + run_id + ' Finished';
+                        send_email(email_for_user(username), subject, '', function(err) {
+                          if (err) {
+                            return failed_starting_perf_tests(res,
+                              'Failed sending notification e-mail, err=' + err, run_id, null);
                           } else {
-                            done();
                             return res.send(
                               JSON.stringify({ status: 'Success' }));
                           }
-                      });
-                  } else {
-                      connect_to_cluster(function(conn, err) {
-                          if (err) {
-                            return failed_starting_perf_tests(res,
-                              'Error connecting to cluster, err=' + err, done, client, run_id, null);
-                          }
+                        });
+                      } else {
+                        return res.send(
+                          JSON.stringify({ status: 'Success' }));
+                      }
+                  });
+              } else {
+                  connect_to_cluster(function(conn, err) {
+                      if (err) {
+                        return failed_starting_perf_tests(res,
+                          'Error connecting to cluster, err=' + err, run_id, null);
+                      }
 
-                          var query = client.query(
-                            "SELECT * FROM assignments WHERE assignment_id=($1)",
-                            [assignment_id]);
-                          register_query_helpers(query, res, done, 'unknown');
-                          query.on('end', function(result) {
-                            var assignment_name = result.rows[0].name; 
-                            var assignment_jvm_args = result.rows[0].jvm_args;
-                            var timeout_str = result.rows[0].performance_timeout_str;
-                            var ncores = result.rows[0].ncores;
-                            var custom_slurm_flags_str = result.rows[0].custom_slurm_flags;
-                            var custom_slurm_flags_list =
-                              custom_slurm_flags_str.split(',');
+                      pgquery_no_err(
+                        "SELECT * FROM assignments WHERE assignment_id=($1)",
+                        [assignment_id], res, req, function(rows) {
+                        var assignment_name = rows[0].name; 
+                        var assignment_jvm_args = rows[0].jvm_args;
+                        var timeout_str = rows[0].performance_timeout_str;
+                        var ncores = rows[0].ncores;
+                        var custom_slurm_flags_str = rows[0].custom_slurm_flags;
+                        var custom_slurm_flags_list =
+                          custom_slurm_flags_str.split(',');
 
-                            var query = client.query(
-                                "UPDATE runs SET status='" + IN_CLUSTER_QUEUE_STATUS + "',viola_msg=$1,ncores=$2 WHERE run_id=($3)", [viola_err_msg, ncores, run_id]);
-                            register_query_helpers(query, res, done, username);
-                            query.on('end', function(result) {
+                      pgquery_no_err("UPDATE runs SET status='" +
+                          IN_CLUSTER_QUEUE_STATUS + "',viola_msg=$1," +
+                          "ncores=$2 WHERE run_id=($3)",
+                          [viola_err_msg, ncores, run_id], res, req, function(rows) {
+                            log('local_run_finished: Connecting to ' +
+                                CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
+                            // Launch on the cluster
 
-                                log('local_run_finished: Connecting to ' +
-                                    CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
-                                // Launch on the cluster
+                            var vars = ['HOME',
+                                        'LIGHTWEIGHT_JAVA_PROFILER_HOME',
+                                        'JUNIT_JAR', 'HAMCREST_JAR',
+                                        'ASM_JAR', 'RR_AGENT_JAR', 'RR_RUNTIME_JAR'];
+                            batched_get_cluster_env_var(vars, conn, function(err, vals) {
+                              if (err) {
+                                return failed_starting_perf_tests(res,
+                                  'Error getting cluster env variables, err=' + err, run_id, conn);
+                              }
 
-                                var vars = ['HOME',
-                                            'LIGHTWEIGHT_JAVA_PROFILER_HOME',
-                                            'JUNIT_JAR', 'HAMCREST_JAR',
-                                            'ASM_JAR', 'RR_AGENT_JAR', 'RR_RUNTIME_JAR'];
-                                batched_get_cluster_env_var(vars, conn, function(err, vals) {
-                                  if (err) {
-                                    return failed_starting_perf_tests(res,
-                                      'Error getting cluster env variables, err=' + err, done, client, run_id, conn);
-                                  }
+                              var home_dir = vals.HOME;
+                              var java_profiler_dir = vals.LIGHTWEIGHT_JAVA_PROFILER_HOME;
+                              var rr_agent_jar = vals.RR_AGENT_JAR;
+                              var rr_runtime_jar = vals.RR_RUNTIME_JAR;
 
-                                  var home_dir = vals['HOME'];
-                                  var java_profiler_dir = vals['LIGHTWEIGHT_JAVA_PROFILER_HOME'];
-                                  var rr_agent_jar = vals['RR_AGENT_JAR'];
-                                  var rr_runtime_jar = vals['RR_RUNTIME_JAR'];
+                              var cello_work_dir = get_cello_work_dir(home_dir, run_id);
+                              var dependency_list_cmd = 'mvn -f ' +
+                                  cello_work_dir +
+                                  '/assignment/instructor_pom.xml ' +
+                                  '-DoutputAbsoluteArtifactFilename=true ' +
+                                  'dependency:list';
+                              var localPolicyPath = AUTOGRADER_HOME + '/shared/security.policy';
 
-                                  var cello_work_dir = get_cello_work_dir(home_dir, run_id);
-                                  var dependency_list_cmd = 'mvn -f ' +
-                                      cello_work_dir +
-                                      '/assignment/instructor_pom.xml ' +
-                                      '-DoutputAbsoluteArtifactFilename=true ' +
-                                      'dependency:list';
-                                  var localPolicyPath = AUTOGRADER_HOME + '/shared/security.policy';
+                              var junit = vals.JUNIT_JAR;
+                              var hamcrest = vals.HAMCREST_JAR;
+                              var asm = vals.ASM_JAR;
 
-                                  var junit = vals['JUNIT_JAR'];
-                                  var hamcrest = vals['HAMCREST_JAR'];
-                                  var asm = vals['ASM_JAR'];
+                              get_cluster_os(conn, function(err, os) {
+                                if (err) {
+                                  return failed_starting_perf_tests(res,
+                                    'Failed getting cluster OS', run_id, conn);
+                                }
 
-                                  get_cluster_os(conn, function(err, os) {
-                                    if (err) {
-                                      return failed_starting_perf_tests(res,
-                                        'Failed getting cluster OS', done, client, run_id, conn);
-                                    }
-
-                                    create_cluster_dir('autograder/' + run_id, conn,
-                                        function(err, conn, stdout, stderr) {
+                                create_cluster_dir('autograder/' + run_id, conn,
+                                    function(err, conn, stdout, stderr) {
+                                      if (err) {
+                                        return failed_starting_perf_tests(res,
+                                          'Failed creating autograder dir', run_id, conn);
+                                      }
+                                      cluster_scp(run_dir_path(username, run_id), 'autograder/' + run_id + '/submission', true, function(err) {
                                           if (err) {
                                             return failed_starting_perf_tests(res,
-                                              'Failed creating autograder dir', done, client, run_id, conn);
+                                                 'Failed checking out student code', run_id, conn);
                                           }
-                                          cluster_scp(run_dir_path(username, run_id), 'autograder/' + run_id + '/submission', true, function(err) {
+                                          run_cluster_cmd(conn,
+                                                  'instructor files cp',
+                                                  'cp -r autograder-assignments/' + assignment_id + ' autograder/' + run_id + '/assignment', function(err, conn, stdout, stderr) {
                                               if (err) {
                                                 return failed_starting_perf_tests(res,
-                                                     'Failed checking out student code', done, client, run_id, conn);
+                                                      'Failed checking out assignment code', run_id, conn);
                                               }
-                                              run_cluster_cmd(conn,
-                                                      'instructor files cp',
-                                                      'cp -r autograder-assignments/' + assignment_id + ' autograder/' + run_id + '/assignment', function(err, conn, stdout, stderr) {
+                                              run_cluster_cmd(conn, 'get dependencies', dependency_list_cmd,
+                                                function(err, conn, stdout, stderr) {
                                                   if (err) {
-                                                    return failed_starting_perf_tests(res,
-                                                          'Failed checking out assignment code', done, client, run_id, conn);
+                                                    return failed_starting_perf_tests(res, 'Failed getting dependencies', run_id, conn);
                                                   }
-                                                  run_cluster_cmd(conn, 'get dependencies', dependency_list_cmd,
-                                                    function(err, conn, stdout, stderr) {
-                                                      if (err) {
-                                                        return failed_starting_perf_tests(res, 'Failed getting dependencies', done, client, run_id, conn);
-                                                      }
-                                                      var dependency_lines = stdout.split('\n');
-                                                      var dependency_lines_index = 0;
-                                                      while (dependency_lines_index < dependency_lines.length &&
-                                                          dependency_lines[dependency_lines_index] !== '[INFO] The following files have been resolved:') {
-                                                        dependency_lines_index += 1;
-                                                      }
-                                                      var hj = null;
-                                                      while (dependency_lines_index < dependency_lines.length &&
-                                                          dependency_lines[dependency_lines_index] !== '[INFO] ') {
-                                                        var curr = dependency_lines[dependency_lines_index];
-                                                        var components = curr.split(':');
-                                                        var path = components[5];
+                                                  var dependency_lines = stdout.split('\n');
+                                                  var dependency_lines_index = 0;
+                                                  while (dependency_lines_index < dependency_lines.length &&
+                                                      dependency_lines[dependency_lines_index] !== '[INFO] The following files have been resolved:') {
+                                                    dependency_lines_index += 1;
+                                                  }
+                                                  var hj = null;
+                                                  while (dependency_lines_index < dependency_lines.length &&
+                                                      dependency_lines[dependency_lines_index] !== '[INFO] ') {
+                                                    var curr = dependency_lines[dependency_lines_index];
+                                                    var components = curr.split(':');
+                                                    var path = components[5];
 
-                                                        if (components[1] == 'hjlib-cooperative') {
-                                                          hj = path;
+                                                    if (components[1] == 'hjlib-cooperative') {
+                                                      hj = path;
+                                                    }
+                                                    dependency_lines_index += 1;
+                                                  }
+                                                  if (hj === null) {
+                                                    return failed_starting_perf_tests(res, 'Unable to find HJ JAR on cluster', run_id, conn);
+                                                  }
+
+                                                  fs.appendFileSync(run_dir + '/cello.slurm',
+                                                    get_slurm_file_contents(run_id, home_dir,
+                                                      username, assignment_id, assignment_name,
+                                                      java_profiler_dir, os, ncores, junit,
+                                                      hamcrest, hj, asm, rr_agent_jar, rr_runtime_jar,
+                                                      assignment_jvm_args, timeout_str, enable_profiling,
+                                                      custom_slurm_flags_list));
+
+                                                  var copies = [{src: run_dir + '/cello.slurm',
+                                                                 dst: 'autograder/' + run_id + '/cello.slurm'},
+                                                                {src: localPolicyPath,
+                                                                 dst: 'autograder/' + run_id + '/security.policy'}];
+                                                  batched_cluster_scp(copies, true, function(stat) {
+                                                      for (var i = 0; i < stat.length; i++) {
+                                                        if (!stat[i].success) {
+                                                          log('scp err copying to ' + stat[i].dst + ' from ' + stat[i].src + ', ' + stat[i].err);
+                                                          return failed_starting_perf_tests(res,
+                                                            'Failed scp-ing cello.slurm+security.policy', run_id, conn);
                                                         }
-                                                        dependency_lines_index += 1;
-                                                      }
-                                                      if (hj === null) {
-                                                        return failed_starting_perf_tests(res, 'Unable to find HJ JAR on cluster', done, client, run_id, conn);
                                                       }
 
-                                                      fs.appendFileSync(run_dir + '/cello.slurm',
-                                                        get_slurm_file_contents(run_id, home_dir,
-                                                          username, assignment_id, assignment_name,
-                                                          java_profiler_dir, os, ncores, junit,
-                                                          hamcrest, hj, asm, rr_agent_jar, rr_runtime_jar,
-                                                          assignment_jvm_args, timeout_str, enable_profiling,
-                                                          custom_slurm_flags_list));
-
-                                                      var copies = [{src: run_dir + '/cello.slurm',
-                                                                     dst: 'autograder/' + run_id + '/cello.slurm'},
-                                                                    {src: localPolicyPath,
-                                                                     dst: 'autograder/' + run_id + '/security.policy'}];
-                                                      batched_cluster_scp(copies, true, function(stat) {
-                                                          for (var i = 0; i < stat.length; i++) {
-                                                            if (!stat[i].success) {
-                                                              log('scp err copying to ' + stat[i].dst + ' from ' + stat[i].src + ', ' + stat[i].err);
-                                                              return failed_starting_perf_tests(res,
-                                                                'Failed scp-ing cello.slurm+security.policy', done, client, run_id, conn);
-                                                            }
-                                                          }
-
-                                                          if (CLUSTER_TYPE === 'slurm') {
-                                                              run_cluster_cmd(conn, 'sbatch',
-                                                                  'sbatch ~/autograder/' + run_id + '/cello.slurm',
-                                                                  function(err, conn, stdout, stderr) {
-                                                                      if (err) {
-                                                                        return failed_starting_perf_tests(res,
-                                                                          'Failed submitting job', done, client, run_id, conn);
-                                                                      }
-                                                                      disconnect_from_cluster(conn);
-                                                                      // stdout == Submitted batch job 474297
-                                                                      if (stdout.search('Submitted batch job ') !== 0) {
-                                                                          return failed_starting_perf_tests(res,
-                                                                                  'Failed submitting batch job', done, client, run_id, conn);
-                                                                      }
-
-                                                                      // Close connection to outermost DB connection
-                                                                      done();
-
-                                                                      var tokens = stdout.trim().split(' ');
-                                                                      var job_id = tokens[tokens.length - 1];
-                                                                      pgclient(function(client, done) {
-                                                                          var query = client.query('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [job_id, run_id]);
-                                                                          register_query_helpers(query, res, done, username);
-                                                                          query.on('end', function(result) {
-                                                                              done();
-                                                                              return res.send(
-                                                                                  JSON.stringify({ status: 'Success' }));
-                                                                          });
-                                                                      });
-                                                                  });
-                                                          } else {
-                                                            // local cluster
-                                                            var cello_script = process.env.HOME + '/autograder/' + run_id + '/cello.slurm';
-                                                            log('local_run_finished: starting local run from ' + cello_script);
-                                                            var run_cmd = '/bin/bash ' + cello_script;
-
-                                                            run_cluster_cmd(conn, 'local perf run', run_cmd,
-                                                                function(err, conn, stdout, stderr) {
-
-                                                                  fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stdout.txt', stdout);
-                                                                  fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stderr.txt', stderr);
-
+                                                      if (CLUSTER_TYPE === 'slurm') {
+                                                          run_cluster_cmd(conn, 'sbatch',
+                                                              'sbatch ~/autograder/' + run_id + '/cello.slurm',
+                                                              function(err, conn, stdout, stderr) {
                                                                   if (err) {
                                                                     return failed_starting_perf_tests(res,
-                                                                      'Failed running on local cluster', done, client, run_id, conn);
+                                                                      'Failed submitting job', run_id, conn);
+                                                                  }
+                                                                  disconnect_from_cluster(conn);
+                                                                  // stdout == Submitted batch job 474297
+                                                                  if (stdout.search('Submitted batch job ') !== 0) {
+                                                                      return failed_starting_perf_tests(res,
+                                                                              'Failed submitting batch job', run_id, conn);
                                                                   }
 
-                                                                  // Close connection to outermost DB connection
-                                                                  done();
-                                                                  disconnect_from_cluster(conn);
-
-                                                                  pgclient(function(client, done) {
-                                                                      var query = client.query('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [LOCAL_JOB_ID, run_id]);
-                                                                      register_query_helpers(query, res, done, username);
-                                                                      query.on('end', function(result) {
-                                                                          done();
-
+                                                                  var tokens = stdout.trim().split(' ');
+                                                                  var job_id = tokens[tokens.length - 1];
+                                                                  pgquery_no_err('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [job_id, run_id], res, req, function(rows) {
                                                                           return res.send(
                                                                               JSON.stringify({ status: 'Success' }));
                                                                       });
+                                                              });
+                                                      } else {
+                                                        // local cluster
+                                                        var cello_script = process.env.HOME + '/autograder/' + run_id + '/cello.slurm';
+                                                        log('local_run_finished: starting local run from ' + cello_script);
+                                                        var run_cmd = '/bin/bash ' + cello_script;
+
+                                                        run_cluster_cmd(conn, 'local perf run', run_cmd,
+                                                            function(err, conn, stdout, stderr) {
+
+                                                              fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stdout.txt', stdout);
+                                                              fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stderr.txt', stderr);
+
+                                                              if (err) {
+                                                                return failed_starting_perf_tests(res,
+                                                                  'Failed running on local cluster', run_id, conn);
+                                                              }
+
+                                                              // Close connection to outermost DB connection
+                                                              disconnect_from_cluster(conn);
+
+                                                              pgquery_no_err('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [LOCAL_JOB_ID, run_id], res, req, function(rows) {
+                                                                      return res.send(
+                                                                          JSON.stringify({ status: 'Success' }));
                                                                   });
-                                                                });
-                                                          }
-                                                      });
-                                                });
-                                              });
+                                                            });
+                                                      }
+                                                  });
                                             });
+                                          });
                                         });
-                                  });
-                                  });
+                                    });
+                              });
                               });
                           });
                       });
-                  }
-                });
+                  });
               }
             });
           }
         });
+      }
     });
 });
 
 function get_all_assignments(cb) {
-  pgclient(function(client, done) {
-    var query = client.query("SELECT * FROM assignments ORDER BY assignment_id ASC");
-    query.on('row', function(row, result) { result.addRow(row); });
-    query.on('error', function(err, result) {
-        done();
-        cb(null, err);
+    pgquery("SELECT * FROM assignments ORDER BY assignment_id ASC", [], function(err, rows) {
+        if (err) {
+            cb(null, err);
+        } else {
+            cb(rows, null);
+        }
     });
-    query.on('end', function(result) {
-        done();
-        cb(result.rows, null);
-    });
-  });
 }
 
 function get_visible_assignments(cb) {
-  pgclient(function(client, done) {
-    var query = client.query("SELECT * FROM assignments WHERE visible=true;");
-    query.on('row', function(row, result) { result.addRow(row); });
-    query.on('error', function(err, result) {
-        done();
-        cb(null, err);
+    pgquery("SELECT * FROM assignments WHERE visible=true", [], function(err, rows) {
+        if (err) {
+            cb(null, err);
+        } else {
+            cb(rows, null);
+        }
     });
-    query.on('end', function(result) {
-        done();
-        cb(result.rows, null);
-    });
-  });
 }
 
 function get_runs_for_username(username, cb) {
-  pgclient(function(client, done) {
-    var query = client.query("SELECT * FROM users WHERE user_name=($1)",
-        [username]);
-    query.on('row', function(row, result) { result.addRow(row); });
-    query.on('error', function(err, result) {
-        done();
-        cb(null, err);
-    });
-    query.on('end', function(result) {
-      var user_id = result.rows[0].user_id;
-      var query = client.query(
-              "SELECT * FROM runs WHERE user_id=($1) ORDER BY run_id DESC",
-              [user_id]);
-      query.on('row', function(row, result) { result.addRow(row); });
-      query.on('error', function(err, result) {
-          done();
-          cb(null, err);
-      });
-      query.on('end', function(result) {
-          var runs = result.rows;
+    pgquery("SELECT * FROM users WHERE user_name=($1)", [username], function(err, rows) {
+        if (err) return cb(null, err);
+        var user_id = rows[0].user_id;
 
-          var query = client.query("SELECT * FROM assignments");
-          query.on('row', function(row, result) { result.addRow(row); });
-          query.on('error', function(err, result) {
-              done();
-              cb(null, err);
-          });
-          query.on('end', function(result) {
-              done();
-              var assignment_mapping = {};
-              for (var i = 0; i < result.rows.length; i++) {
-                  assignment_mapping[result.rows[i].assignment_id] = result.rows[i].name;
-              }
-              var translated_runs = [];
-              for (var i = 0; i < runs.length; i++) {
-                  var name = assignment_mapping[runs[i].assignment_id];
-                  translated_runs.push({run_id: runs[i].run_id,
-                                        assignment_name: name,
-                                        status: runs[i].status,
-                                        finish_time: runs[i].finish_time });
-              }
-              cb(translated_runs, null);
-          });
-      });
+        pgquery("SELECT * FROM runs WHERE user_id=($1) ORDER BY run_id DESC",
+              [user_id], function(err, rows) {
+                  if (err) return cb(null, err);
+
+                  var runs = rows;
+
+                  pgquery("SELECT * FROM assignments", [], function(err, rows) {
+                      if (err) return cb(null, err);
+
+                      var assignment_mapping = {};
+                      for (var i = 0; i < rows.length; i++) {
+                          assignment_mapping[rows[i].assignment_id] = rows[i].name;
+                      }
+                      var translated_runs = [];
+                      for (var r = 0; r < runs.length; r++) {
+                          var name = assignment_mapping[runs[r].assignment_id];
+                          translated_runs.push({run_id: runs[r].run_id,
+                              assignment_name: name,
+                              status: runs[r].status,
+                              finish_time: runs[r].finish_time });
+                      }
+                      return cb(translated_runs, null);
+                  });
+              });
     });
-  });
 }
 
 var dont_display = ['profiler.txt'];
@@ -2274,30 +2102,30 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
   var total_possible = 0.0;
   var total_correctness_possible = 0.0;
   for (var c = 0; c < rubric.correctness.length; c++) {
-    var t = rubric.correctness[c];
-    total_possible += t.points_worth;
-    total_correctness_possible += t.points_worth;
+    var correctness_item = rubric.correctness[c];
+    total_possible += correctness_item.points_worth;
+    total_correctness_possible += correctness_item.points_worth;
   }
   var total_performance_possible = 0.0;
   for (var p = 0; p < rubric.performance.tests.length; p++) {
-    var t = rubric.performance.tests[p];
-    total_possible += t.points_worth;
-    total_performance_possible += t.points_worth;
+    var performance_item = rubric.performance.tests[p];
+    total_possible += performance_item.points_worth;
+    total_performance_possible += performance_item.points_worth;
   }
   total_possible += rubric.style.max_points_off;
 
   // Compute correctness score based on test failures
   var correctness = total_correctness_possible;
   if (run_completed(run_status) && 'correct.txt' in log_files) {
-    var content = log_files['correct.txt'].toString('utf8');
-    var lines = content.split('\n');
+    var correctness_content = log_files['correct.txt'].toString('utf8');
+    var correctness_lines = correctness_content.split('\n');
 
     /*
      * First check if anything was printed to STDERR. This may indicate anything
      * (from harmless prints by the student, to OutOfMemoryException) so we
      * conservatively give zero points if STDERR is non-empty.
      */
-    var any_nonempty_stderr_lines = check_for_empty_stderr(lines);
+    var any_nonempty_stderr_lines = check_for_empty_stderr(correctness_lines);
 
     if (any_nonempty_stderr_lines) {
       log('calculate_score: setting correctness score to 0 for run ' +
@@ -2306,8 +2134,9 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
     } else {
       var failure_counts = [];
       var failures_message_found = false;
-      for (var i = 0; i < lines.length; i++) {
-        var line = lines[i];
+      var line = null;
+      for (var i = 0; i < correctness_lines.length; i++) {
+        line = correctness_lines[i];
         if (string_starts_with(line, 'There were ') && string_ends_with(line, ' failures:')) {
           failure_counts.push(parseInt(line.split(' ')[2]));
           failures_message_found = true;
@@ -2331,25 +2160,25 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
         correctness = 0.0;
       } else {
         var line_index = 0;
-        for (var i = 0; i < failure_counts.length; i++) {
-          var current_failure_count = failure_counts[i];
+        for (var f = 0; f < failure_counts.length; f++) {
+          var current_failure_count = failure_counts[f];
           for (var failure = 1; failure <= current_failure_count; failure++) {
-            while (line_index < lines.length && !string_starts_with(lines[line_index], failure + ') ')) {
+            while (line_index < correctness_lines.length && !string_starts_with(correctness_lines[line_index], failure + ') ')) {
               line_index++;
             }
 
-            if (line_index < lines.length && string_starts_with(lines[line_index], failure + ') ')) {
-              var junit_testname = lines[line_index].split(' ')[1];
+            if (line_index < correctness_lines.length && string_starts_with(correctness_lines[line_index], failure + ') ')) {
+              var junit_testname = correctness_lines[line_index].split(' ')[1];
               var test_tokens = junit_testname.split('(');
-              var testname = test_tokens[0];
+              var correctness_testname = test_tokens[0];
               var classname = test_tokens[1].substring(0, test_tokens[1].length - 1);
-              var fullname = classname + '.' + testname;
+              var fullname = classname + '.' + correctness_testname;
 
-              var test = find_correctness_test_with_name(fullname, rubric);
-              if (test) {
-                log('calculate_score: taking off ' + test.points_worth +
-                    ' points for test ' + test.testname + ' on run ' + run_id);
-                correctness -= test.points_worth;
+              var correctness_test = find_correctness_test_with_name(fullname, rubric);
+              if (correctness_test) {
+                log('calculate_score: taking off ' + correctness_test.points_worth +
+                    ' points for test ' + correctness_test.testname + ' on run ' + run_id);
+                correctness -= correctness_test.points_worth;
               }
             }
           }
@@ -2370,23 +2199,22 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
 
     var multi_thread_lines = multi_thread_content.split('\n');
 
-    for (var i = 0; i < multi_thread_lines.length; i++) {
-      var line = multi_thread_lines[i];
-      if (string_starts_with(line, PERF_TEST_LBL)) {
-        var tokens = line.split(' ');
-        var testname = tokens[2];
+    for (var multi_thread_line in multi_thread_lines) {
+      if (string_starts_with(multi_thread_line, PERF_TEST_LBL)) {
+        var tokens = multi_thread_line.split(' ');
+        var performance_testname = tokens[2];
         var seq_time = parseInt(tokens[3]);
         var parallel_time = parseInt(tokens[4]);
 
         log('calculate_score: found multi thread perf for test=' +
-                testname + ', seq_time=' + seq_time + ', parallel_time=' +
+                performance_testname + ', seq_time=' + seq_time + ', parallel_time=' +
                 parallel_time + ' for run ' + run_id);
 
-        var test = find_performance_test_with_name(testname, rubric);
-        if (test) {
+        var performance_test = find_performance_test_with_name(performance_testname, rubric);
+        if (performance_test) {
           var speedup = seq_time / parallel_time;
-          var grading = test.grading;
-          var test_score = test.points_worth;
+          var grading = performance_test.grading;
+          var test_score = performance_test.points_worth;
           var matched = false;
           for (var g = 0; g < grading.length && !matched; g++) {
             var bottom_inclusive = grading[g].bottom_inclusive;
@@ -2396,13 +2224,13 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
               matched = true;
               test_score -= grading[g].points_off;
               log('calculate_score: deducting ' +
-                      grading[g].points_off + ' points on test ' + testname +
+                      grading[g].points_off + ' points on test ' + performance_testname +
                       ' for speedup of ' + speedup + ', in range ' +
                       bottom_inclusive + '->' + top_exclusive + ' for run ' +
                       run_id);
             }
           }
-          log('calculate_score: giving test ' + testname + ' ' +
+          log('calculate_score: giving test ' + performance_testname + ' ' +
                   test_score + ' points for run ' + run_id + ' with speedup ' + speedup);
           performance += test_score;
         }
@@ -2417,16 +2245,16 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
   // Compute style score based on number of style violations
   var style = rubric.style.max_points_off;
   if ('checkstyle.txt' in log_files) {
-    var content = log_files['checkstyle.txt'].toString('utf8');
-    var lines = content.split('\n');
+    var checkstyle_content = log_files['checkstyle.txt'].toString('utf8');
+    var checkstyle_lines = checkstyle_content.split('\n');
 
     var iter = 0;
-    while (iter < lines.length && !string_starts_with(lines[iter], 'Starting audit')) {
+    while (iter < checkstyle_lines.length && !string_starts_with(checkstyle_lines[iter], 'Starting audit')) {
         iter++;
     }
     iter++;
     var errorCount = 0;
-    while (iter < lines.length && !string_starts_with(lines[iter], 'Audit done')) {
+    while (iter < checkstyle_lines.length && !string_starts_with(checkstyle_lines[iter], 'Audit done')) {
         errorCount++;
         iter++;
     }
@@ -2446,157 +2274,145 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
                          total: total_performance_possible },
                        { name: 'Style', points: style,
                          total: rubric.style.max_points_off }
-                      ]}
+                      ]};
 }
 
 app.get('/run/:run_id', function(req, res, next) {
     var run_id = req.params.run_id;
     log('run: run_id=' + run_id);
 
-    pgclient(function(client, done) {
-        var query = client.query("SELECT * FROM runs WHERE run_id=($1)",
-            [run_id]);
-        register_query_helpers(query, res, done, req.session.username);
-        query.on('end', function(result) {
-            if (result.rows.length == 0) {
-                done();
-                return redirect_with_err('/overview', res, req, 'Unknown run');
-            }
-            var user_id = result.rows[0].user_id;
-            var run_status = result.rows[0].status;
-            var assignment_id = result.rows[0].assignment_id;
-            var viola_err_msg = result.rows[0].viola_msg;
-            var cello_msg = result.rows[0].cello_msg;
-            var ncores = result.rows[0].ncores; 
-            var passed_checkstyle = result.rows[0].passed_checkstyle;
-            var compiled = result.rows[0].compiled;
-            var passed_all_correctness = result.rows[0].passed_all_correctness;
-            // e.g. 2016-02-13 18:30:20.028665
-            var start_time = moment(result.rows[0].start_time);
-            var correctness_only = result.rows[0].correctness_only;
-            var passed_performance = result.rows[0].passed_performance;
+    pgquery_no_err("SELECT * FROM runs WHERE run_id=($1)", [run_id], res, req, function(rows) {
+        if (rows.length === 0) {
+            return redirect_with_err('/overview', res, req, 'Unknown run');
+        }
+        var user_id = rows[0].user_id;
+        var run_status = rows[0].status;
+        var assignment_id = rows[0].assignment_id;
+        var viola_err_msg = rows[0].viola_msg;
+        var cello_msg = rows[0].cello_msg;
+        var ncores = rows[0].ncores; 
+        var passed_checkstyle = rows[0].passed_checkstyle;
+        var compiled = rows[0].compiled;
+        var passed_all_correctness = rows[0].passed_all_correctness;
+        // e.g. 2016-02-13 18:30:20.028665
+        var start_time = moment(rows[0].start_time);
+        var correctness_only = rows[0].correctness_only;
+        var passed_performance = rows[0].passed_performance;
 
-            var elapsed_time = null;
-            var diff_ms = null;
-            var finished = false;
-            if (result.rows[0].finish_time) {
-              diff_ms = moment(result.rows[0].finish_time).diff(start_time);
-              finished = true;
-            } else {
-              diff_ms = moment().diff(start_time);
-            }
-            var minutes = Math.floor(diff_ms / 60000);
-            var seconds = Math.floor(diff_ms / 1000) - (minutes * 60);
-            var milliseconds = diff_ms - (minutes * 60000) - (seconds * 1000);
-            var started = false;
-            if (minutes > 0) {
-              elapsed_time = elapsed_time + minutes + 'm';
-              started = true;
-            }
-            if (seconds > 0) {
-              if (started) elapsed_time = elapsed_time + ', ';
-              elapsed_time = elapsed_time + seconds + 's';
-              started = true;
-            }
-            if (milliseconds > 0) {
-              if (started) elapsed_time = elapsed_time + ', ';
-              elapsed_time = elapsed_time + milliseconds + 'ms';
-            }
+        var elapsed_time = null;
+        var diff_ms = null;
+        var finished = false;
+        if (rows[0].finish_time) {
+          diff_ms = moment(rows[0].finish_time).diff(start_time);
+          finished = true;
+        } else {
+          diff_ms = moment().diff(start_time);
+        }
+        var minutes = Math.floor(diff_ms / 60000);
+        var seconds = Math.floor(diff_ms / 1000) - (minutes * 60);
+        var milliseconds = diff_ms - (minutes * 60000) - (seconds * 1000);
+        var started = false;
+        if (minutes > 0) {
+          elapsed_time = elapsed_time + minutes + 'm';
+          started = true;
+        }
+        if (seconds > 0) {
+          if (started) elapsed_time = elapsed_time + ', ';
+          elapsed_time = elapsed_time + seconds + 's';
+          started = true;
+        }
+        if (milliseconds > 0) {
+          if (started) elapsed_time = elapsed_time + ', ';
+          elapsed_time = elapsed_time + milliseconds + 'ms';
+        }
 
-            if (result.rows[0].on_behalf_of !== null) {
-                // If this is an instructor run using a student submission, that student can view this submission
-                if (!req.session.is_admin && result.rows[0].on_behalf_of != req.session.user_id) {
-                    done();
-                    return res.sendStatus(401);
-                }
-            } else {
-                // Instructors can view all submissions, students can only view their own submissions
-                if (!req.session.is_admin && user_id != req.session.user_id) {
-                    done();
-                    return res.sendStatus(401);
-                }
+        if (rows[0].on_behalf_of !== null) {
+            // If this is an instructor run using a student submission, that student can view this submission
+            if (!req.session.is_admin && rows[0].on_behalf_of != req.session.user_id) {
+                return res.sendStatus(401);
             }
+        } else {
+            // Instructors can view all submissions, students can only view their own submissions
+            if (!req.session.is_admin && user_id != req.session.user_id) {
+                return res.sendStatus(401);
+            }
+        }
 
-            var query = client.query("SELECT name FROM assignments WHERE assignment_id=($1)", [assignment_id]);
-            register_query_helpers(query, res, done, req.session.username);
-            query.on('end', function(result) {
-                var assignment_name = result.rows[0].name;
+        pgquery_no_err("SELECT name FROM assignments WHERE assignment_id=($1)",
+                [assignment_id], res, req, function(rows) {
+            var assignment_name = rows[0].name;
 
-                var query = client.query("SELECT * FROM users WHERE user_id=($1)", [user_id]);
-                register_query_helpers(query, res, done, req.session.username);
-                query.on('end', function(result) {
-                    done();
+            pgquery_no_err("SELECT * FROM users WHERE user_id=($1)", [user_id],
+                res, req, function(rows) {
 
-                    var username = result.rows[0].user_name;
-                    var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
-                    /*
-                     * If bugs cause submissions to fail, their storage may not exist.
-                     * This shouldn't happen in a bugless AutoGrader.
-                     */
-                    if (!fs.existsSync(run_dir)) {
-                      var render_vars = { run_id: run_id };
-                      return render_page('missing_run.html', res, req, render_vars);
-                    } else {
-                      var cello_err = null;
-                      var log_files = {};
-                      fs.readdirSync(run_dir).forEach(function(file) {
-                        if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 &&
-                              !arr_contains(file, dont_display)) {
-                            log('run: run_id=' + run_id + ' reading file ' + run_dir + '/' + file);
-                            var path = run_dir + '/' + file;
-                            if (get_file_size(path) < MAX_FILE_SIZE) {
-                              var contents = fs.readFileSync(run_dir + '/' + file, 'utf8');
-                              log_files[file] = contents;
+                var username = rows[0].user_name;
+                var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
+                /*
+                 * If bugs cause submissions to fail, their storage may not exist.
+                 * This shouldn't happen in a bugless AutoGrader.
+                 */
+                if (!fs.existsSync(run_dir)) {
+                  return render_page('missing_run.html', res, req, { run_id: run_id });
+                } else {
+                  var cello_err = null;
+                  var log_files = {};
+                  fs.readdirSync(run_dir).forEach(function(file) {
+                    if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 &&
+                          !arr_contains(file, dont_display)) {
+                        log('run: run_id=' + run_id + ' reading file ' + run_dir + '/' + file);
+                        var path = run_dir + '/' + file;
+                        if (get_file_size(path) < MAX_FILE_SIZE) {
+                          var contents = fs.readFileSync(run_dir + '/' + file, 'utf8');
+                          log_files[file] = contents;
 
-                              if (cello_err === null) {
-                                  if (file === 'cluster-stdout.txt') {
-                                      var lines = contents.split('\n');
-                                      for (var i = 0; i < lines.length; i++) {
-                                          if (string_starts_with(lines[i], 'AUTOGRADER-ERROR')) {
-                                              cello_err = lines[i].substring(17);
-                                              break;
-                                          }
+                          if (cello_err === null) {
+                              if (file === 'cluster-stdout.txt') {
+                                  var lines = contents.split('\n');
+                                  for (var i = 0; i < lines.length; i++) {
+                                      if (string_starts_with(lines[i], 'AUTOGRADER-ERROR')) {
+                                          cello_err = lines[i].substring(17);
+                                          break;
                                       }
-                                  } else if (file === 'cluster-stderr.txt') {
-                                      cello_err = contents;
                                   }
+                              } else if (file === 'cluster-stderr.txt') {
+                                  cello_err = contents;
                               }
-                            } else {
-                                log_files[file] = 'Unusually large file, unable to display.';
-                            }
+                          }
+                        } else {
+                            log_files[file] = 'Unusually large file, unable to display.';
                         }
-                      });
-
-                      if (cello_err === null && cello_msg.length > 0) {
-                          cello_err = cello_msg;
-                      }
-
-                      var score = calculate_score(assignment_id, log_files, ncores,
-                              run_status, run_id);
-                      var render_vars = {run_id: run_id, log_files: log_files,
-                                         viola_err: viola_err_msg, cello_err: cello_err,
-                                         passed_checkstyle: passed_checkstyle,
-                                         compiled: compiled,
-                                         passed_all_correctness: passed_all_correctness,
-                                         elapsed_time: elapsed_time, finished: finished,
-                                         has_performance_tests: !correctness_only,
-                                         passed_performance: passed_performance,
-                                         run_status: run_status,
-                                         assignment_name: assignment_name};
-                      if (score) {
-                        log('run: calculated score ' + score.total + '/' +
-                                score.total_possible + ' for run ' + run_id);
-                        render_vars['score'] = score;
-                      } else {
-                        log('run: error calculating score for run ' + run_id);
-                        render_vars['score'] = {total: 0.0, total_possible: 0.0,
-                            breakdown: []}
-                        render_vars['err_msg'] = 'Error calculating score';
-                      }
-
-                      return render_page('run.html', res, req, render_vars);
                     }
-                });
+                  });
+
+                  if (cello_err === null && cello_msg.length > 0) {
+                      cello_err = cello_msg;
+                  }
+
+                  var score = calculate_score(assignment_id, log_files, ncores,
+                          run_status, run_id);
+                  var render_vars = {run_id: run_id, log_files: log_files,
+                                     viola_err: viola_err_msg, cello_err: cello_err,
+                                     passed_checkstyle: passed_checkstyle,
+                                     compiled: compiled,
+                                     passed_all_correctness: passed_all_correctness,
+                                     elapsed_time: elapsed_time, finished: finished,
+                                     has_performance_tests: !correctness_only,
+                                     passed_performance: passed_performance,
+                                     run_status: run_status,
+                                     assignment_name: assignment_name};
+                  if (score) {
+                    log('run: calculated score ' + score.total + '/' +
+                            score.total_possible + ' for run ' + run_id);
+                    render_vars.score = score;
+                  } else {
+                    log('run: error calculating score for run ' + run_id);
+                    render_vars.score = {total: 0.0, total_possible: 0.0,
+                        breakdown: []};
+                    render_vars.err_msg = 'Error calculating score';
+                  }
+
+                  return render_page('run.html', res, req, render_vars);
+                }
             });
         });
     });
@@ -2610,95 +2426,83 @@ app.post('/cancel/:run_id', function(req, res, next) {
     }
 
     // Check permission to cancel this run
-    pgclient(function(client, done) {
-        var query = client.query(
-            'SELECT * FROM runs WHERE (user_id=($1)) AND (run_id=($2))',
-            [req.session.user_id, req.params.run_id]);
-        register_query_helpers(query, res, done, req.session.username);
-        query.on('end', function(result) {
-            if (result.rowCount != 1) {
-                done();
-                return redirect_with_err('/overview', res, req,
-                    'You do not appear to have permission to cancel that run');
-            }
-            var correctness_only = result.rows[0].correctness_only;
-            var run_status = result.rows[0].status;
+    pgquery('SELECT * FROM runs WHERE (user_id=($1)) AND (run_id=($2))',
+        [req.session.user_id, req.params.run_id], res, req, function(rows) {
+        if (rowCount != 1) {
+            return redirect_with_err('/overview', res, req,
+                'You do not appear to have permission to cancel that run');
+        }
+        var correctness_only = rows[0].correctness_only;
+        var run_status = rows[0].status;
 
-            if (run_status === FINISHED_STATUS ||
-                run_status === CANCELLED_STATUS || run_status === FAILED_STATUS) {
-                done();
-                return redirect_with_success('/overview', res, req,
-                    'That run has already completed');
-            }
+        if (run_status === FINISHED_STATUS ||
+            run_status === CANCELLED_STATUS || run_status === FAILED_STATUS) {
+            return redirect_with_success('/overview', res, req,
+                'That run has already completed');
+        }
 
-            var viola_params = 'done_token=' + result.rows[0].done_token;
-            var viola_options = { host: VIOLA_HOST,
-                port: VIOLA_PORT, path: '/cancel?' + encodeURI(viola_params) };
-            log('cancel: signaling Viola to cancel run ' + req.params.run_id);
-            http.get(viola_options, function(viola_res) {
-                var bodyChunks = [];
-                viola_res.on('data', function(chunk) {
-                    bodyChunks.push(chunk);
-                });
-                viola_res.on('end', function() {
-                    var body = Buffer.concat(bodyChunks);
-                    var result = JSON.parse(body);
-                    if (result.status === 'Success') {
-                        var found_run_on_viola = result.found;
-                        if (found_run_on_viola || correctness_only) {
-                            // We can be confident the run was killed or completed on Viola before reaching the cluster
-                            log('cancel: run ' + req.params.run_id + ' successfully cancelled on Viola');
-                            done();
-                            return redirect_with_success('/overview', res, req,
-                                cancellationSuccessMsg);
-                        } else {
-                            /*
-                             * At some point in the future, the
-                             * local_run_finished endpoint will try to create a
-                             * cluster job for this run. If it doesn't seem to
-                             * have happened yet, report an error message to the
-                             * user to try again in the future.
-                             */
-                            log('cancel: run cancellation did not find run ' + req.params.run_id + ' on Viola');
-                            var query = client.query(
-                                'SELECT * FROM runs WHERE run_id=($1)', [req.params.run_id]);
-                            register_query_helpers(query, res, done, req.session.username);
-                            query.on('end', function(result) {
-                                done();
-                                if (result.rows[0].job_id && result.rows[0].job_id.length > 0) {
-                                    var job_id = result.rows[0].job_id;
-                                    if (job_id === LOCAL_JOB_ID) {
-                                        return redirect_with_success('/overview',
-                                            res, req, cancellationSuccessMsg);
-                                    } else {
-                                        connect_to_cluster(function(conn, err) {
-                                            if (err) {
-                                                return redirect_with_err('/overview', res, req, 'Failed connecting to cluster for cancellation.');
-                                            }
-                                            run_cluster_cmd(conn, 'job cancellation', 'scancel ' + job_id, function(err, conn, stdout, stderr) {
-                                                disconnect_from_cluster(conn);
-                                                if (err) {
-                                                    return redirect_with_err('/overview', res, req, 'Failed cancelling job on cluster');
-                                                }
-                                                return redirect_with_success('/overview', res, req, cancellationSuccessMsg);
-                                            });
-                                        });
-                                    }
-                                } else {
-                                    return redirect_with_err('/overview', res, req,
-                                        'Failed cancelling job on cluster. Please try again.');
-                                }
-                            });
-                        }
-                    } else {
-                        return redirect_with_err('/overview', res, req, 'Viola error: ' + result.msg);
-                    }
-                });
-            }).on('error', function(err) {
-                log('VIOLA err="' + err + '"');
-                return redirect_with_err('/overview', res, req,
-                    'An error occurred cancelling run ' + req.params.run_id);
+        var viola_params = 'done_token=' + rows[0].done_token;
+        var viola_options = { host: VIOLA_HOST,
+            port: VIOLA_PORT, path: '/cancel?' + encodeURI(viola_params) };
+        log('cancel: signaling Viola to cancel run ' + req.params.run_id);
+        http.get(viola_options, function(viola_res) {
+            var bodyChunks = [];
+            viola_res.on('data', function(chunk) {
+                bodyChunks.push(chunk);
             });
+            viola_res.on('end', function() {
+                var body = Buffer.concat(bodyChunks);
+                var result = JSON.parse(body);
+                if (result.status === 'Success') {
+                    var found_run_on_viola = result.found;
+                    if (found_run_on_viola || correctness_only) {
+                        // We can be confident the run was killed or completed on Viola before reaching the cluster
+                        log('cancel: run ' + req.params.run_id + ' successfully cancelled on Viola');
+                        return redirect_with_success('/overview', res, req,
+                            cancellationSuccessMsg);
+                    } else {
+                        /*
+                         * At some point in the future, the
+                         * local_run_finished endpoint will try to create a
+                         * cluster job for this run. If it doesn't seem to
+                         * have happened yet, report an error message to the
+                         * user to try again in the future.
+                         */
+                        log('cancel: run cancellation did not find run ' + req.params.run_id + ' on Viola');
+                        pgquery_no_err('SELECT * FROM runs WHERE run_id=($1)', [req.params.run_id], res, req, function(rows) {
+                            if (rows[0].job_id && rows[0].job_id.length > 0) {
+                                var job_id = rows[0].job_id;
+                                if (job_id === LOCAL_JOB_ID) {
+                                    return redirect_with_success('/overview',
+                                        res, req, cancellationSuccessMsg);
+                                } else {
+                                    connect_to_cluster(function(conn, err) {
+                                        if (err) {
+                                            return redirect_with_err('/overview', res, req, 'Failed connecting to cluster for cancellation.');
+                                        }
+                                        run_cluster_cmd(conn, 'job cancellation', 'scancel ' + job_id, function(err, conn, stdout, stderr) {
+                                            disconnect_from_cluster(conn);
+                                            if (err) {
+                                                return redirect_with_err('/overview', res, req, 'Failed cancelling job on cluster');
+                                            }
+                                            return redirect_with_success('/overview', res, req, cancellationSuccessMsg);
+                                        });
+                                    });
+                                }
+                            } else {
+                                return redirect_with_err('/overview', res, req,
+                                    'Failed cancelling job on cluster. Please try again.');
+                            }
+                        });
+                    }
+                } else {
+                    return redirect_with_err('/overview', res, req, 'Viola error: ' + result.msg);
+                }
+            });
+        }).on('error', function(err) {
+            log('VIOLA err="' + err + '"');
+            return redirect_with_err('/overview', res, req,
+                'An error occurred cancelling run ' + req.params.run_id);
         });
     });
 });
@@ -2715,141 +2519,135 @@ function set_check_cluster_timeout(t) {
     setTimeout(check_cluster, t);
 }
 
-function abort_and_reset_perf_tests(err, done, conn, lbl) {
+function abort_and_reset_perf_tests(err, conn, lbl) {
   log('abort_and_reset_perf_tests: ' + lbl + ' err=' + err);
-  done();
   disconnect_from_cluster(conn);
   set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
 }
 
-function finish_perf_tests(run_status, run, conn, done, client, perf_runs,
+function finish_perf_tests(run_status, run, conn, perf_runs,
         current_perf_runs_index) {
-    var query = client.query(
-            'SELECT * FROM users WHERE user_id=($1)', [run.user_id]);
-    query.on('row', function(row, result) { result.addRow(row); });
-    query.on('error', function(err, result) {
-        log('Error finding user name: ' + err);
-        done();
-        disconnect_from_cluster(conn);
-        set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
-    });
-    query.on('end', function(result) {
-        if (result.rows.length != 1) {
-            log('Missing user, user_id=' + run.user_id);
-            done();
+    pgquery('SELECT * FROM users WHERE user_id=($1)', [run.user_id], function(err, rows) {
+        if (err) {
             disconnect_from_cluster(conn);
             set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
-        } else {
-            var username = result.rows[0].user_name;
-            var wants_notification = result.rows[0].receive_email_notifications;
+            return;
+        }
 
-            var REMOTE_FOLDER = 'autograder/' + run.run_id;
-            var REMOTE_PROFILER = REMOTE_FOLDER + '/profiler.txt';
-            var REMOTE_TRACES = REMOTE_FOLDER + '/traces.txt';
-            var REMOTE_DATARACE = REMOTE_FOLDER + '/datarace.txt';
-            var REMOTE_STDOUT = REMOTE_FOLDER + '/stdout.txt';
-            var REMOTE_STDERR = REMOTE_FOLDER + '/stderr.txt';
-            var LOCAL_FOLDER = __dirname + '/submissions/' +
-                username + '/' + run.run_id;
-            var LOCAL_PROFILER = LOCAL_FOLDER + '/profiler.txt';
-            var LOCAL_TRACES = LOCAL_FOLDER + '/traces.txt';
-            var LOCAL_DATARACE = LOCAL_FOLDER + '/datarace.txt';
-            var LOCAL_STDOUT = LOCAL_FOLDER + '/cluster-stdout.txt';
-            var LOCAL_STDERR = LOCAL_FOLDER + '/cluster-stderr.txt';
-            var LOCAL_SLURM = LOCAL_FOLDER + '/cello.slurm';
+        if (rows.length != 1) {
+            log('Missing user, user_id=' + run.user_id);
+            disconnect_from_cluster(conn);
+            set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
+            return;
+        }
 
-            get_cluster_os(conn, function(err, os) {
-                if (err) {
-                    return abort_and_reset_perf_tests(err, done, conn, 'OS');
-                }
+        var username = rows[0].user_name;
+        var wants_notification = rows[0].receive_email_notifications;
 
-                var copies = [{ src: REMOTE_STDOUT, dst: LOCAL_STDOUT },
-                    { src: REMOTE_STDERR, dst: LOCAL_STDERR }];
-                if (run.enable_profiling) {
-                    copies.push({ src: REMOTE_TRACES, dst: LOCAL_TRACES });
-                }
-                // { src: REMOTE_PROFILER, dst: LOCAL_PROFILER },
-                // if (os !== 'Darwin') {
-                //   copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
-                // }
+        var REMOTE_FOLDER = 'autograder/' + run.run_id;
+        var REMOTE_PROFILER = REMOTE_FOLDER + '/profiler.txt';
+        var REMOTE_TRACES = REMOTE_FOLDER + '/traces.txt';
+        var REMOTE_DATARACE = REMOTE_FOLDER + '/datarace.txt';
+        var REMOTE_STDOUT = REMOTE_FOLDER + '/stdout.txt';
+        var REMOTE_STDERR = REMOTE_FOLDER + '/stderr.txt';
+        var LOCAL_FOLDER = __dirname + '/submissions/' +
+            username + '/' + run.run_id;
+        var LOCAL_PROFILER = LOCAL_FOLDER + '/profiler.txt';
+        var LOCAL_TRACES = LOCAL_FOLDER + '/traces.txt';
+        var LOCAL_DATARACE = LOCAL_FOLDER + '/datarace.txt';
+        var LOCAL_STDOUT = LOCAL_FOLDER + '/cluster-stdout.txt';
+        var LOCAL_STDERR = LOCAL_FOLDER + '/cluster-stderr.txt';
+        var LOCAL_SLURM = LOCAL_FOLDER + '/cello.slurm';
 
-                var tests = get_scalability_tests(run.ncores);
-                for (var i = 0; i < tests.length; i++) {
-                    var curr_cores = tests[i];
-                    var local = LOCAL_FOLDER + '/performance.' + curr_cores + '.txt';
-                    var remote = REMOTE_FOLDER + '/performance.' + curr_cores + '.txt';
+        get_cluster_os(conn, function(err, os) {
+            if (err) {
+                return abort_and_reset_perf_tests(err, conn, 'OS');
+            }
 
-                    copies.push({ src: remote, dst: local });
-                }
+            var copies = [{ src: REMOTE_STDOUT, dst: LOCAL_STDOUT },
+                { src: REMOTE_STDERR, dst: LOCAL_STDERR }];
+            if (run.enable_profiling) {
+                copies.push({ src: REMOTE_TRACES, dst: LOCAL_TRACES });
+            }
+            // { src: REMOTE_PROFILER, dst: LOCAL_PROFILER },
+            // if (os !== 'Darwin') {
+            //   copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
+            // }
 
-                batched_cluster_scp(copies, false, function(stat) {
-                    var any_missing_files = false;
-                    var any_infrastructure_failures = false;
-                    for (var i = 0; i < stat.length; i++) {
-                        if (stat[i].success) {
-                            log('finish_perf_tests: successfully copied back to ' + stat[i].dst);
+            var tests = get_scalability_tests(run.ncores);
+            for (var i = 0; i < tests.length; i++) {
+                var curr_cores = tests[i];
+                var local = LOCAL_FOLDER + '/performance.' + curr_cores + '.txt';
+                var remote = REMOTE_FOLDER + '/performance.' + curr_cores + '.txt';
+
+                copies.push({ src: remote, dst: local });
+            }
+
+            batched_cluster_scp(copies, false, function(stat) {
+                var any_missing_files = false;
+                var any_infrastructure_failures = false;
+                for (var i = 0; i < stat.length; i++) {
+                    if (stat[i].success) {
+                        log('finish_perf_tests: successfully copied back to ' + stat[i].dst);
+                    } else {
+                        if (string_ends_with(stat[i].err.toString().trim(), 'No such file or directory')) {
+                            log('finish_perf_tests: failed copying ' + stat[i].dst + ' because it didn\'t exist on the cluster');
+                            any_missing_files = true;
                         } else {
-                            if (string_ends_with(stat[i].err.toString().trim(), 'No such file or directory')) {
-                                log('finish_perf_tests: failed copying ' + stat[i].dst + ' because it didn\'t exist on the cluster');
-                                any_missing_files = true;
-                            } else {
-                                log('finish_perf_tests: scp err copying to ' + stat[i].dst + ', err=' +
-                                    stat[i].err);
-                                any_infrastructure_failures = true;
-                            }
+                            log('finish_perf_tests: scp err copying to ' + stat[i].dst + ', err=' +
+                                stat[i].err);
+                            any_infrastructure_failures = true;
                         }
                     }
+                }
 
-                    if (any_infrastructure_failures) {
-                        return abort_and_reset_perf_tests(err, done, conn,
-                            'cluster infrastructure');
-                    }
+                if (any_infrastructure_failures) {
+                    return abort_and_reset_perf_tests(err, conn,
+                        'cluster infrastructure');
+                }
 
-                    var characteristic_speedup = ""
-                    if (!any_missing_files) {
-                        var rubric_file = rubric_file_path(run.assignment_id);
-                        var validated = load_and_validate_rubric(rubric_file);
-                        if (validated.success) {
-                            var rubric = validated.rubric;
-                            var characteristic_test = rubric.performance.characteristic_test;
-                            var performance_path = LOCAL_FOLDER + '/performance.' +
-                                run.ncores + '.txt';
-                            if (get_file_size(performance_path) < MAX_FILE_SIZE) {
-                                var test_contents = fs.readFileSync(performance_path, 'utf8');
-                                var test_lines = test_contents.split('\n');
-                                for (var i = 0; i < test_lines.length; i++) {
-                                    var line = test_lines[i];
-                                    if (string_starts_with(line, PERF_TEST_LBL)) {
-                                        var tokens = line.split(' ');
-                                        var testname = tokens[2];
-                                        if (testname === characteristic_test) {
-                                            var seq_time = parseInt(tokens[3]);
-                                            var parallel_time = parseInt(tokens[4]);
-                                            var speedup = seq_time / parallel_time;
-                                            characteristic_speedup = speedup.toFixed(3);
-                                            break;
-                                        }
+                var characteristic_speedup = "";
+                if (!any_missing_files) {
+                    var rubric_file = rubric_file_path(run.assignment_id);
+                    var validated = load_and_validate_rubric(rubric_file);
+                    if (validated.success) {
+                        var rubric = validated.rubric;
+                        var characteristic_test = rubric.performance.characteristic_test;
+                        var performance_path = LOCAL_FOLDER + '/performance.' +
+                            run.ncores + '.txt';
+                        if (get_file_size(performance_path) < MAX_FILE_SIZE) {
+                            var test_contents = fs.readFileSync(performance_path, 'utf8');
+                            var test_lines = test_contents.split('\n');
+                            for (var line in test_lines) {
+                                if (string_starts_with(line, PERF_TEST_LBL)) {
+                                    var tokens = line.split(' ');
+                                    var testname = tokens[2];
+                                    if (testname === characteristic_test) {
+                                        var seq_time = parseInt(tokens[3]);
+                                        var parallel_time = parseInt(tokens[4]);
+                                        var speedup = seq_time / parallel_time;
+                                        characteristic_speedup = speedup.toFixed(3);
+                                        break;
                                     }
                                 }
                             }
                         }
                     }
+                }
 
-                    var query = client.query(
-                        "UPDATE runs SET status='" + run_status + "'," +
-                        "finish_time=CURRENT_TIMESTAMP," +
-                        "passed_performance=($1)," +
-                        "characteristic_speedup=($2) WHERE run_id=($3)",
-                        [!any_missing_files, characteristic_speedup, run.run_id]);
-                    query.on('row', function(row, result) { result.addRow(row); });
-                    query.on('error', function(err, result) {
-                        log('Error updating performance run state: ' + err);
-                        done();
-                        disconnect_from_cluster(conn);
-                        set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
-                    });
+                pgquery("UPDATE runs SET status='" + run_status + "'," +
+                    "finish_time=CURRENT_TIMESTAMP," +
+                    "passed_performance=($1)," +
+                    "characteristic_speedup=($2) WHERE run_id=($3)",
+                    [!any_missing_files, characteristic_speedup, run.run_id],
+                    function(err, rows) {
+                        if (err) {
+                            log('Error updating performance run state: ' + err);
+                            disconnect_from_cluster(conn);
+                            set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
+                            return;
+                        }
 
-                    query.on('end', function(result) {
                         if (wants_notification) {
                             var email = username + '@rice.edu';
                             if (username === 'admin') {
@@ -2858,28 +2656,24 @@ function finish_perf_tests(run_status, run, conn, done, client, perf_runs,
                             var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
                             send_email(email_for_user(username), subject, '', function(err) {
                                 if (err) {
-                                    return abort_and_reset_perf_tests(err, done, conn,
+                                    return abort_and_reset_perf_tests(err, conn,
                                         'sending notification email');
                                 }
                                 check_cluster_helper(perf_runs,
-                                    current_perf_runs_index + 1, conn, client,
-                                    done);
+                                    current_perf_runs_index + 1, conn);
                             });
                         } else {
                             check_cluster_helper(perf_runs,
-                                current_perf_runs_index + 1, conn, client,
-                                done);
+                                current_perf_runs_index + 1, conn);
                         }
-                    });
                 });
             });
-        }
+        });
     });
 }
 
-function check_cluster_helper(perf_runs, i, conn, client, done) {
+function check_cluster_helper(perf_runs, i, conn) {
     if (i >= perf_runs.length) {
-        done();
         disconnect_from_cluster(conn);
         set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
     } else {
@@ -2892,14 +2686,14 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
                 "--format=JobName,State | grep hab | awk '{ print $2 }'";
             run_cluster_cmd(conn, 'checking job status', SACCT, function(err, conn, stdout, stderr) {
                 if (err) {
-                  done();
                   disconnect_from_cluster(conn);
                   set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
                   return;
                 }
                 stdout = stdout.trim();
 
-                log('check_cluster_helper: got status "' + stdout + '" back from cluster for job ' + run.job_id);
+                log('check_cluster_helper: got status "' + stdout +
+                    '" back from cluster for job ' + run.job_id);
 
                 var finished = false;
                 var run_status = null;
@@ -2923,36 +2717,32 @@ function check_cluster_helper(perf_runs, i, conn, client, done) {
 
                 if (run_status) {
                     if (finished) {
-                        finish_perf_tests(run_status, run, conn, done, client, perf_runs, i);
+                        finish_perf_tests(run_status, run, conn, perf_runs, i);
                     } else {
-                        var query = client.query("UPDATE runs SET status='" +
+                        pgquery("UPDATE runs SET status='" +
                                 TESTING_PERFORMANCE_STATUS +
-                                "' WHERE run_id=($1)", [run.run_id]);
-                        query.on('row', function(row, result) { result.addRow(row); });
-                        query.on('error', function(err, result) {
-                            log('Error updating running perf tests: ' + err);
-                            done();
-                            disconnect_from_cluster(conn);
-                            set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
-                        });
-                        query.on('end', function(result) {
-                            check_cluster_helper(perf_runs, i + 1, conn, client, done);
-                        });
+                                "' WHERE run_id=($1)", [run.run_id], function(err, rows) {
+                                    if (err) {
+                                        log('Error updating running perf tests: ' + err);
+                                        disconnect_from_cluster(conn);
+                                        set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
+                                        return;
+                                    }
+                                    check_cluster_helper(perf_runs, i + 1, conn);
+                                });
                     }
                 } else {
-                    check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                    check_cluster_helper(perf_runs, i + 1, conn);
                 }
             });
         } else {
             if (run.job_id !== LOCAL_JOB_ID) {
                 log('Unexpected job_id "' + run.job_id + '" for local cluster');
-                check_cluster_helper(perf_runs, i + 1, conn, client, done);
+                check_cluster_helper(perf_runs, i + 1, conn);
             } else {
-                log('check_cluster_helper: marking ' + run.run_id + ' ' + FINISHED_STATUS);
-                var query = client.query(
-                    "UPDATE runs SET status='" + FINISHED_STATUS + "',finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)",
-                    [run.run_id]);
-                finish_perf_tests(query, run, conn, done, client, perf_runs, i);
+                log('check_cluster_helper: marking ' + run.run_id + ' ' +
+                        FINISHED_STATUS);
+                finish_perf_tests(FINISHED_STATUS, run, conn, perf_runs, i);
             }
         }
     }
@@ -2964,23 +2754,20 @@ function check_cluster() {
         console.log('check_cluster: woke up and a cluster checker was already active?!');
     } else {
         checkClusterActive = true;
-        pgclient(function(client, done) {
-            var query = client.query("SELECT * FROM runs WHERE (job_id IS NOT " +
-                "NULL) AND ((status='" + TESTING_PERFORMANCE_STATUS + "') OR " +
-                "(status='IN CLUSTER QUEUE'))");
-            query.on('row', function(row, result) { result.addRow(row); });
-            query.on('error', function(err, result) {
-                done();
-                log('Error looking up running perf tests: ' + err);
-                set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
-            });
-            query.on('end', function(result) {
-                var perf_runs = result.rows;
+        pgquery("SELECT * FROM runs WHERE (job_id IS NOT " +
+            "NULL) AND ((status='" + TESTING_PERFORMANCE_STATUS + "') OR " +
+            "(status='IN CLUSTER QUEUE'))", [], function(err, rows) {
+                if (err) {
+                    log('Error looking up running perf tests: ' + err);
+                    set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
+                    return;
+                }
+
+                var perf_runs = rows;
                 connect_to_cluster(function(conn, err) {
                     if (err) {
                       log('Error connecting to cluster with ' +
                         CLUSTER_USER + '@' + CLUSTER_HOSTNAME + ', err=' + err);
-                      done();
                       set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
                     } else {
                         var running_jobs_str = '[';
@@ -2990,10 +2777,9 @@ function check_cluster() {
                         running_jobs_str = running_jobs_str + ' ]';
                         log('check_cluster: found ' + perf_runs.length +
                             ' running jobs ' + running_jobs_str);
-                        check_cluster_helper(perf_runs, 0, conn, client, done);
+                        check_cluster_helper(perf_runs, 0, conn);
                     }
                 });
-            });
         });
     }
 }
@@ -3015,7 +2801,7 @@ function delete_old_folders(folder_index, folder_list, conn) {
                 if (err) {
                     return abort_and_reset_cluster_file_checking(conn, err);
                 }
-                var current_epoch_time = Math.floor((new Date).getTime() / 1000);
+                var current_epoch_time = Math.floor((new Date()).getTime() / 1000);
                 var folder_epoch = parseInt(stdout);
                 if (current_epoch_time - folder_epoch >= CLUSTER_FOLDER_RETENTION_TIME_S) {
                     log('delete_old_folders: deleting old cluster dir autograder/' + folder);
@@ -3088,26 +2874,19 @@ function launch() {
  */
 
 if (process.argv.length > 2 && process.argv[2] === 'kill-running-jobs') {
-    pgclient(function(client, done) {
-        /*
-         * Mark any in-progress tests as failed on reboot.
-         */
-        var query = client.query("UPDATE runs SET status='" + FAILED_STATUS + "'," +
-            "finish_time=CURRENT_TIMESTAMP WHERE status='" +
-            TESTING_CORRECTNESS_STATUS + "' OR status='" +
-            TESTING_PERFORMANCE_STATUS + "' OR status='" + IN_CLUSTER_QUEUE_STATUS +
-            "'");
-        query.on('row', function(row, result) { result.addRow(row); });
-        query.on('error', function(err, result) {
-            done();
-            log('Error on initial cleanup, err=' + err);
-            process.exit(1);
-        });
-        query.on('end', function(result) {
-            done();
-
+    /*
+     * Mark any in-progress tests as failed on reboot.
+     */
+    pgquery("UPDATE runs SET status='" + FAILED_STATUS + "'," +
+        "finish_time=CURRENT_TIMESTAMP WHERE status='" +
+        TESTING_CORRECTNESS_STATUS + "' OR status='" +
+        TESTING_PERFORMANCE_STATUS + "' OR status='" + IN_CLUSTER_QUEUE_STATUS +
+        "'", [], function(err, rows) {
+            if (err) {
+                log('Error on initial cleanup, err=' + err);
+                return process.exit(1);
+            }
             launch();
-        });
     });
 } else {
     launch();

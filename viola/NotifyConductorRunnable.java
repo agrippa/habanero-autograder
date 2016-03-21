@@ -20,9 +20,10 @@ public class NotifyConductorRunnable implements Runnable {
                     } catch (InterruptedException ie) { }
                 }
                 curr = toNotify.poll();
-            }
 
-            ViolaUtil.log("received notify job for run %d\n", curr.getRunId());
+                ViolaUtil.log("received notify job for run %d, %d notify jobs in queue\n", curr.getRunId(),
+                        toNotify.size());
+            }
 
             boolean success = false;
             try {
