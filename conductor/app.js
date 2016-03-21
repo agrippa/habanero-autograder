@@ -197,7 +197,7 @@ function svn_cmd(cmd, cb) {
 
 var cluster_connection = null;
 
-// Should only be used from run_cluster_cmd
+// Should only be used from run_cluster_cmd or cluster_scp
 function connect_to_cluster(cb) {
     log('connect_to_cluster: Connecting to cluster ' + CLUSTER_HOSTNAME +
             ' of type ' + CLUSTER_TYPE + ' as user ' + CLUSTER_USER);
@@ -213,6 +213,9 @@ function connect_to_cluster(cb) {
                 log('connect_to_cluster: Error connecting to ' + CLUSTER_HOSTNAME +
                     ' as user ' + CLUSTER_USER + ': ' + err);
                 connect_to_cluster(cb);
+            }).on('end', function() {
+                log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME +
+                    ' ends');
             }).connect({
                 host: CLUSTER_HOSTNAME,
                 port: 22,
@@ -302,6 +305,7 @@ function get_file_size(path) {
     return stats.size;
 }
 
+// Only supports individual files, assumes parent directories are already created
 function cluster_scp(src_file, dst_file, is_upload, cb) {
   if (is_upload) {
     if (dst_file.trim().search('/') === 0) {
@@ -318,27 +322,29 @@ function cluster_scp(src_file, dst_file, is_upload, cb) {
   if (CLUSTER_TYPE === 'slurm') {
       var start_time = new Date().getTime();
 
-      if (is_upload) {
-        scp.send({file: src_file,
-                  user: CLUSTER_USER,
-                  host: CLUSTER_HOSTNAME,
-                  port: '22',
-                  path: dst_file},
-                  function(err) {
-                      log('cluster_scp: upload from ' + src_file + ' took ' + (new Date().getTime() - start_time) + ' ms');
+      // Ensure cluster_connection is initialized
+      connect_to_cluster(function() {
+          cluster_connection.sftp(function(err, sftp) {
+              if (err) {
+                  log('cluster_scp: setting up sftp returned an err: ' + err);
+                  return cb(err);
+              }
+
+              if (is_upload) {
+                  sftp.fastPut(src_file, dst_file, function(err) {
+                      log('cluster_scp: upload from ' + src_file + ' took ' +
+                          (new Date().getTime() - start_time) + ' ms, err=' + err);
                       cb(err);
                   });
-      } else {
-        scp.get({file: src_file,
-                 user: CLUSTER_USER,
-                 host: CLUSTER_HOSTNAME,
-                 port: '22',
-                 path: dst_file},
-                 function(err) {
-                     log('cluster_scp: download to ' + dst_file + ' took ' + (new Date().getTime() - start_time) + ' ms');
-                     cb(err);
-                 });
-      }
+              } else {
+                  log('cluster_scp: download to ' + dst_file + ' took ' +
+                      (new Date().getTime() - start_time) + ' ms, err=' + err);
+                  sftp.fastGet(src_file, dst_file, function(err) {
+                      cb(err);
+                  });
+              }
+          });
+      });
   } else {
       if (is_upload) {
         dst_file = process.env.HOME + '/' + dst_file;
@@ -744,11 +750,11 @@ app.get('/leaderboard/:assignment_id?/:page?', function(req, res, next) {
                             }
                         }
 
+                        max_speedup += 0.001;
+                        var bin_width = (max_speedup - min_speedup) / nbins;
                         log('leaderboard: found min speedup=' + min_speedup +
                                 ' max speedup=' + max_speedup + ', using bin width=' +
                                 bin_width + ' for nbins=' + nbins);
-                        max_speedup += 0.001;
-                        var bin_width = (max_speedup - min_speedup) / nbins;
                         for (var bin_user in max_runs_only) {
                             if (max_runs_only.hasOwnProperty(bin_user)) {
                                 var bin_speedup = max_runs_only[bin_user];
@@ -880,28 +886,41 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
                 fs.mkdirSync(assignment_dir);
 
                 // Copy all of the submitted instructor files into the assignment directory
+                var remote_copies = [];
                 fs.renameSync(req.files.zip[0].path,
                     assignment_dir + '/instructor.zip');
+                remote_copies.push({src: assignment_dir + '/instructor.zip',
+                    dst: 'autograder-assignments/' + assignment_id + '/instructor.zip'});
+
                 fs.renameSync(req.files.instructor_pom[0].path,
                     assignment_dir + '/instructor_pom.xml');
+                remote_copies.push({src: assignment_dir + '/instructor_pom.xml',
+                    dst: 'autograder-assignments/' + assignment_id + '/instructor_pom.xml'});
+
                 fs.renameSync(req.files.rubric[0].path,
                     assignment_dir + '/rubric.json');
+                remote_copies.push({src: assignment_dir + '/rubric.json',
+                    dst: 'autograder-assignments/' + assignment_id + '/rubric.json'});
+
                 fs.renameSync(req.files.checkstyle_config[0].path,
                     assignment_dir + '/checkstyle.xml');
+                remote_copies.push({src: assignment_dir + '/checkstyle.xml',
+                    dst: 'autograder-assignments/' + assignment_id + '/checkstyle.xml'});
 
-                create_cluster_dir('autograder-assignments', function(err, stdout, stderr) {
+                create_cluster_dir('autograder-assignments/' + assignment_id, function(err, stdout, stderr) {
                     if (err) {
                         return redirect_with_err('/admin', res, req,
                             'Unable to create directory on cluster');
                     }
 
-                    cluster_scp(assignment_dir, 'autograder-assignments/' + assignment_id, true, function(err) {
-                        if (err) {
-                            return redirect_with_err('/admin', res, req,
-                                'Unable to upload to cluster');
+                    batched_cluster_scp(remote_copies, true, function(stat) {
+                        for (var i = 0; i < stat.length; i++) {
+                            if (!stat[i].success) {
+                                return redirect_with_err('/admin', res, req,
+                                    'Unable to upload to cluster');
+                            }
                         }
-
-                        return res.redirect('/admin');
+                        return redirect_with_success('/admin', res, req, 'Uploaded assignment');
                     });
                 });
 
@@ -929,13 +948,15 @@ function handle_reupload(req, res, missing_msg, target_filename) {
                 fs.renameSync(req.file.path, assignment_dir + '/' + target_filename);
 
                 cluster_scp(assignment_dir + '/' + target_filename,
-                    'autograder-assignments/' + assignment_id + '/', true,
+                    'autograder-assignments/' + assignment_id + '/' + target_filename, true,
                     function(err) {
                     if (err) {
-                        return redirect_with_err('/admin.html', res, req,
+                        return redirect_with_err('/admin', res, req,
                             'Unable to upload to cluster');
                     }
-                    return res.redirect('/admin');
+                    return redirect_with_success('/admin', res, req,
+                        'Updated ' + target_filename + ' for assignment ' +
+                        rows[0].name);
                 });
             });
   }
@@ -1738,13 +1759,13 @@ app.post('/local_run_finished', function(req, res, next) {
                                 'Failed getting cluster OS', run_id);
                             }
 
-                            create_cluster_dir('autograder/' + run_id,
+                            create_cluster_dir('autograder/' + run_id + '/submission',
                                 function(err, stdout, stderr) {
                                   if (err) {
                                     return failed_starting_perf_tests(res,
                                       'Failed creating autograder dir', run_id);
                                   }
-                                  cluster_scp(run_dir_path(username, run_id), 'autograder/' + run_id + '/submission', true, function(err) {
+                                  cluster_scp(run_dir_path(username, run_id) + '/student.zip', 'autograder/' + run_id + '/submission/student.zip', true, function(err) {
                                       if (err) {
                                         return failed_starting_perf_tests(res,
                                              'Failed checking out student code', run_id);
@@ -1929,7 +1950,8 @@ function arr_contains(target, arr) {
 }
 
 function failed_validation(err_msg) {
-  return {success: false, msg: err_msg};
+    log('failed_validation: ' + err_msg);
+    return {success: false, msg: err_msg};
 }
 
 function validate_instructor_pom(pom_file) {
@@ -2071,6 +2093,7 @@ function run_completed(run_status) {
   return run_status !== FAILED_STATUS && run_status !== CANCELLED_STATUS;
 }
 
+// Conductor-local assignment directory path
 function assignment_path(assignment_id) {
     return __dirname + '/instructor-tests/' + assignment_id;
 }
@@ -2079,6 +2102,7 @@ function rubric_file_path(assignment_id) {
     return assignment_path(assignment_id) + '/rubric.json';
 }
 
+// Local run directory
 function run_dir_path(username, run_id) {
     return __dirname + '/submissions/' + username + '/' + run_id;
 }
@@ -2232,8 +2256,8 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
     }
   } else {
       log('calculate_score: forcing performance to 0 for run ' +
-              run_id + ', run_status=' + run_status + ', have log file? ' +
-              ('performance.' + ncores + '.txt' in log_files));
+              run_id + ', run_status=' + run_status + ', have performance ' +
+              'log file? ' + ('performance.' + ncores + '.txt' in log_files));
   }
 
   // Compute style score based on number of style violations
@@ -2585,10 +2609,13 @@ function finish_perf_tests(run_status, run, perf_runs,
                         }
                     }
                 }
+                log('finish_perf_tests: run=' + run.run_id +
+                    ', any_missing_files? ' + any_missing_files +
+                    ', any_infrastructure_failures? ' +
+                    any_infrastructure_failures);
 
                 if (any_infrastructure_failures) {
-                    return abort_and_reset_perf_tests(err,
-                        'cluster infrastructure');
+                    return abort_and_reset_perf_tests(err, 'cluster infrastructure');
                 }
 
                 var characteristic_speedup = "";
@@ -2603,28 +2630,32 @@ function finish_perf_tests(run_status, run, perf_runs,
                         if (get_file_size(performance_path) < MAX_FILE_SIZE) {
                             var test_contents = fs.readFileSync(performance_path, 'utf8');
                             var test_lines = test_contents.split('\n');
-                            for (var line in test_lines) {
-                                if (string_starts_with(line, PERF_TEST_LBL)) {
-                                    var tokens = line.split(' ');
+                            for (var line_index in test_lines) {
+                                if (string_starts_with(test_lines[line_index], PERF_TEST_LBL)) {
+                                    var tokens = test_lines[line_index].split(' ');
                                     var testname = tokens[2];
                                     if (testname === characteristic_test) {
                                         var seq_time = parseInt(tokens[3]);
                                         var parallel_time = parseInt(tokens[4]);
                                         var speedup = seq_time / parallel_time;
                                         characteristic_speedup = speedup.toFixed(3);
+                                        log('finish_perf_tests: run=' + run.run_id + ', setting characteristic speedup ' + characteristic_speedup);
                                         break;
                                     }
                                 }
                             }
+                        } else {
+                            log('finish_perf_tests: ' + performance_path +
+                                    ' is >= ' + MAX_FILE_SIZE + ' bytes');
                         }
                     }
                 }
 
                 pgquery("UPDATE runs SET status='" + run_status + "'," +
-                    "finish_time=CURRENT_TIMESTAMP," +
-                    "passed_performance=($1)," +
-                    "characteristic_speedup=($2) WHERE run_id=($3)",
-                    [!any_missing_files, characteristic_speedup, run.run_id],
+                        "finish_time=CURRENT_TIMESTAMP," +
+                        "passed_performance=($1)," +
+                        "characteristic_speedup=($2) WHERE run_id=($3)",
+                        [!any_missing_files, characteristic_speedup, run.run_id],
                     function(err, rows) {
                         if (err) {
                             log('Error updating performance run state: ' + err);
