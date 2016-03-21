@@ -195,67 +195,81 @@ function svn_cmd(cmd, cb) {
     return svn_client.cmd(cmd, cb);
 }
 
-function connect_to_cluster(cb) {
-  log('connect_to_cluster: Connecting to cluster of cluster type ' +
-      CLUSTER_TYPE + ', cluster hostname ' + CLUSTER_HOSTNAME +
-      ', cluster user ' + CLUSTER_USER);
-  if (CLUSTER_TYPE === 'slurm') {
-    var conn = new ssh.Client();
-    conn.on('ready', function() {
-      cb(conn, null);
-    }).on('error', function(err) {
-      cb(null, err);
-    }).connect({
-        host: CLUSTER_HOSTNAME,
-        port: 22,
-        username: CLUSTER_USER,
-        privateKey: clusterPrivateKey,
-        passphrase: CLUSTER_PRIVATE_KEY_PASSPHRASE,
-        readyTimeout: 60000
-    });
-  } else {
-    // local
-    cb('localhost', null);
-  }
-}
+var cluster_connection = null;
 
-function disconnect_from_cluster(conn) {
-  if (CLUSTER_TYPE === 'slurm') {
-    conn.end();
-  }
+// Should only be used from run_cluster_cmd
+function connect_to_cluster(cb) {
+    log('connect_to_cluster: Connecting to cluster ' + CLUSTER_HOSTNAME +
+            ' of type ' + CLUSTER_TYPE + ' as user ' + CLUSTER_USER);
+    if (CLUSTER_TYPE === 'slurm') {
+        if (cluster_connection) {
+            cb();
+        } else {
+            var conn = new ssh.Client();
+            conn.on('ready', function() {
+                cluster_connection = conn;
+                cb();
+            }).on('error', function(err) {
+                log('connect_to_cluster: Error connecting to ' + CLUSTER_HOSTNAME +
+                    ' as user ' + CLUSTER_USER + ': ' + err);
+                connect_to_cluster(cb);
+            }).connect({
+                host: CLUSTER_HOSTNAME,
+                port: 22,
+                username: CLUSTER_USER,
+                privateKey: clusterPrivateKey,
+                passphrase: CLUSTER_PRIVATE_KEY_PASSPHRASE,
+                readyTimeout: 60000
+            });
+        }
+    } else {
+        // local
+        cb();
+    }
 }
 
 // Assume this is called after 'ready' event is triggered.
-function run_cluster_cmd(conn, lbl, cluster_cmd, cb) {
+function run_cluster_cmd(lbl, cluster_cmd, cb) {
     log('run_cluster_cmd[' + lbl + ']: ' + cluster_cmd);
 
     if (CLUSTER_TYPE === 'slurm') {
-        conn.exec(cluster_cmd, function(err, stream) {
+        var handler = function(err, stream) {
             if (err) {
-                disconnect_from_cluster(conn);
                 log('[' + lbl + '] err=' + err);
-                return cb(lbl, conn, null, null);
+                return cb(lbl, null, null);
             }
             var acc_stdout = '';
             var acc_stderr = '';
             stream.on('close', function(code, signal) {
                 if (code !== 0) {
-                    disconnect_from_cluster(conn);
                     log('[' + lbl + '] code=' + code + ' signal=' + signal);
-                    return cb(lbl, conn, acc_stdout, acc_stderr);
+                    return cb(lbl, acc_stdout, acc_stderr);
                 } else {
                     if (VERBOSE) {
                         log('[' + lbl + '] code=' + code + ' signal=' + signal);
                         log('[' + lbl + '] stdout=' + acc_stdout);
                         log('[' + lbl + '] stderr=' + acc_stderr);
                     }
-                    return cb(null, conn, acc_stdout, acc_stderr);
+                    return cb(null, acc_stdout, acc_stderr);
                 }
             }).on('data', function(data) {
                 acc_stdout = acc_stdout + data;
             }).stderr.on('data', function(data) {
                 acc_stderr = acc_stderr + data;
             });
+        };
+
+        // Most of the time will return right away because cluster_connection will be initialized
+        connect_to_cluster(function() {
+            try {
+                cluster_connection.exec(cluster_cmd, handler);
+            } catch (err) {
+                log('run_cluster_cmd: caught error from existing connection: ' + err);
+                cluster_connection.end();
+                connect_to_cluster(function() {
+                    run_cluster_cmd(lbl, cluster_cmd, cb);
+                });
+            }
         });
     } else {
       var args = ['-c', cluster_cmd];
@@ -268,14 +282,14 @@ function run_cluster_cmd(conn, lbl, cluster_cmd, cb) {
       run.on('close', function(code) {
         if (code !== 0) {
           log('[' + lbl + '] code=' + code + ', cluster_cmd=' + cluster_cmd);
-          return cb(lbl, conn, acc_stdout, acc_stderr);
+          return cb(lbl, acc_stdout, acc_stderr);
         } else {
           if (VERBOSE) {
             log('[' + lbl + '] code=' + code);
             log('[' + lbl + '] stdout=' + acc_stdout);
             log('[' + lbl + '] stderr=' + acc_stderr);
           }
-          return cb(null, conn, acc_stdout, acc_stderr);
+          return cb(null, acc_stdout, acc_stderr);
         }
       });
     }
@@ -358,7 +372,7 @@ function batched_cluster_scp(file_pairs, is_upload, cb) {
   return batched_cluster_scp_helper(0, file_pairs, is_upload, stat, cb);
 }
 
-function create_cluster_dir(dirname, conn, cb) {
+function create_cluster_dir(dirname, cb) {
   if (dirname.trim().search('/') === 0) {
     throw 'Remote directory names should be relative to $HOME, got ' + dirname;
   }
@@ -370,13 +384,13 @@ function create_cluster_dir(dirname, conn, cb) {
     MKDIR_CMD = 'mkdir -p ' + process.env.HOME + '/' + dirname;
   }
 
-  run_cluster_cmd(conn, 'creating dir', MKDIR_CMD, cb);
+  run_cluster_cmd('creating dir', MKDIR_CMD, cb);
 }
 
-function get_cluster_env_var(varname, conn, cb) {
+function get_cluster_env_var(varname, cb) {
   var ECHO_CMD = 'echo $' + varname;
-  run_cluster_cmd(conn, 'getting variable ' + varname, ECHO_CMD,
-      function(err, conn, stdout, stderr) {
+  run_cluster_cmd('getting variable ' + varname, ECHO_CMD,
+      function(err, stdout, stderr) {
         if (err) {
           cb(err, null);
         } else {
@@ -385,12 +399,12 @@ function get_cluster_env_var(varname, conn, cb) {
       });
 }
 
-function batched_get_cluster_env_var_helper(index, varnames, conn, acc, cb) {
+function batched_get_cluster_env_var_helper(index, varnames, acc, cb) {
   if (index >= varnames.length) {
     return cb(null, acc);
   }
 
-  get_cluster_env_var(varnames[index], conn, function(err, val) {
+  get_cluster_env_var(varnames[index], function(err, val) {
     if (err) {
       cb(err, null);
     } else {
@@ -399,20 +413,20 @@ function batched_get_cluster_env_var_helper(index, varnames, conn, acc, cb) {
         cb('Missing cluster environment variable ' + varnames[index]);
       } else {
         acc[varnames[index]] = val;
-        batched_get_cluster_env_var_helper(index + 1, varnames, conn, acc, cb);
+        batched_get_cluster_env_var_helper(index + 1, varnames, acc, cb);
       }
     }
   });
 }
 
-function batched_get_cluster_env_var(varnames, conn, cb) {
-  return batched_get_cluster_env_var_helper(0, varnames, conn, {}, cb);
+function batched_get_cluster_env_var(varnames, cb) {
+  return batched_get_cluster_env_var_helper(0, varnames, {}, cb);
 }
 
-function get_cluster_os(conn, cb) {
+function get_cluster_os(cb) {
   var UNAME_CMD = 'uname';
-  run_cluster_cmd(conn, 'get cluster OS', UNAME_CMD,
-      function(err, conn, stdout, stderr) {
+  run_cluster_cmd('get cluster OS', UNAME_CMD,
+      function(err, stdout, stderr) {
         if (err) {
           log('get_cluster_os: err=' + err + ', stderr=' + stderr);
           cb(err, null);
@@ -875,29 +889,20 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
                 fs.renameSync(req.files.checkstyle_config[0].path,
                     assignment_dir + '/checkstyle.xml');
 
-                connect_to_cluster(function(conn, err) {
+                create_cluster_dir('autograder-assignments', function(err, stdout, stderr) {
                     if (err) {
                         return redirect_with_err('/admin', res, req,
-                            'Error connecting to cluster');
-                    } else {
-                        create_cluster_dir('autograder-assignments', conn, function(err, conn, stdout, stderr) {
-                            if (err) {
-                                disconnect_from_cluster(conn);
-                                return redirect_with_err('/admin', res, req,
-                                    'Unable to create directory on cluster');
-                            }
-
-                            cluster_scp(assignment_dir, 'autograder-assignments/' + assignment_id, true, function(err) {
-                                disconnect_from_cluster(conn);
-                                if (err) {
-                                    return redirect_with_err('/admin', res, req,
-                                        'Unable to upload to cluster');
-                                }
-
-                                return res.redirect('/admin');
-                            });
-                        });
+                            'Unable to create directory on cluster');
                     }
+
+                    cluster_scp(assignment_dir, 'autograder-assignments/' + assignment_id, true, function(err) {
+                        if (err) {
+                            return redirect_with_err('/admin', res, req,
+                                'Unable to upload to cluster');
+                        }
+
+                        return res.redirect('/admin');
+                    });
                 });
 
             });
@@ -923,19 +928,14 @@ function handle_reupload(req, res, missing_msg, target_filename) {
                 var assignment_dir = assignment_path(assignment_id);
                 fs.renameSync(req.file.path, assignment_dir + '/' + target_filename);
 
-                connect_to_cluster(function(conn, err) {
+                cluster_scp(assignment_dir + '/' + target_filename,
+                    'autograder-assignments/' + assignment_id + '/', true,
+                    function(err) {
                     if (err) {
-                        return redirect_with_err('/admin', res, req,
-                            'Error connecting to cluster');
+                        return redirect_with_err('/admin.html', res, req,
+                            'Unable to upload to cluster');
                     }
-                    cluster_scp(assignment_dir + '/' + target_filename, 'autograder-assignments/' + assignment_id + '/', true, function(err) {
-                        disconnect_from_cluster(conn);
-                        if (err) {
-                            return redirect_with_err('/admin.html', res, req,
-                                'Unable to upload to cluster');
-                        }
-                        return res.redirect('/admin');
-                    });
+                    return res.redirect('/admin');
                 });
             });
   }
@@ -1482,11 +1482,18 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     var output_file = '/tmp/performance.' + run_id + '.' + curr_cores + '.txt';
     var final_output_file = '$CELLO_WORK_DIR/performance.' + curr_cores + '.txt';
 
+    // Limit the number of cores this test can use
+    var cpu_list = '0';
+    for (var c = 1; c < curr_cores; c++) {
+        cpu_list += ',' + c;
+    }
+
     slurmFileContents += 'touch ' + output_file + '\n';
     slurmFileContents += 'touch ' + final_output_file + '\n';
-    slurmFileContents += loop_over_all_perf_tests('java ' + securityFlags + ' -Dhj.numWorkers=' +
-      curr_cores + ' -javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
-      'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
+    slurmFileContents += loop_over_all_perf_tests('taskset --cpu-list ' +
+        cpu_list + ' java ' + securityFlags + ' -Dhj.numWorkers=' + curr_cores +
+        ' -javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
+        'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
     slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c)\n';
     slurmFileContents += 'if [[ "$NBYTES" -gt "' + MAX_FILE_SIZE + '" ]]; then\n';
     slurmFileContents += '    echo "' + excessiveFileSizeMsg + '" > ' + final_output_file + '\n';
@@ -1539,9 +1546,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   return slurmFileContents;
 }
 
-function failed_starting_perf_tests(res, failure_msg, run_id, conn) {
-  if (conn) disconnect_from_cluster(conn);
-
+function failed_starting_perf_tests(res, failure_msg, run_id) {
   pgquery(
       "UPDATE runs SET status='" + FAILED_STATUS + "',finish_time=CURRENT_TIMESTAMP," +
       "cello_msg='An internal error occurred initiating the performance " +
@@ -1582,7 +1587,7 @@ app.post('/local_run_finished', function(req, res, next) {
     pgquery_no_err("SELECT * FROM runs WHERE done_token=($1)", [done_token],
         res, req, function(rows) {
       if (rows.length != 1) {
-          return failed_starting_perf_tests(res, 'Unexpected # of rows', -1, null);
+          return failed_starting_perf_tests(res, 'Unexpected # of rows', -1);
       } else if (rows[0].status !== TESTING_CORRECTNESS_STATUS) {
           log('local_run_finished: received duplicate local run ' +
               'completion notifications from viola for run ' +
@@ -1603,7 +1608,7 @@ app.post('/local_run_finished', function(req, res, next) {
         pgquery_no_err("SELECT * FROM users WHERE user_id=($1)", [user_id], res,
                 req, function(rows) {
           if (rows.length != 1) {
-              return failed_starting_perf_tests(res, 'Invalid user ID', run_id, null);
+              return failed_starting_perf_tests(res, 'Invalid user ID', run_id);
           } else {
             var username = rows[0].user_name;
             var wants_notification = rows[0].receive_email_notifications;
@@ -1669,7 +1674,7 @@ app.post('/local_run_finished', function(req, res, next) {
                         send_email(email_for_user(username), subject, '', function(err) {
                           if (err) {
                             return failed_starting_perf_tests(res,
-                              'Failed sending notification e-mail, err=' + err, run_id, null);
+                              'Failed sending notification e-mail, err=' + err, run_id);
                           } else {
                             return res.send(
                               JSON.stringify({ status: 'Success' }));
@@ -1681,185 +1686,174 @@ app.post('/local_run_finished', function(req, res, next) {
                       }
                   });
               } else {
-                  connect_to_cluster(function(conn, err) {
-                      if (err) {
-                        return failed_starting_perf_tests(res,
-                          'Error connecting to cluster, err=' + err, run_id, null);
-                      }
+                  pgquery_no_err(
+                    "SELECT * FROM assignments WHERE assignment_id=($1)",
+                    [assignment_id], res, req, function(rows) {
+                    var assignment_name = rows[0].name; 
+                    var assignment_jvm_args = rows[0].jvm_args;
+                    var timeout_str = rows[0].performance_timeout_str;
+                    var ncores = rows[0].ncores;
+                    var custom_slurm_flags_str = rows[0].custom_slurm_flags;
+                    var custom_slurm_flags_list =
+                      custom_slurm_flags_str.split(',');
 
-                      pgquery_no_err(
-                        "SELECT * FROM assignments WHERE assignment_id=($1)",
-                        [assignment_id], res, req, function(rows) {
-                        var assignment_name = rows[0].name; 
-                        var assignment_jvm_args = rows[0].jvm_args;
-                        var timeout_str = rows[0].performance_timeout_str;
-                        var ncores = rows[0].ncores;
-                        var custom_slurm_flags_str = rows[0].custom_slurm_flags;
-                        var custom_slurm_flags_list =
-                          custom_slurm_flags_str.split(',');
+                  pgquery_no_err("UPDATE runs SET status='" +
+                      IN_CLUSTER_QUEUE_STATUS + "',viola_msg=$1," +
+                      "ncores=$2 WHERE run_id=($3)",
+                      [viola_err_msg, ncores, run_id], res, req, function(rows) {
+                        log('local_run_finished: Connecting to ' +
+                            CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
+                        // Launch on the cluster
 
-                      pgquery_no_err("UPDATE runs SET status='" +
-                          IN_CLUSTER_QUEUE_STATUS + "',viola_msg=$1," +
-                          "ncores=$2 WHERE run_id=($3)",
-                          [viola_err_msg, ncores, run_id], res, req, function(rows) {
-                            log('local_run_finished: Connecting to ' +
-                                CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
-                            // Launch on the cluster
+                        var vars = ['HOME',
+                                    'LIGHTWEIGHT_JAVA_PROFILER_HOME',
+                                    'JUNIT_JAR', 'HAMCREST_JAR',
+                                    'ASM_JAR', 'RR_AGENT_JAR', 'RR_RUNTIME_JAR'];
+                        batched_get_cluster_env_var(vars, function(err, vals) {
+                          if (err) {
+                            return failed_starting_perf_tests(res,
+                              'Error getting cluster env variables, err=' + err, run_id);
+                          }
 
-                            var vars = ['HOME',
-                                        'LIGHTWEIGHT_JAVA_PROFILER_HOME',
-                                        'JUNIT_JAR', 'HAMCREST_JAR',
-                                        'ASM_JAR', 'RR_AGENT_JAR', 'RR_RUNTIME_JAR'];
-                            batched_get_cluster_env_var(vars, conn, function(err, vals) {
-                              if (err) {
-                                return failed_starting_perf_tests(res,
-                                  'Error getting cluster env variables, err=' + err, run_id, conn);
-                              }
+                          var home_dir = vals.HOME;
+                          var java_profiler_dir = vals.LIGHTWEIGHT_JAVA_PROFILER_HOME;
+                          var rr_agent_jar = vals.RR_AGENT_JAR;
+                          var rr_runtime_jar = vals.RR_RUNTIME_JAR;
 
-                              var home_dir = vals.HOME;
-                              var java_profiler_dir = vals.LIGHTWEIGHT_JAVA_PROFILER_HOME;
-                              var rr_agent_jar = vals.RR_AGENT_JAR;
-                              var rr_runtime_jar = vals.RR_RUNTIME_JAR;
+                          var cello_work_dir = get_cello_work_dir(home_dir, run_id);
+                          var dependency_list_cmd = 'mvn -f ' +
+                              cello_work_dir +
+                              '/assignment/instructor_pom.xml ' +
+                              '-DoutputAbsoluteArtifactFilename=true ' +
+                              'dependency:list';
+                          var localPolicyPath = AUTOGRADER_HOME + '/shared/security.policy';
 
-                              var cello_work_dir = get_cello_work_dir(home_dir, run_id);
-                              var dependency_list_cmd = 'mvn -f ' +
-                                  cello_work_dir +
-                                  '/assignment/instructor_pom.xml ' +
-                                  '-DoutputAbsoluteArtifactFilename=true ' +
-                                  'dependency:list';
-                              var localPolicyPath = AUTOGRADER_HOME + '/shared/security.policy';
+                          var junit = vals.JUNIT_JAR;
+                          var hamcrest = vals.HAMCREST_JAR;
+                          var asm = vals.ASM_JAR;
 
-                              var junit = vals.JUNIT_JAR;
-                              var hamcrest = vals.HAMCREST_JAR;
-                              var asm = vals.ASM_JAR;
+                          get_cluster_os(function(err, os) {
+                            if (err) {
+                              return failed_starting_perf_tests(res,
+                                'Failed getting cluster OS', run_id);
+                            }
 
-                              get_cluster_os(conn, function(err, os) {
-                                if (err) {
-                                  return failed_starting_perf_tests(res,
-                                    'Failed getting cluster OS', run_id, conn);
-                                }
-
-                                create_cluster_dir('autograder/' + run_id, conn,
-                                    function(err, conn, stdout, stderr) {
+                            create_cluster_dir('autograder/' + run_id,
+                                function(err, stdout, stderr) {
+                                  if (err) {
+                                    return failed_starting_perf_tests(res,
+                                      'Failed creating autograder dir', run_id);
+                                  }
+                                  cluster_scp(run_dir_path(username, run_id), 'autograder/' + run_id + '/submission', true, function(err) {
                                       if (err) {
                                         return failed_starting_perf_tests(res,
-                                          'Failed creating autograder dir', run_id, conn);
+                                             'Failed checking out student code', run_id);
                                       }
-                                      cluster_scp(run_dir_path(username, run_id), 'autograder/' + run_id + '/submission', true, function(err) {
+                                      run_cluster_cmd(
+                                              'instructor files cp',
+                                              'cp -r autograder-assignments/' + assignment_id + ' autograder/' + run_id + '/assignment', function(err, stdout, stderr) {
                                           if (err) {
                                             return failed_starting_perf_tests(res,
-                                                 'Failed checking out student code', run_id, conn);
+                                                  'Failed checking out assignment code', run_id);
                                           }
-                                          run_cluster_cmd(conn,
-                                                  'instructor files cp',
-                                                  'cp -r autograder-assignments/' + assignment_id + ' autograder/' + run_id + '/assignment', function(err, conn, stdout, stderr) {
+                                          run_cluster_cmd('get dependencies', dependency_list_cmd,
+                                            function(err, stdout, stderr) {
                                               if (err) {
-                                                return failed_starting_perf_tests(res,
-                                                      'Failed checking out assignment code', run_id, conn);
+                                                return failed_starting_perf_tests(res, 'Failed getting dependencies', run_id);
                                               }
-                                              run_cluster_cmd(conn, 'get dependencies', dependency_list_cmd,
-                                                function(err, conn, stdout, stderr) {
-                                                  if (err) {
-                                                    return failed_starting_perf_tests(res, 'Failed getting dependencies', run_id, conn);
-                                                  }
-                                                  var dependency_lines = stdout.split('\n');
-                                                  var dependency_lines_index = 0;
-                                                  while (dependency_lines_index < dependency_lines.length &&
-                                                      dependency_lines[dependency_lines_index] !== '[INFO] The following files have been resolved:') {
-                                                    dependency_lines_index += 1;
-                                                  }
-                                                  var hj = null;
-                                                  while (dependency_lines_index < dependency_lines.length &&
-                                                      dependency_lines[dependency_lines_index] !== '[INFO] ') {
-                                                    var curr = dependency_lines[dependency_lines_index];
-                                                    var components = curr.split(':');
-                                                    var path = components[5];
+                                              var dependency_lines = stdout.split('\n');
+                                              var dependency_lines_index = 0;
+                                              while (dependency_lines_index < dependency_lines.length &&
+                                                  dependency_lines[dependency_lines_index] !== '[INFO] The following files have been resolved:') {
+                                                dependency_lines_index += 1;
+                                              }
+                                              var hj = null;
+                                              while (dependency_lines_index < dependency_lines.length &&
+                                                  dependency_lines[dependency_lines_index] !== '[INFO] ') {
+                                                var curr = dependency_lines[dependency_lines_index];
+                                                var components = curr.split(':');
+                                                var path = components[5];
 
-                                                    if (components[1] == 'hjlib-cooperative') {
-                                                      hj = path;
+                                                if (components[1] == 'hjlib-cooperative') {
+                                                  hj = path;
+                                                }
+                                                dependency_lines_index += 1;
+                                              }
+                                              if (hj === null) {
+                                                return failed_starting_perf_tests(res, 'Unable to find HJ JAR on cluster', run_id);
+                                              }
+
+                                              fs.appendFileSync(run_dir + '/cello.slurm',
+                                                get_slurm_file_contents(run_id, home_dir,
+                                                  username, assignment_id, assignment_name,
+                                                  java_profiler_dir, os, ncores, junit,
+                                                  hamcrest, hj, asm, rr_agent_jar, rr_runtime_jar,
+                                                  assignment_jvm_args, timeout_str, enable_profiling,
+                                                  custom_slurm_flags_list));
+
+                                              var copies = [{src: run_dir + '/cello.slurm',
+                                                             dst: 'autograder/' + run_id + '/cello.slurm'},
+                                                            {src: localPolicyPath,
+                                                             dst: 'autograder/' + run_id + '/security.policy'}];
+                                              batched_cluster_scp(copies, true, function(stat) {
+                                                  for (var i = 0; i < stat.length; i++) {
+                                                    if (!stat[i].success) {
+                                                      log('scp err copying to ' + stat[i].dst + ' from ' + stat[i].src + ', ' + stat[i].err);
+                                                      return failed_starting_perf_tests(res,
+                                                        'Failed scp-ing cello.slurm+security.policy', run_id);
                                                     }
-                                                    dependency_lines_index += 1;
-                                                  }
-                                                  if (hj === null) {
-                                                    return failed_starting_perf_tests(res, 'Unable to find HJ JAR on cluster', run_id, conn);
                                                   }
 
-                                                  fs.appendFileSync(run_dir + '/cello.slurm',
-                                                    get_slurm_file_contents(run_id, home_dir,
-                                                      username, assignment_id, assignment_name,
-                                                      java_profiler_dir, os, ncores, junit,
-                                                      hamcrest, hj, asm, rr_agent_jar, rr_runtime_jar,
-                                                      assignment_jvm_args, timeout_str, enable_profiling,
-                                                      custom_slurm_flags_list));
-
-                                                  var copies = [{src: run_dir + '/cello.slurm',
-                                                                 dst: 'autograder/' + run_id + '/cello.slurm'},
-                                                                {src: localPolicyPath,
-                                                                 dst: 'autograder/' + run_id + '/security.policy'}];
-                                                  batched_cluster_scp(copies, true, function(stat) {
-                                                      for (var i = 0; i < stat.length; i++) {
-                                                        if (!stat[i].success) {
-                                                          log('scp err copying to ' + stat[i].dst + ' from ' + stat[i].src + ', ' + stat[i].err);
-                                                          return failed_starting_perf_tests(res,
-                                                            'Failed scp-ing cello.slurm+security.policy', run_id, conn);
-                                                        }
-                                                      }
-
-                                                      if (CLUSTER_TYPE === 'slurm') {
-                                                          run_cluster_cmd(conn, 'sbatch',
-                                                              'sbatch ~/autograder/' + run_id + '/cello.slurm',
-                                                              function(err, conn, stdout, stderr) {
-                                                                  if (err) {
-                                                                    return failed_starting_perf_tests(res,
-                                                                      'Failed submitting job', run_id, conn);
-                                                                  }
-                                                                  disconnect_from_cluster(conn);
-                                                                  // stdout == Submitted batch job 474297
-                                                                  if (stdout.search('Submitted batch job ') !== 0) {
-                                                                      return failed_starting_perf_tests(res,
-                                                                              'Failed submitting batch job', run_id, conn);
-                                                                  }
-
-                                                                  var tokens = stdout.trim().split(' ');
-                                                                  var job_id = tokens[tokens.length - 1];
-                                                                  pgquery_no_err('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [job_id, run_id], res, req, function(rows) {
-                                                                          return res.send(
-                                                                              JSON.stringify({ status: 'Success' }));
-                                                                      });
-                                                              });
-                                                      } else {
-                                                        // local cluster
-                                                        var cello_script = process.env.HOME + '/autograder/' + run_id + '/cello.slurm';
-                                                        log('local_run_finished: starting local run from ' + cello_script);
-                                                        var run_cmd = '/bin/bash ' + cello_script;
-
-                                                        run_cluster_cmd(conn, 'local perf run', run_cmd,
-                                                            function(err, conn, stdout, stderr) {
-
-                                                              fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stdout.txt', stdout);
-                                                              fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stderr.txt', stderr);
-
+                                                  if (CLUSTER_TYPE === 'slurm') {
+                                                      run_cluster_cmd('sbatch',
+                                                          'sbatch ~/autograder/' + run_id + '/cello.slurm',
+                                                          function(err, stdout, stderr) {
                                                               if (err) {
                                                                 return failed_starting_perf_tests(res,
-                                                                  'Failed running on local cluster', run_id, conn);
+                                                                  'Failed submitting job', run_id);
+                                                              }
+                                                              // stdout == Submitted batch job 474297
+                                                              if (stdout.search('Submitted batch job ') !== 0) {
+                                                                  return failed_starting_perf_tests(res,
+                                                                          'Failed submitting batch job', run_id);
                                                               }
 
-                                                              // Close connection to outermost DB connection
-                                                              disconnect_from_cluster(conn);
-
-                                                              pgquery_no_err('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [LOCAL_JOB_ID, run_id], res, req, function(rows) {
+                                                              var tokens = stdout.trim().split(' ');
+                                                              var job_id = tokens[tokens.length - 1];
+                                                              pgquery_no_err('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [job_id, run_id], res, req, function(rows) {
                                                                       return res.send(
                                                                           JSON.stringify({ status: 'Success' }));
                                                                   });
-                                                            });
-                                                      }
-                                                  });
-                                            });
-                                          });
+                                                          });
+                                                  } else {
+                                                    // local cluster
+                                                    var cello_script = process.env.HOME + '/autograder/' + run_id + '/cello.slurm';
+                                                    log('local_run_finished: starting local run from ' + cello_script);
+                                                    var run_cmd = '/bin/bash ' + cello_script;
+
+                                                    run_cluster_cmd('local perf run', run_cmd,
+                                                        function(err, stdout, stderr) {
+
+                                                          fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stdout.txt', stdout);
+                                                          fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stderr.txt', stderr);
+
+                                                          if (err) {
+                                                            return failed_starting_perf_tests(res,
+                                                              'Failed running on local cluster', run_id);
+                                                          }
+
+                                                          pgquery_no_err('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [LOCAL_JOB_ID, run_id], res, req, function(rows) {
+                                                                  return res.send(
+                                                                      JSON.stringify({ status: 'Success' }));
+                                                              });
+                                                        });
+                                                  }
+                                              });
                                         });
+                                      });
                                     });
-                              });
-                              });
+                                });
+                          });
                           });
                       });
                   });
@@ -2476,17 +2470,11 @@ app.post('/cancel/:run_id', function(req, res, next) {
                                     return redirect_with_success('/overview',
                                         res, req, cancellationSuccessMsg);
                                 } else {
-                                    connect_to_cluster(function(conn, err) {
+                                    run_cluster_cmd('job cancellation', 'scancel ' + job_id, function(err, stdout, stderr) {
                                         if (err) {
-                                            return redirect_with_err('/overview', res, req, 'Failed connecting to cluster for cancellation.');
+                                            return redirect_with_err('/overview', res, req, 'Failed cancelling job on cluster');
                                         }
-                                        run_cluster_cmd(conn, 'job cancellation', 'scancel ' + job_id, function(err, conn, stdout, stderr) {
-                                            disconnect_from_cluster(conn);
-                                            if (err) {
-                                                return redirect_with_err('/overview', res, req, 'Failed cancelling job on cluster');
-                                            }
-                                            return redirect_with_success('/overview', res, req, cancellationSuccessMsg);
-                                        });
+                                        return redirect_with_success('/overview', res, req, cancellationSuccessMsg);
                                     });
                                 }
                             } else {
@@ -2519,24 +2507,21 @@ function set_check_cluster_timeout(t) {
     setTimeout(check_cluster, t);
 }
 
-function abort_and_reset_perf_tests(err, conn, lbl) {
+function abort_and_reset_perf_tests(err, lbl) {
   log('abort_and_reset_perf_tests: ' + lbl + ' err=' + err);
-  disconnect_from_cluster(conn);
   set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
 }
 
-function finish_perf_tests(run_status, run, conn, perf_runs,
+function finish_perf_tests(run_status, run, perf_runs,
         current_perf_runs_index) {
     pgquery('SELECT * FROM users WHERE user_id=($1)', [run.user_id], function(err, rows) {
         if (err) {
-            disconnect_from_cluster(conn);
             set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
             return;
         }
 
         if (rows.length != 1) {
             log('Missing user, user_id=' + run.user_id);
-            disconnect_from_cluster(conn);
             set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
             return;
         }
@@ -2559,9 +2544,9 @@ function finish_perf_tests(run_status, run, conn, perf_runs,
         var LOCAL_STDERR = LOCAL_FOLDER + '/cluster-stderr.txt';
         var LOCAL_SLURM = LOCAL_FOLDER + '/cello.slurm';
 
-        get_cluster_os(conn, function(err, os) {
+        get_cluster_os(function(err, os) {
             if (err) {
-                return abort_and_reset_perf_tests(err, conn, 'OS');
+                return abort_and_reset_perf_tests(err, 'OS');
             }
 
             var copies = [{ src: REMOTE_STDOUT, dst: LOCAL_STDOUT },
@@ -2602,7 +2587,7 @@ function finish_perf_tests(run_status, run, conn, perf_runs,
                 }
 
                 if (any_infrastructure_failures) {
-                    return abort_and_reset_perf_tests(err, conn,
+                    return abort_and_reset_perf_tests(err,
                         'cluster infrastructure');
                 }
 
@@ -2643,7 +2628,6 @@ function finish_perf_tests(run_status, run, conn, perf_runs,
                     function(err, rows) {
                         if (err) {
                             log('Error updating performance run state: ' + err);
-                            disconnect_from_cluster(conn);
                             set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
                             return;
                         }
@@ -2656,15 +2640,15 @@ function finish_perf_tests(run_status, run, conn, perf_runs,
                             var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
                             send_email(email_for_user(username), subject, '', function(err) {
                                 if (err) {
-                                    return abort_and_reset_perf_tests(err, conn,
+                                    return abort_and_reset_perf_tests(err,
                                         'sending notification email');
                                 }
                                 check_cluster_helper(perf_runs,
-                                    current_perf_runs_index + 1, conn);
+                                    current_perf_runs_index + 1);
                             });
                         } else {
                             check_cluster_helper(perf_runs,
-                                current_perf_runs_index + 1, conn);
+                                current_perf_runs_index + 1);
                         }
                 });
             });
@@ -2672,9 +2656,8 @@ function finish_perf_tests(run_status, run, conn, perf_runs,
     });
 }
 
-function check_cluster_helper(perf_runs, i, conn) {
+function check_cluster_helper(perf_runs, i) {
     if (i >= perf_runs.length) {
-        disconnect_from_cluster(conn);
         set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
     } else {
         var run = perf_runs[i];
@@ -2684,9 +2667,8 @@ function check_cluster_helper(perf_runs, i, conn) {
         if (CLUSTER_TYPE === 'slurm') {
             var SACCT = "sacct --noheader -j " + run.job_id + " -u " + CLUSTER_USER + " " +
                 "--format=JobName,State | grep hab | awk '{ print $2 }'";
-            run_cluster_cmd(conn, 'checking job status', SACCT, function(err, conn, stdout, stderr) {
+            run_cluster_cmd('checking job status', SACCT, function(err, stdout, stderr) {
                 if (err) {
-                  disconnect_from_cluster(conn);
                   set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
                   return;
                 }
@@ -2717,32 +2699,31 @@ function check_cluster_helper(perf_runs, i, conn) {
 
                 if (run_status) {
                     if (finished) {
-                        finish_perf_tests(run_status, run, conn, perf_runs, i);
+                        finish_perf_tests(run_status, run, perf_runs, i);
                     } else {
                         pgquery("UPDATE runs SET status='" +
                                 TESTING_PERFORMANCE_STATUS +
                                 "' WHERE run_id=($1)", [run.run_id], function(err, rows) {
                                     if (err) {
                                         log('Error updating running perf tests: ' + err);
-                                        disconnect_from_cluster(conn);
                                         set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
                                         return;
                                     }
-                                    check_cluster_helper(perf_runs, i + 1, conn);
+                                    check_cluster_helper(perf_runs, i + 1);
                                 });
                     }
                 } else {
-                    check_cluster_helper(perf_runs, i + 1, conn);
+                    check_cluster_helper(perf_runs, i + 1);
                 }
             });
         } else {
             if (run.job_id !== LOCAL_JOB_ID) {
                 log('Unexpected job_id "' + run.job_id + '" for local cluster');
-                check_cluster_helper(perf_runs, i + 1, conn);
+                check_cluster_helper(perf_runs, i + 1);
             } else {
                 log('check_cluster_helper: marking ' + run.run_id + ' ' +
                         FINISHED_STATUS);
-                finish_perf_tests(FINISHED_STATUS, run, conn, perf_runs, i);
+                finish_perf_tests(FINISHED_STATUS, run, perf_runs, i);
             }
         }
     }
@@ -2764,58 +2745,49 @@ function check_cluster() {
                 }
 
                 var perf_runs = rows;
-                connect_to_cluster(function(conn, err) {
-                    if (err) {
-                      log('Error connecting to cluster with ' +
-                        CLUSTER_USER + '@' + CLUSTER_HOSTNAME + ', err=' + err);
-                      set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
-                    } else {
-                        var running_jobs_str = '[';
-                        for (var i = 0; i < perf_runs.length; i++) {
-                            running_jobs_str = running_jobs_str + ' ' + perf_runs[i].run_id;
-                        }
-                        running_jobs_str = running_jobs_str + ' ]';
-                        log('check_cluster: found ' + perf_runs.length +
-                            ' running jobs ' + running_jobs_str);
-                        check_cluster_helper(perf_runs, 0, conn);
-                    }
-                });
+                var running_jobs_str = '[';
+                for (var i = 0; i < perf_runs.length; i++) {
+                    running_jobs_str = running_jobs_str + ' ' + perf_runs[i].run_id;
+                }
+                running_jobs_str = running_jobs_str + ' ]';
+                log('check_cluster: found ' + perf_runs.length +
+                    ' running jobs ' + running_jobs_str);
+                check_cluster_helper(perf_runs, 0);
         });
     }
 }
 
-function abort_and_reset_cluster_file_checking(conn, err) {
-  if (conn) disconnect_from_cluster(conn);
+function abort_and_reset_cluster_file_checking(err) {
   if (err) log('abort_and_reset_cluster_file_checking: err=' + err);
   setTimeout(check_for_old_runs_on_cluster, CHECK_CLUSTER_FILES_PERIOD_MS);
 }
 
-function delete_old_folders(folder_index, folder_list, conn) {
+function delete_old_folders(folder_index, folder_list) {
     if (folder_index >= folder_list.length) {
-        return abort_and_reset_cluster_file_checking(conn, null);
+        return abort_and_reset_cluster_file_checking(null);
     }
 
     var folder = folder_list[folder_index];
-    run_cluster_cmd(conn, 'stat run dir', 'stat --format=%Y autograder/' + folder,
-            function(err, conn, stdout, stderr) {
+    run_cluster_cmd('stat run dir', 'stat --format=%Y autograder/' + folder,
+            function(err, stdout, stderr) {
                 if (err) {
-                    return abort_and_reset_cluster_file_checking(conn, err);
+                    return abort_and_reset_cluster_file_checking(err);
                 }
                 var current_epoch_time = Math.floor((new Date()).getTime() / 1000);
                 var folder_epoch = parseInt(stdout);
                 if (current_epoch_time - folder_epoch >= CLUSTER_FOLDER_RETENTION_TIME_S) {
                     log('delete_old_folders: deleting old cluster dir autograder/' + folder);
 
-                    run_cluster_cmd(conn, 'delete old cluster dir',
+                    run_cluster_cmd('delete old cluster dir',
                         'rm -r autograder/' + folder,
-                        function(err, conn, stdout, stderr) {
+                        function(err, stdout, stderr) {
                             if (err) {
-                                return abort_and_reset_cluster_file_checking(conn, err);
+                                return abort_and_reset_cluster_file_checking(err);
                             }
-                            delete_old_folders(folder_index + 1, folder_list, conn);
+                            delete_old_folders(folder_index + 1, folder_list);
                         });
                 } else {
-                    delete_old_folders(folder_index + 1, folder_list, conn);
+                    delete_old_folders(folder_index + 1, folder_list);
                 }
             });
 }
@@ -2823,30 +2795,23 @@ function delete_old_folders(folder_index, folder_list, conn) {
 function check_for_old_runs_on_cluster() {
     log('check_for_old_runs_on_cluster: starting...');
 
-    connect_to_cluster(function(conn, err) {
-        if (err) {
-            return abort_and_reset_cluster_file_checking(null, err);
-        }
-
-        run_cluster_cmd(conn, 'list run dirs', "ls -l autograder/",
-            function(err, conn, stdout, stderr) {
-                if (err) {
-                    return abort_and_reset_cluster_file_checking(conn, err);
+    run_cluster_cmd('list run dirs', "ls -l autograder/",
+        function(err, stdout, stderr) {
+            if (err) {
+                return abort_and_reset_cluster_file_checking(err);
+            }
+            var run_dirs = [];
+            var lines = stdout.split('\n');
+            for (var l = 1; l < lines.length; l++) {
+                var line = lines[l];
+                var tokens = line.split(' ');
+                if (tokens.length == 9) {
+                    run_dirs.push(tokens[8]);
                 }
-                var run_dirs = [];
-                var lines = stdout.split('\n');
-                for (var l = 1; l < lines.length; l++) {
-                    var line = lines[l];
-                    var tokens = line.split(' ');
-                    if (tokens.length == 9) {
-                        run_dirs.push(tokens[8]);
-                    }
-                }
+            }
 
-                delete_old_folders(0, run_dirs, conn);
-            });
-
-    });
+            delete_old_folders(0, run_dirs);
+        });
 }
 
 function launch() {

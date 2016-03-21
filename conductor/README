@@ -34,6 +34,8 @@ The Habanero AutoGrader for parallel programs
  - AUTOGRADER_HOME
      | This environment variable must be set everywhere (node server, Viola
      | server, cluster) to the root autograder directory.
+ - jshint
+     | sudo npm install -g jshint
 
 ===== npm installation instructions =====
 
