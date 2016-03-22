@@ -50,5 +50,6 @@ CREATE TABLE IF NOT EXISTS runs
  start_time TIMESTAMP DEFAULT current_timestamp,
  finish_time TIMESTAMP,
  on_behalf_of INTEGER,
- characteristic_speedup TEXT NOT NULL DEFAULT ''
+ characteristic_speedup TEXT NOT NULL DEFAULT '',
+ tag TEXT NOT NULL DEFAULT ''
 );

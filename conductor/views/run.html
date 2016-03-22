@@ -4,6 +4,15 @@
     <link rel="stylesheet" href="/third_party/bootstrap.min.css">
     <script src="/third_party/jquery-2.1.4.min.js"></script>
     <script src="/third_party/bootstrap.min.js"></script>
+    <script type="text/javascript">
+        $(function() {
+                $('#tag_button').click(function(e) {
+                        e.preventDefault();
+                        $('#tag_form').submit();
+                    });
+        });
+    </script>
+
   </head>
 
   <body>
@@ -49,6 +58,14 @@
             <td bgcolor=<%= (!passed_performance ? '#FF3333' : '#00FF00') %> ><center><b>Performance</b></center></td>
         <% } %>
       </tr></table>
+      <form id="tag_form" action="/update_tag/<%= run_id %>" method="post">
+          <div class="input-group">
+              <input name="tag" type="text" class="form-control" placeholder="Optional Tag" id="tag" value="<%= run_tag %>"/>
+              <span class="input-group-btn">
+                  <button class="btn btn-default" type="button" id="tag_button">Update</button>
+              </span>
+          </div>
+      </form>
 
       </div>
     </div>

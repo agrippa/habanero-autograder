@@ -1152,9 +1152,30 @@ app.post('/set_assignment_visible/:assignment_id', function(req, res, next) {
   var assignment_id = req.params.assignment_id;
   var set_visible = req.body.set_visible;
 
-
   return update_assignment_field(set_visible, 'visible',
       assignment_id, res, req);
+});
+
+app.post('/update_tag/:run_id', function(req, res, next) {
+    var run_id = req.params.run_id;
+    var tag = req.body.tag;
+
+    log('update_tag: run_id=' + run_id + ', tag="' + tag + '"');
+
+    pgquery_no_err('SELECT * FROM runs WHERE run_id=($1)', [run_id], res, req, function(rows) {
+        if (rows.length != 1) {
+            return redirect_with_err('/overview', res, req, 'Invalid run');
+        }
+
+        // Permission check
+        if (rows[0].user_id !== req.session.user_id) {
+            return res.sendStatus(401);
+        }
+
+        pgquery_no_err("UPDATE runs SET tag=($1) WHERE run_id=($2)", [tag, run_id], res, req, function(rows) {
+            return redirect_with_success('/run/' + run_id, res, req, 'Updated tag');
+        });
+    });
 });
 
 function get_user_id_for_name(username, cb) {
@@ -1284,28 +1305,50 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                     }
 
                     // Export student submission from their SVN folder
-                    svn_cmd(['export', svn_url, temp_dir + '/submission_svn_folder'], function(err, data) {
+                    svn_cmd(['export', svn_url, temp_dir + '/submission_svn_folder'], function(err, stdout) {
                       if (is_actual_svn_err(err)) {
                           return run_setup_failed(run_id, res, req,
                               'An error occurred exporting from "' + svn_url + '"', err);
-                      } 
+                      }
 
-                      var output = fs.createWriteStream(run_dir + '/student.zip');
-                      var archive = archiver('zip');
-                      output.on('close', function() {
-                        temp.cleanupSync();
-                        return trigger_viola_run(run_dir,
-                            assignment_name, run_id, done_token,
-                            assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb);
+                      svn_cmd(['log', svn_url, '-l', '1'], function(err, stdout) {
+                          if (is_actual_svn_err(err)) {
+                              return run_setup_failed(run_id, res, req,
+                                  'An error occurred getting the log messages from SVN', err);
+                          }
+
+                          var stdout_lines = stdout.trim().match(/[^\r\n]+/g);
+                          // ignore the 1st, 2nd, 3rd, and last lines
+                          var tag = 'revision ' + stdout_lines[1].split(' ')[0] + ': ';
+                          for (var i = 2; i < stdout_lines.length - 1; i++) {
+                              tag = tag + stdout_lines[i] + ' ';
+                          }
+                          tag = tag.trim();
+
+                          pgquery('UPDATE runs SET tag=($1) WHERE run_id=($2)', [tag, run_id], function(err, rows) {
+                              if (err) {
+                                  return run_setup_failed(run_id, res, req,
+                                      'An error occurred setting the run tag', err);
+                              }
+
+                              var output = fs.createWriteStream(run_dir + '/student.zip');
+                              var archive = archiver('zip');
+                              output.on('close', function() {
+                                temp.cleanupSync();
+                                return trigger_viola_run(run_dir,
+                                    assignment_name, run_id, done_token,
+                                    assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb);
+                              });
+                              archive.on('error', function(err){
+                                  return run_setup_failed(run_id, res, req,
+                                      'An error occurred zipping your submission.', err);
+                              });
+                              archive.pipe(output);
+                              archive.bulk([{expand: true, cwd: temp_dir, src: ["**/*"], dot: true }
+                                    ]);
+                              archive.finalize();
+                          });
                       });
-                      archive.on('error', function(err){
-                          return run_setup_failed(run_id, res, req,
-                              'An error occurred zipping your submission.', err);
-                      });
-                      archive.pipe(output);
-                      archive.bulk([{expand: true, cwd: temp_dir, src: ["**/*"], dot: true }
-                            ]);
-                      archive.finalize();
                     });
                   });
                 }
@@ -2332,6 +2375,7 @@ app.get('/run/:run_id', function(req, res, next) {
         var passed_checkstyle = rows[0].passed_checkstyle;
         var compiled = rows[0].compiled;
         var passed_all_correctness = rows[0].passed_all_correctness;
+        var run_tag = rows[0].tag;
         // e.g. 2016-02-13 18:30:20.028665
         var start_time = moment(rows[0].start_time);
         var correctness_only = rows[0].correctness_only;
@@ -2437,7 +2481,8 @@ app.get('/run/:run_id', function(req, res, next) {
                                      has_performance_tests: !correctness_only,
                                      passed_performance: passed_performance,
                                      run_status: run_status,
-                                     assignment_name: assignment_name};
+                                     assignment_name: assignment_name,
+                                     run_tag: run_tag};
                   if (score) {
                     log('run: calculated score ' + score.total + '/' +
                             score.total_possible + ' for run ' + run_id);
