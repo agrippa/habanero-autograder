@@ -31,11 +31,12 @@ public class ImportFromConductorRunnable implements Runnable {
                     } catch (InterruptedException ie) { }
                 }
                 curr = toImport.poll();
+
+                ViolaUtil.log("received import job for run %d, %d import jobs pending\n", curr.getRunId(),
+                        toImport.size());
             }
 
             final String lbl = String.format("run=%d", curr.getRunId());
-
-            ViolaUtil.log("received import job for run %d\n", curr.getRunId());
 
             File assignmentDir = null;
             File submissionDir = null;

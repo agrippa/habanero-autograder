@@ -358,9 +358,9 @@ function cluster_scp(src_file, dst_file, is_upload, cb) {
                   cb(err);
               });
           } else {
-              log('cluster_scp: download to ' + dst_file + ' took ' +
-                  (new Date().getTime() - start_time) + ' ms, err=' + err);
               cluster_sftp.fastGet(src_file, dst_file, function(err) {
+                  log('cluster_scp: download to ' + dst_file + ' took ' +
+                      (new Date().getTime() - start_time) + ' ms, err=' + err);
                   cb(err);
               });
           }
