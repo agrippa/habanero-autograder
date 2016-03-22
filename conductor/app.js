@@ -2664,12 +2664,13 @@ function finish_perf_tests(run_status, run, perf_runs,
                     if (stat[i].success) {
                         log('finish_perf_tests: successfully copied back to ' + stat[i].dst);
                     } else {
-                        if (string_ends_with(stat[i].err.toString().trim(), 'No such file or directory')) {
+                        var trimmed_err = stat[i].err.toString().trim();
+                        if (string_ends_with(trimmed_err, 'No such file or directory') || string_ends_with(trimmed_err, 'No such file')) {
                             log('finish_perf_tests: failed copying ' + stat[i].dst + ' because it didn\'t exist on the cluster');
                             any_missing_files = true;
                         } else {
-                            log('finish_perf_tests: scp err copying to ' + stat[i].dst + ', err=' +
-                                stat[i].err);
+                            log('finish_perf_tests: scp err copying to ' +
+                                stat[i].dst + ', err="' + stat[i].err + '"');
                             any_infrastructure_failures = true;
                         }
                     }
