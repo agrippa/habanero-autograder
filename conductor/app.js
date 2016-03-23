@@ -1082,6 +1082,14 @@ app.post('/update_ncores/:assignment_id', function(req, res, next) {
     var assignment_id = req.params.assignment_id;
     var ncores = req.body.ncores;
 
+    var tokens = ncores.split(',');
+    for (var t = 0; t < tokens.length; t++) {
+        if (isNaN(tokens[t])) {
+            return redirect_with_err('/admin', res, req,
+                'Invalid format for ncores, must be comma separated integers');
+        }
+    }
+
     return update_assignment_field(ncores, 'ncores', assignment_id, res, req);
   }
 });
