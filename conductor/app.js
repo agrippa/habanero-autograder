@@ -1577,7 +1577,8 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     slurmFileContents += 'touch ' + output_file + '\n';
     slurmFileContents += 'touch ' + final_output_file + '\n';
     slurmFileContents += loop_over_all_perf_tests('taskset --cpu-list ' +
-        cpu_list + ' java ' + securityFlags + ' -Dhj.numWorkers=' + curr_cores +
+        cpu_list + ' java ' + securityFlags + ' -Dautograder.ncores=' +
+        curr_cores + ' -Dhj.numWorkers=' + curr_cores +
         ' -javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
         'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
     slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c)\n';
@@ -2200,7 +2201,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
   // Compute correctness score based on test failures
   var correctness = total_correctness_possible;
   if (run_completed(run_status) && 'correct.txt' in log_files) {
-    var correctness_content = log_files['correct.txt'].toString('utf8');
+    var correctness_content = log_files['correct.txt'].contents.toString('utf8');
     var correctness_lines = correctness_content.split('\n');
 
     /*
@@ -2278,7 +2279,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
   // Compute performance score based on performance of each test
   var performance = 0.0;
   if (run_completed(run_status) && 'performance.' + ncores + '.txt' in log_files) {
-    var multi_thread_content = log_files['performance.' + ncores + '.txt'].toString('utf8');
+    var multi_thread_content = log_files['performance.' + ncores + '.txt'].contents.toString('utf8');
 
     var multi_thread_lines = multi_thread_content.split('\n');
 
@@ -2328,7 +2329,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
   // Compute style score based on number of style violations
   var style = rubric.style.max_points_off;
   if ('checkstyle.txt' in log_files) {
-    var checkstyle_content = log_files['checkstyle.txt'].toString('utf8');
+    var checkstyle_content = log_files['checkstyle.txt'].contents.toString('utf8');
     var checkstyle_lines = checkstyle_content.split('\n');
 
     var iter = 0;
@@ -2358,6 +2359,25 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
                        { name: 'Style', points: style,
                          total: rubric.style.max_points_off }
                       ]};
+}
+
+function get_default_file_lbl(file) {
+    if (file === 'cluster-stderr.txt') {
+        return 'Cluster STDERR';
+    } else if (file === 'cluster-stdout.txt') {
+        return 'Cluster STDOUT';
+    } else if (file === 'compile.txt') {
+        return 'Compilation';
+    } else if (file === 'correct.txt') {
+        return 'Correctness Tests';
+    } else if (file === 'findbugs.txt') {
+        return 'FindBugs Analysis';
+    } else if (string_starts_with(file, 'performance.') && string_ends_with(file, '.txt')) {
+        var tokens = file.split('.');
+        return 'Performance Tests (' + tokens[1] + ' cores)';
+    } else {
+        return file.charAt(0).toUpperCase() + file.substring(1, file.length - 4);
+    }
 }
 
 app.get('/run/:run_id', function(req, res, next) {
@@ -2449,7 +2469,8 @@ app.get('/run/:run_id', function(req, res, next) {
                             ' of size ' + file_size + ' bytes');
                         if (file_size <= MAX_DISPLAY_FILE_SIZE) {
                           var contents = fs.readFileSync(path, 'utf8');
-                          log_files[file] = contents;
+                          log_files[file] = { contents: contents,
+                              lbl: get_default_file_lbl(file) };
 
                           if (cello_err === null) {
                               if (file === 'cluster-stdout.txt') {
@@ -2472,7 +2493,9 @@ app.get('/run/:run_id', function(req, res, next) {
                               }
                           }
                         } else {
-                            log_files[file] = 'Unusually large file, unable to display.';
+                            log_files[file] = {
+                                contents: 'Unusually large file, unable to display.',
+                                lbl: get_default_file_lbl(file) };
                         }
                     }
                   });
