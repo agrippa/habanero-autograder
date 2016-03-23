@@ -1536,9 +1536,9 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
 
   slurmFileContents += 'function cleanup() {\n';
   slurmFileContents += '    echo Cleaning up\n';
-  slurmFileContents += '    rm -f /tmp/performance*\n';
+  slurmFileContents += '    rm -f /tmp/performance* /tmp/profiler*\n';
   slurmFileContents += '}\n';
-  slurmFileContents += 'trap cleanup SIGHUP SIGINT SIGTERM\n\n';
+  slurmFileContents += 'trap cleanup SIGHUP SIGINT SIGTERM EXIT\n\n';
 
   slurmFileContents += 'mkdir $CELLO_WORK_DIR/submission/student\n';
   slurmFileContents += 'unzip -qq $CELLO_WORK_DIR/submission/student.zip -d $CELLO_WORK_DIR/submission/student/\n';
@@ -1578,38 +1578,38 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
                    hamcrest_jar, asm_jar];
   if (hj_jar) classpath.push(hj_jar);
 
-  // Loop over scalability tests
-  for (var t = 0; t < ncores.length; t++) {
-    var curr_cores = ncores[t];
-    var output_file = '/tmp/performance.' + run_id + '.' + curr_cores + '.txt';
-    var final_output_file = '$CELLO_WORK_DIR/performance.' + curr_cores + '.txt';
+  if (!enable_profiling) {
+    // Loop over scalability tests
+    for (var t = 0; t < ncores.length; t++) {
+      var curr_cores = ncores[t];
+      var output_file = '/tmp/performance.' + run_id + '.' + curr_cores + '.txt';
+      var final_output_file = '$CELLO_WORK_DIR/performance.' + curr_cores + '.txt';
 
-    // Limit the number of cores this test can use
-    var cpu_list = '0';
-    for (var c = 1; c < curr_cores; c++) {
-        cpu_list += ',' + c;
+      // Limit the number of cores this test can use
+      var cpu_list = '0';
+      for (var c = 1; c < curr_cores; c++) {
+          cpu_list += ',' + c;
+      }
+
+      slurmFileContents += 'touch ' + output_file + '\n';
+      slurmFileContents += 'touch ' + final_output_file + '\n';
+      slurmFileContents += loop_over_all_perf_tests('taskset --cpu-list ' +
+          cpu_list + ' java ' + securityFlags + ' -Dautograder.ncores=' +
+          curr_cores + ' -Dhj.numWorkers=' + curr_cores +
+          (hj_jar ? (' -javaagent:' + hj_jar) : ' ') + ' -cp ' + classpath.join(':') + ' ' +
+          'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
+      slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c)\n';
+      slurmFileContents += 'if [[ "$NBYTES" -gt "' + MAX_FILE_SIZE + '" ]]; then\n';
+      slurmFileContents += '    echo "' + excessiveFileSizeMsg + '" > ' + final_output_file + '\n';
+      slurmFileContents += '    echo "" >> ' + final_output_file + '\n';
+      slurmFileContents += '    truncate --size ' + MAX_FILE_SIZE + ' ' + output_file + '\n';
+      slurmFileContents += 'fi\n';
+      slurmFileContents += 'cat ' + output_file + ' >> ' + final_output_file + '\n';
+      slurmFileContents += 'rm -f ' + output_file + '\n';
     }
-
-    slurmFileContents += 'touch ' + output_file + '\n';
-    slurmFileContents += 'touch ' + final_output_file + '\n';
-    slurmFileContents += loop_over_all_perf_tests('taskset --cpu-list ' +
-        cpu_list + ' java ' + securityFlags + ' -Dautograder.ncores=' +
-        curr_cores + ' -Dhj.numWorkers=' + curr_cores +
-        (hj_jar ? (' -javaagent:' + hj_jar) : ' ') + ' -cp ' + classpath.join(':') + ' ' +
-        'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
-    slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c)\n';
-    slurmFileContents += 'if [[ "$NBYTES" -gt "' + MAX_FILE_SIZE + '" ]]; then\n';
-    slurmFileContents += '    echo "' + excessiveFileSizeMsg + '" > ' + final_output_file + '\n';
-    slurmFileContents += '    echo "" >> ' + final_output_file + '\n';
-    slurmFileContents += '    truncate --size ' + MAX_FILE_SIZE + ' ' + output_file + '\n';
-    slurmFileContents += 'fi\n';
-    slurmFileContents += 'cat ' + output_file + ' >> ' + final_output_file + '\n';
-    slurmFileContents += 'rm -f ' + output_file + '\n';
-  }
-  slurmFileContents += '\n';
-
-  if (enable_profiling) {
-      var profiler_output = '$CELLO_WORK_DIR/profiler.txt';
+    slurmFileContents += '\n';
+  } else { // enable_profiling
+      var profiler_output = '/tmp/profiler.' + run_id + '.txt';
       slurmFileContents += 'touch ' + profiler_output + '\n';
       slurmFileContents += loop_over_all_perf_tests(
         'java ' + securityFlags + ' -Dhj.numWorkers=' + max_n_cores +

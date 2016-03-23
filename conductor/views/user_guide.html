@@ -45,11 +45,10 @@
         quicker jobs if you are not optimizing for performance yet.</p>
 
         <p>Selecting <b>Enable Performance Profiling</b> will run the submission
-        through a third-party tool for performance analysis at the end of the
-        performance tests on the cluster, producing diagnostics on where the
+        through a third-party tool for performance analysis instead of executing
+        the performance tests on the cluster, producing diagnostics on where the
         submission is spending its time. However, be aware that a bug in this
-        third-party tool may cause the job on the cluster to hang. For this
-        reason, performance profiling is disabled by default.</p>
+        third-party tool may cause the job on the cluster to hang.</p>
 
         <p>Finally, whether you chose ZIP upload or SVN export, click <b>Run</b>
         and your job will be started!</p>
@@ -89,27 +88,23 @@
             <li><b>Checkstyle</b>: This section shows the output of running
             the Checkstyle tool on the user code using an instructor-provided
             Checkstyle configuration.</li>
-            <li><b>Compile</b>: This section shows the output of compiling
+            <li><b>Compilation</b>: This section shows the output of compiling
             the student-provided Maven project.</li>
-            <li><b>Correct</b>: This section shows the output of running all
+            <li><b>Correctness Tests</b>: This section shows the output of running all
             correctness unit tests on the student-provided code. Correctness
             tests are identified by files ending with *CorrectnessTest.java.
             Note that before executing these tests, the instructor can choose to
             replace any test files with reference copies.</li>
-            <li><b>Findbugs</b>: This section shows the output of running
+            <li><b>FindBugs Analysis</b>: This section shows the output of running
             the Findbugs static checking tool on the student-submitted code.
             Information on Findbugs is available
             <a target="_blank" href=http://findbugs.sourceforge.net/>here</a>.</li>
-            <li><b>Cluster-stderr</b>: The prints to stderr while compiling a
+            <li><b>Cluster STDERR</b>: The prints to stderr while compiling a
             submission on the compute cluster.</li>
-            <li><b>Cluster-stdout</b>: The prints to stdout while compiling a
+            <li><b>Cluster STDOUT</b>: The prints to stdout while compiling a
             submission on the compute cluster.</li>
-            <li><b>Performance.1</b>: Prints performed while running a
-            single-threaded performance experiment on the cluster. These results
-            are used to calculate speedup of the parallel version.</li>
-            <li><b>Performance.N</b>: Prints performed while running a
-            multi-threaded performance experiment on the cluster. N can be any
-            integer, and indicates the number of threads used.</li>
+            <li><b>Performance Tests (N cores)</b>: Prints performed while running a
+            performance experiment on the cluster with N cores/threads.</li>
             <li><b>Traces</b>: A list of traces and trace counts during a sample
             run of each test class. Higher trace counts for a given location
             indicate that the program is spending more time there.</li>
