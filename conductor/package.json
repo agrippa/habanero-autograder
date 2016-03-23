@@ -18,7 +18,6 @@
     "fs-extra": "0.26.2",
     "svn-spawn": "0.1.4",
     "ssh2": "0.4.12",
-    "scp": "0.0.3",
     "nodemailer": "1.10.0",
     "moment": "2.11.2",
     "archiver": "0.21.0",

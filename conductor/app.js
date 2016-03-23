@@ -10,7 +10,6 @@ var fs = require('fs-extra');
 var svn = require('svn-spawn');
 var crypto = require('crypto');
 var ssh = require('ssh2');
-var scp = require('scp');
 var child_process = require('child_process');
 var nodemailer = require('nodemailer');
 var url = require('url');
@@ -343,17 +342,17 @@ function get_file_size(path) {
 }
 
 // Only supports individual files, assumes parent directories are already created
-function cluster_scp(src_file, dst_file, is_upload, cb) {
+function cluster_copy(src_file, dst_file, is_upload, cb) {
   if (is_upload) {
     if (dst_file.trim().search('/') === 0) {
       throw 'All remote directories should be relative, but got ' + dst_file;
     }
-    log('cluster_scp: transferring ' + src_file + ' on local machine to ' + dst_file + ' on cluster');
+    log('cluster_copy: transferring ' + src_file + ' on local machine to ' + dst_file + ' on cluster');
   } else {
     if (src_file.trim().search('/') === 0) {
       throw 'All remote directories should be relative, but got ' + src_file;
     }
-    log('cluster_scp: transferring ' + src_file + ' on cluster to ' + dst_file + ' on local machine');
+    log('cluster_copy: transferring ' + src_file + ' on cluster to ' + dst_file + ' on local machine');
   }
 
   if (CLUSTER_TYPE === 'slurm') {
@@ -363,13 +362,13 @@ function cluster_scp(src_file, dst_file, is_upload, cb) {
       connect_to_cluster(function() {
           if (is_upload) {
               cluster_sftp.fastPut(src_file, dst_file, function(err) {
-                  log('cluster_scp: upload from ' + src_file + ' took ' +
+                  log('cluster_copy: upload from ' + src_file + ' took ' +
                       (new Date().getTime() - start_time) + ' ms, err=' + err);
                   cb(err);
               });
           } else {
               cluster_sftp.fastGet(src_file, dst_file, function(err) {
-                  log('cluster_scp: download to ' + dst_file + ' took ' +
+                  log('cluster_copy: download to ' + dst_file + ' took ' +
                       (new Date().getTime() - start_time) + ' ms, err=' + err);
                   cb(err);
               });
@@ -387,25 +386,25 @@ function cluster_scp(src_file, dst_file, is_upload, cb) {
   }
 }
 
-function batched_cluster_scp_helper(pair_index, file_pairs, is_upload, stat, cb) {
+function batched_cluster_copy_helper(pair_index, file_pairs, is_upload, stat, cb) {
   if (pair_index >= file_pairs.length) {
     return cb(stat);
   }
 
-  cluster_scp(file_pairs[pair_index].src, file_pairs[pair_index].dst, is_upload,
+  cluster_copy(file_pairs[pair_index].src, file_pairs[pair_index].dst, is_upload,
       function(err) {
         if (err) {
           stat.push({dst: file_pairs[pair_index].dst, success: false, err: err});
         } else {
           stat.push({dst: file_pairs[pair_index].dst, success: true});
         }
-        return batched_cluster_scp_helper(pair_index + 1, file_pairs, is_upload, stat, cb);
+        return batched_cluster_copy_helper(pair_index + 1, file_pairs, is_upload, stat, cb);
       });
 }
 
-function batched_cluster_scp(file_pairs, is_upload, cb) {
+function batched_cluster_copy(file_pairs, is_upload, cb) {
   var stat = [];
-  return batched_cluster_scp_helper(0, file_pairs, is_upload, stat, cb);
+  return batched_cluster_copy_helper(0, file_pairs, is_upload, stat, cb);
 }
 
 function create_cluster_dir(dirname, cb) {
@@ -943,7 +942,7 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
                             'Unable to create directory on cluster');
                     }
 
-                    batched_cluster_scp(remote_copies, true, function(stat) {
+                    batched_cluster_copy(remote_copies, true, function(stat) {
                         for (var i = 0; i < stat.length; i++) {
                             if (!stat[i].success) {
                                 return redirect_with_err('/admin', res, req,
@@ -977,7 +976,7 @@ function handle_reupload(req, res, missing_msg, target_filename) {
                 var assignment_dir = assignment_path(assignment_id);
                 fs.renameSync(req.file.path, assignment_dir + '/' + target_filename);
 
-                cluster_scp(assignment_dir + '/' + target_filename,
+                cluster_copy(assignment_dir + '/' + target_filename,
                     'autograder-assignments/' + assignment_id + '/' + target_filename, true,
                     function(err) {
                     if (err) {
@@ -1848,7 +1847,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                     return failed_starting_perf_tests(res,
                                       'Failed creating autograder dir', run_id);
                                   }
-                                  cluster_scp(run_dir_path(username, run_id) + '/student.zip', 'autograder/' + run_id + '/submission/student.zip', true, function(err) {
+                                  cluster_copy(run_dir_path(username, run_id) + '/student.zip', 'autograder/' + run_id + '/submission/student.zip', true, function(err) {
                                       if (err) {
                                         return failed_starting_perf_tests(res,
                                              'Failed checking out student code', run_id);
@@ -1899,12 +1898,12 @@ app.post('/local_run_finished', function(req, res, next) {
                                                              dst: 'autograder/' + run_id + '/cello.slurm'},
                                                             {src: localPolicyPath,
                                                              dst: 'autograder/' + run_id + '/security.policy'}];
-                                              batched_cluster_scp(copies, true, function(stat) {
+                                              batched_cluster_copy(copies, true, function(stat) {
                                                   for (var i = 0; i < stat.length; i++) {
                                                     if (!stat[i].success) {
-                                                      log('scp err copying to ' + stat[i].dst + ' from ' + stat[i].src + ', ' + stat[i].err);
+                                                      log('err copying to ' + stat[i].dst + ' from ' + stat[i].src + ', ' + stat[i].err);
                                                       return failed_starting_perf_tests(res,
-                                                        'Failed scp-ing cello.slurm+security.policy', run_id);
+                                                        'Failed copying cello.slurm+security.policy', run_id);
                                                     }
                                                   }
 
@@ -2727,7 +2726,7 @@ function finish_perf_tests(run_status, run, perf_runs,
                 copies.push({ src: remote, dst: local });
             }
 
-            batched_cluster_scp(copies, false, function(stat) {
+            batched_cluster_copy(copies, false, function(stat) {
                 var any_missing_files = false;
                 var any_infrastructure_failures = false;
                 for (var i = 0; i < stat.length; i++) {
@@ -2739,7 +2738,7 @@ function finish_perf_tests(run_status, run, perf_runs,
                             log('finish_perf_tests: failed copying ' + stat[i].dst + ' because it didn\'t exist on the cluster');
                             any_missing_files = true;
                         } else {
-                            log('finish_perf_tests: scp err copying to ' +
+                            log('finish_perf_tests: err copying to ' +
                                 stat[i].dst + ', err="' + stat[i].err + '"');
                             any_infrastructure_failures = true;
                         }
