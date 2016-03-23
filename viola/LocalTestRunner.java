@@ -180,7 +180,12 @@ public class LocalTestRunner {
               mergeDirs(target, curr);
             }
           } else {
-            if (!curr.getName().endsWith("PerformanceTest.java")) {
+            if (curr.getName().endsWith("PerformanceTest.java")) {
+                 // Delete from the target directory if it exists.
+                 if (target.exists()) {
+                     target.delete();
+                 }
+            } else {
               /*
                * Don't copy over any JUnit tests except the correctness
                * ones. If something doesn't look like a test file that JUnit
@@ -345,6 +350,10 @@ public class LocalTestRunner {
              * test code into a single folder hierarchy.
              */
             mergeDirs(mainTestFolder, unzipped_instructor_test_dir);
+
+            /*
+             * Use the instructor-provided POM file.
+             */
             final File pom = new File(createdAssignmentDir, "instructor_pom.xml");
             if (!pom.exists()) {
                 throw new TestRunnerException("We appear to be missing the " +

@@ -11,10 +11,19 @@
         $('#assignment_id').val(lbl);
       }
 
-      function on_run_submission() {
-          $('#submit').prop('disabled', true);
-          $('#submit').prop('value', 'Submitting...');
-      }
+      var submitting = false;
+
+      $(function () {
+              $('#submit').click(function(e) {
+                      if (submitting) {
+                        e.preventDefault();
+                        $('#submit').prop('value', 'Already submitting...');
+                      } else {
+                        submitting = true;
+                        $('#submit').prop('value', 'Submitting...');
+                      }
+                  });
+      });
     </script>
   </head>
 
@@ -27,7 +36,7 @@
         <h3>Submit Test Run</h3>
         <hr/>
 
-        <form action="/submit_run" method="post" enctype="multipart/form-data">
+        <form id="submit_run_form" action="/submit_run" method="post" enctype="multipart/form-data">
 
           <div class="col-md-12;" align="center">
             <div class="dropdown col-md-4 col-md-offset-2" style="padding-right: 30px; padding-bottom: 10px;">
@@ -60,7 +69,7 @@
             </div>
           </div>
           <div class="col-md-12" style="padding-top: 10px">
-            <input style="width: 40%; margin:0 auto; display:block;" value="Run" id="submit" name="submit" type="submit" class="btn btn-primary" style="float:right" onclick="on_run_submission()"/>
+            <input style="width: 40%; margin:0 auto; display:block;" value="Run" id="submit" name="submit" type="submit" class="btn btn-primary" style="float:right"/>
           </div>
           <input name="assignment" type="hidden" value="" id="assignment_id"/>
         </form>
