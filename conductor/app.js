@@ -326,6 +326,8 @@ function run_cluster_cmd(lbl, cluster_cmd, cb) {
 }
 
 var MAX_FILE_SIZE = 10 * 1024 * 1024;
+// Account for inserted error message and two new lines
+var MAX_DISPLAY_FILE_SIZE = MAX_FILE_SIZE + excessiveFileSizeMsg.length + 2;
 
 function get_file_size(path) {
     var stats = fs.statSync(path);
@@ -1711,18 +1713,18 @@ app.post('/local_run_finished', function(req, res, next) {
             var correctness_tests_passed = false;
              
             if (fs.existsSync(checkstyle_txt) &&
-                  get_file_size(checkstyle_txt) < MAX_FILE_SIZE) {
+                  get_file_size(checkstyle_txt) < MAX_DISPLAY_FILE_SIZE) {
                 // Checkstyle passed?
                 var checkstyle_contents = fs.readFileSync(checkstyle_txt, 'utf8');
                 var checkstyle_new_lines = count_new_lines(checkstyle_contents);
                 checkstyle_passed = (checkstyle_new_lines === 0);
                 if (checkstyle_passed && fs.existsSync(compile_txt) &&
-                    get_file_size(compile_txt) < MAX_FILE_SIZE) {
+                    get_file_size(compile_txt) < MAX_DISPLAY_FILE_SIZE) {
                   // Successfully compiled?
                   var compile_contents = fs.readFileSync(compile_txt, 'utf8');
                   compile_passed = (compile_contents.indexOf('BUILD SUCCESS') != -1);
                   if (compile_passed && fs.existsSync(correct_txt) &&
-                          get_file_size(correct_txt) < MAX_FILE_SIZE) {
+                          get_file_size(correct_txt) < MAX_DISPLAY_FILE_SIZE) {
                     // Correctness tests passed?
                     var correct_contents = fs.readFileSync(correct_txt, 'utf8');
                     var lines = correct_contents.split('\n');
@@ -2445,7 +2447,7 @@ app.get('/run/:run_id', function(req, res, next) {
                         var file_size = get_file_size(path);
                         log('run: run_id=' + run_id + ' reading file ' + path +
                             ' of size ' + file_size + ' bytes');
-                        if (file_size < MAX_FILE_SIZE) {
+                        if (file_size <= MAX_DISPLAY_FILE_SIZE) {
                           var contents = fs.readFileSync(path, 'utf8');
                           log_files[file] = contents;
 
@@ -2453,7 +2455,6 @@ app.get('/run/:run_id', function(req, res, next) {
                               if (file === 'cluster-stdout.txt') {
                                   var lines = contents.split('\n');
                                   for (var i = 0; i < lines.length; i++) {
-                                      console.log(lines[i]);
                                       if (string_starts_with(lines[i], 'AUTOGRADER-ERROR')) {
                                           cello_err = lines[i].substring(17);
                                           break;
@@ -2703,7 +2704,7 @@ function finish_perf_tests(run_status, run, perf_runs,
                         var characteristic_test = rubric.performance.characteristic_test;
                         var performance_path = LOCAL_FOLDER + '/performance.' +
                             run.ncores + '.txt';
-                        if (get_file_size(performance_path) < MAX_FILE_SIZE) {
+                        if (get_file_size(performance_path) < MAX_DISPLAY_FILE_SIZE) {
                             var test_contents = fs.readFileSync(performance_path, 'utf8');
                             var test_lines = test_contents.split('\n');
                             for (var line_index in test_lines) {
@@ -2722,7 +2723,7 @@ function finish_perf_tests(run_status, run, perf_runs,
                             }
                         } else {
                             log('finish_perf_tests: ' + performance_path +
-                                    ' is >= ' + MAX_FILE_SIZE + ' bytes');
+                                    ' is >= ' + MAX_DISPLAY_FILE_SIZE + ' bytes');
                         }
                     }
                 }
@@ -2839,7 +2840,7 @@ function check_cluster_helper(perf_runs, i) {
 // Cluster functionality
 function check_cluster() {
     if (checkClusterActive) {
-        console.log('check_cluster: woke up and a cluster checker was already active?!');
+        log('check_cluster: woke up and a cluster checker was already active?!');
     } else {
         checkClusterActive = true;
         pgquery("SELECT * FROM runs WHERE (job_id IS NOT " +
