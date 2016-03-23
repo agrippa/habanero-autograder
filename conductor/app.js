@@ -1486,23 +1486,6 @@ function parse_scalability_tests(ncores_str) {
     return ncores;
 }
 
-function get_scalability_tests(ncores) {
-  var tests = [];
-  // tests.push(1);
-  tests.push(ncores);
-  /*
-  var curr_cores = 1;
-  while (curr_cores < ncores) {
-    tests.push(curr_cores);
-    curr_cores = 2 * curr_cores;
-  }
-  if (curr_cores / 2 != ncores) {
-    tests.push(ncores);
-  }
-  */
-  return tests;
-}
-
 function loop_over_all_perf_tests(cmd) {
   var acc = '';
   acc += 'for F in $(find src/test/java -name "*PerformanceTest.java"); do\n';
@@ -2332,8 +2315,9 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
           var multi_thread_lines = multi_thread_content.split('\n');
 
           for (var multi_thread_line in multi_thread_lines) {
-              if (string_starts_with(multi_thread_line, PERF_TEST_LBL)) {
-                  var tokens = multi_thread_line.split(' ');
+              if (string_starts_with(multi_thread_lines[multi_thread_line], PERF_TEST_LBL)) {
+                  var tokens = multi_thread_lines[multi_thread_line].split(' ');
+
                   var performance_testname = tokens[2];
                   var seq_time = parseInt(tokens[3]);
                   var parallel_time = parseInt(tokens[4]);
