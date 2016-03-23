@@ -2,6 +2,7 @@ grant {
   permission java.io.FilePermission "<<ALL FILES>>", "read";
   permission java.util.PropertyPermission "hj.*", "write";
   permission java.util.PropertyPermission "hj.*", "read";
+  permission java.util.PropertyPermission "autograder.*", "read";
   permission java.lang.RuntimePermission "*";
   permission java.lang.reflect.ReflectPermission "*";
 };
