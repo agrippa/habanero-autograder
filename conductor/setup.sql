@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS assignments
  jvm_args TEXT NOT NULL DEFAULT '',
  correctness_timeout_ms INTEGER NOT NULL DEFAULT 1200000,
  performance_timeout_str TEXT NOT NULL DEFAULT '00:10:00',
- ncores INTEGER NOT NULL DEFAULT 16,
+ ncores TEXT NOT NULL DEFAULT '16',
  custom_slurm_flags TEXT NOT NULL DEFAULT ''
 );
 
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS runs
  enable_profiling BOOLEAN NOT NULL DEFAULT FALSE,
  viola_msg TEXT NOT NULL DEFAULT '',
  cello_msg TEXT NOT NULL DEFAULT '',
- ncores INTEGER DEFAULT 0,
+ ncores TEXT NOT NULL DEFAULT '16',
  passed_checkstyle BOOLEAN NOT NULL DEFAULT FALSE,
  compiled BOOLEAN NOT NULL DEFAULT FALSE,
  passed_all_correctness BOOLEAN NOT NULL DEFAULT FALSE,
