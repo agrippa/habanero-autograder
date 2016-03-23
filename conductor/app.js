@@ -80,6 +80,14 @@ function send_email(to, subject, body, cb) {
   });
 }
 
+function max(l) {
+    var m = l[0];
+    for (var i = 1; i < l.length; i++) {
+        if (l[i] > m) m = l[i];
+    }
+    return m;
+}
+
 var POSTGRES_USERNAME = process.env.PGSQL_USER || 'postgres';
 var POSTGRES_PASSWORD = process.env.PGSQL_PASSWORD || 'foobar';
 var POSTGRES_USER_TOKEN = null;
@@ -1090,7 +1098,7 @@ app.post('/update_ncores/:assignment_id', function(req, res, next) {
         }
     }
 
-    return update_assignment_field(ncores, 'ncores', assignment_id, res, req);
+    return update_assignment_field("'" + ncores + "'", 'ncores', assignment_id, res, req);
   }
 });
 
@@ -1469,6 +1477,15 @@ function get_cello_work_dir(home_dir, run_id) {
   return home_dir + "/autograder/" + run_id;
 }
 
+function parse_scalability_tests(ncores_str) {
+    var tokens = ncores_str.split(',');
+    var ncores = [];
+    for (var t = 0; t < tokens.length; t++) {
+        ncores.push(parseInt(tokens[t]));
+    }
+    return ncores;
+}
+
 function get_scalability_tests(ncores) {
   var tests = [];
   // tests.push(1);
@@ -1498,20 +1515,27 @@ function loop_over_all_perf_tests(cmd) {
   return acc;
 }
 
+/*
+ * ncores should be an array of integers specifying the scalability tests we
+ * would like to run.
+ */
 function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     assignment_name, java_profiler_dir, os, ncores, junit_jar, hamcrest_jar, hj_jar,
     asm_jar, rr_agent_jar, rr_runtime_jar, assignment_jvm_args, timeout_str,
     enable_profiling, custom_slurm_flags) {
+  var max_n_cores = max(ncores);
+
   var slurmFileContents =
     "#!/bin/bash\n" +
     "\n" +
     "#SBATCH --job-name=habanero-autograder-" + run_id + "\n" +
     "#SBATCH --nodes=1\n" +
     "#SBATCH --ntasks-per-node=1\n" +
-    "#SBATCH --cpus-per-task=" + ncores + "\n" +
+    "#SBATCH --cpus-per-task=" + max_n_cores + "\n" +
     "#SBATCH --mem=16000m\n" +
     "#SBATCH --time=" + timeout_str + "\n" +
     "#SBATCH --export=ALL\n" +
+    "#SBATCH --exclusive\n" +
     "#SBATCH --partition=commons\n" +
     "#SBATCH --account=scavenge\n" +
     "#SBATCH --output=" + home_dir + "/autograder/" + run_id + "/stdout.txt\n" +
@@ -1568,11 +1592,12 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
 
   var remotePolicyPath = '$CELLO_WORK_DIR/security.policy';
   var securityFlags = '-Djava.security.manager -Djava.security.policy==' + remotePolicyPath;
-  var tests = get_scalability_tests(ncores);
   var classpath = ['.', 'target/classes', 'target/test-classes', junit_jar,
                    hamcrest_jar, hj_jar, asm_jar];
-  for (var t = 0; t < tests.length; t++) {
-    var curr_cores = tests[t];
+
+  // Loop over scalability tests
+  for (var t = 0; t < ncores.length; t++) {
+    var curr_cores = ncores[t];
     var output_file = '/tmp/performance.' + run_id + '.' + curr_cores + '.txt';
     var final_output_file = '$CELLO_WORK_DIR/performance.' + curr_cores + '.txt';
 
@@ -1604,7 +1629,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
       var profiler_output = '$CELLO_WORK_DIR/profiler.txt';
       slurmFileContents += 'touch ' + profiler_output + '\n';
       slurmFileContents += loop_over_all_perf_tests(
-        'java ' + securityFlags + ' -Dhj.numWorkers=' + ncores +
+        'java ' + securityFlags + ' -Dhj.numWorkers=' + max_n_cores +
         ' -agentpath:' + java_profiler_dir + '/liblagent.so ' +
         '-javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
         'org.junit.runner.JUnitCore $CLASSNAME >> ' + profiler_output + ' 2>&1 ; ' +
@@ -1787,7 +1812,7 @@ app.post('/local_run_finished', function(req, res, next) {
                     var assignment_name = rows[0].name; 
                     var assignment_jvm_args = rows[0].jvm_args;
                     var timeout_str = rows[0].performance_timeout_str;
-                    var ncores = rows[0].ncores;
+                    var ncores = parse_scalability_tests(rows[0].ncores);
                     var custom_slurm_flags_str = rows[0].custom_slurm_flags;
                     var custom_slurm_flags_list =
                       custom_slurm_flags_str.split(',');
@@ -1795,7 +1820,7 @@ app.post('/local_run_finished', function(req, res, next) {
                   pgquery_no_err("UPDATE runs SET status='" +
                       IN_CLUSTER_QUEUE_STATUS + "',viola_msg=$1," +
                       "ncores=$2 WHERE run_id=($3)",
-                      [viola_err_msg, ncores, run_id], res, req, function(rows) {
+                      [viola_err_msg, rows[0].ncores, run_id], res, req, function(rows) {
                         log('local_run_finished: Connecting to ' +
                             CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
                         // Launch on the cluster
@@ -2098,10 +2123,13 @@ function load_and_validate_rubric(rubric_file) {
     if (!rubric.performance.tests[p].hasOwnProperty('points_worth')) {
       return failed_validation('Performance test is missing points_worth');
     }
-    var points_worth = rubric.performance.tests[p].points_worth;
+    if (!rubric.performance.tests[p].hasOwnProperty('ncores')) {
+        return failed_validation('Performance test is missing ncores');
+    }
     if (!rubric.performance.tests[p].hasOwnProperty('grading')) {
       return failed_validation('Performance test is missing speedup grading');
     }
+    var points_worth = rubric.performance.tests[p].points_worth;
 
     for (var g = 0; g < rubric.performance.tests[p].grading.length; g++) {
       if (!rubric.performance.tests[p].grading[g].hasOwnProperty('bottom_inclusive')) {
@@ -2138,9 +2166,10 @@ function find_correctness_test_with_name(name, rubric) {
   return null;
 }
 
-function find_performance_test_with_name(name, rubric) {
+function find_performance_test_with_name_and_cores(name, cores, rubric) {
   for (var p = 0; p < rubric.performance.tests.length; p++) {
-    if (rubric.performance.tests[p].testname === name) {
+    if (rubric.performance.tests[p].testname === name &&
+            rubric.performance.tests[p].ncores === cores) {
       return rubric.performance.tests[p];
     }
   }
@@ -2183,6 +2212,7 @@ function run_dir_path(username, run_id) {
 
 function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
   var rubric_file = rubric_file_path(assignment_id);
+  var max_n_cores = max(ncores);
 
   var validated = load_and_validate_rubric(rubric_file);
   if (!validated.success) {
@@ -2284,54 +2314,66 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
     correctness = 0.0;
   }
 
+  var have_all_performance_files = true;
+  for (var i = 0; i < ncores.length; i++) {
+      if (!('performance.' + ncores[i] + '.txt' in log_files)) {
+          have_all_performance_files = false;
+          break;
+      }
+  }
+
   // Compute performance score based on performance of each test
   var performance = 0.0;
-  if (run_completed(run_status) && 'performance.' + ncores + '.txt' in log_files) {
-    var multi_thread_content = log_files['performance.' + ncores + '.txt'].contents.toString('utf8');
+  if (run_completed(run_status) && have_all_performance_files) {
+      for (var c = 0; c < ncores.length; c++) {
+          var curr_cores = ncores[c];
 
-    var multi_thread_lines = multi_thread_content.split('\n');
+          var multi_thread_content = log_files['performance.' + curr_cores + '.txt'].contents.toString('utf8');
+          var multi_thread_lines = multi_thread_content.split('\n');
 
-    for (var multi_thread_line in multi_thread_lines) {
-      if (string_starts_with(multi_thread_line, PERF_TEST_LBL)) {
-        var tokens = multi_thread_line.split(' ');
-        var performance_testname = tokens[2];
-        var seq_time = parseInt(tokens[3]);
-        var parallel_time = parseInt(tokens[4]);
+          for (var multi_thread_line in multi_thread_lines) {
+              if (string_starts_with(multi_thread_line, PERF_TEST_LBL)) {
+                  var tokens = multi_thread_line.split(' ');
+                  var performance_testname = tokens[2];
+                  var seq_time = parseInt(tokens[3]);
+                  var parallel_time = parseInt(tokens[4]);
 
-        log('calculate_score: found multi thread perf for test=' +
-                performance_testname + ', seq_time=' + seq_time + ', parallel_time=' +
-                parallel_time + ' for run ' + run_id);
+                  log('calculate_score: found multi thread perf for test=' +
+                          performance_testname + ', seq_time=' + seq_time + ', parallel_time=' +
+                          parallel_time + ' for run ' + run_id + ' and ncores=' + curr_cores);
 
-        var performance_test = find_performance_test_with_name(performance_testname, rubric);
-        if (performance_test) {
-          var speedup = seq_time / parallel_time;
-          var grading = performance_test.grading;
-          var test_score = performance_test.points_worth;
-          var matched = false;
-          for (var g = 0; g < grading.length && !matched; g++) {
-            var bottom_inclusive = grading[g].bottom_inclusive;
-            var top_exclusive = grading[g].top_exclusive;
-            if (bottom_inclusive <= speedup &&
-                (top_exclusive < 0.0 || top_exclusive > speedup)) {
-              matched = true;
-              test_score -= grading[g].points_off;
-              log('calculate_score: deducting ' +
-                      grading[g].points_off + ' points on test ' + performance_testname +
-                      ' for speedup of ' + speedup + ', in range ' +
-                      bottom_inclusive + '->' + top_exclusive + ' for run ' +
-                      run_id);
-            }
+                  var performance_test = find_performance_test_with_name(
+                          performance_testname, curr_cores, rubric);
+                  if (performance_test) {
+                      var speedup = seq_time / parallel_time;
+                      var grading = performance_test.grading;
+                      var test_score = performance_test.points_worth;
+                      var matched = false;
+                      for (var g = 0; g < grading.length && !matched; g++) {
+                          var bottom_inclusive = grading[g].bottom_inclusive;
+                          var top_exclusive = grading[g].top_exclusive;
+                          if (bottom_inclusive <= speedup &&
+                                  (top_exclusive < 0.0 || top_exclusive > speedup)) {
+                              matched = true;
+                              test_score -= grading[g].points_off;
+                              log('calculate_score: deducting ' +
+                                      grading[g].points_off + ' points on test ' + performance_testname +
+                                      ' for speedup of ' + speedup + ', in range ' +
+                                      bottom_inclusive + '->' + top_exclusive + ' for run ' +
+                                      run_id);
+                          }
+                      }
+                      log('calculate_score: giving test ' + performance_testname + ' ' +
+                              test_score + ' points for run ' + run_id + ' with speedup ' + speedup);
+                      performance += test_score;
+                  }
+              }
           }
-          log('calculate_score: giving test ' + performance_testname + ' ' +
-                  test_score + ' points for run ' + run_id + ' with speedup ' + speedup);
-          performance += test_score;
-        }
       }
-    }
   } else {
       log('calculate_score: forcing performance to 0 for run ' +
               run_id + ', run_status=' + run_status + ', have performance ' +
-              'log file? ' + ('performance.' + ncores + '.txt' in log_files));
+              'log files? ' + have_all_performance_files);
   }
 
   // Compute style score based on number of style violations
@@ -2401,7 +2443,7 @@ app.get('/run/:run_id', function(req, res, next) {
         var assignment_id = rows[0].assignment_id;
         var viola_err_msg = rows[0].viola_msg;
         var cello_msg = rows[0].cello_msg;
-        var ncores = rows[0].ncores; 
+        var ncores = parse_scalability_tests(rows[0].ncores);
         var passed_checkstyle = rows[0].passed_checkstyle;
         var compiled = rows[0].compiled;
         var passed_all_correctness = rows[0].passed_all_correctness;
@@ -2690,7 +2732,8 @@ function finish_perf_tests(run_status, run, perf_runs,
             //   copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
             // }
 
-            var tests = get_scalability_tests(run.ncores);
+            var tests = parse_scalability_tests(run.ncores);
+            var max_n_cores = max(tests);
             for (var i = 0; i < tests.length; i++) {
                 var curr_cores = tests[i];
                 var local = LOCAL_FOLDER + '/performance.' + curr_cores + '.txt';
@@ -2734,7 +2777,7 @@ function finish_perf_tests(run_status, run, perf_runs,
                         var rubric = validated.rubric;
                         var characteristic_test = rubric.performance.characteristic_test;
                         var performance_path = LOCAL_FOLDER + '/performance.' +
-                            run.ncores + '.txt';
+                            max_n_cores + '.txt';
                         if (get_file_size(performance_path) < MAX_DISPLAY_FILE_SIZE) {
                             var test_contents = fs.readFileSync(performance_path, 'utf8');
                             var test_lines = test_contents.split('\n');
