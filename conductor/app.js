@@ -2441,22 +2441,32 @@ app.get('/run/:run_id', function(req, res, next) {
                   fs.readdirSync(run_dir).forEach(function(file) {
                     if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 &&
                           !arr_contains(file, dont_display)) {
-                        log('run: run_id=' + run_id + ' reading file ' + run_dir + '/' + file);
                         var path = run_dir + '/' + file;
-                        if (get_file_size(path) < MAX_FILE_SIZE) {
-                          var contents = fs.readFileSync(run_dir + '/' + file, 'utf8');
+                        var file_size = get_file_size(path);
+                        log('run: run_id=' + run_id + ' reading file ' + path +
+                            ' of size ' + file_size + ' bytes');
+                        if (file_size < MAX_FILE_SIZE) {
+                          var contents = fs.readFileSync(path, 'utf8');
                           log_files[file] = contents;
 
                           if (cello_err === null) {
                               if (file === 'cluster-stdout.txt') {
                                   var lines = contents.split('\n');
                                   for (var i = 0; i < lines.length; i++) {
+                                      console.log(lines[i]);
                                       if (string_starts_with(lines[i], 'AUTOGRADER-ERROR')) {
                                           cello_err = lines[i].substring(17);
                                           break;
+                                      } else if (string_starts_with(lines[i], '[ERROR]')) {
+                                          cello_err = 'Your submission ' +
+                                            'appears to have failed to ' +
+                                            'compile on the cluster, please ' +
+                                            'check the Cluster-stdout view ' +
+                                            'for lines starting with "[ERROR]"';
+                                          break;
                                       }
                                   }
-                              } else if (file === 'cluster-stderr.txt') {
+                              } else if (file === 'cluster-stderr.txt' && file_size > 0) {
                                   cello_err = contents;
                               }
                           }
