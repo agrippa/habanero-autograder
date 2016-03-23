@@ -2326,7 +2326,7 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
                           performance_testname + ', seq_time=' + seq_time + ', parallel_time=' +
                           parallel_time + ' for run ' + run_id + ' and ncores=' + curr_cores);
 
-                  var performance_test = find_performance_test_with_name(
+                  var performance_test = find_performance_test_with_name_and_cores(
                           performance_testname, curr_cores, rubric);
                   if (performance_test) {
                       var speedup = seq_time / parallel_time;
