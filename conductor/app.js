@@ -1082,7 +1082,7 @@ app.post('/update_ncores/:assignment_id', function(req, res, next) {
     var assignment_id = req.params.assignment_id;
     var ncores = req.body.ncores;
 
-    return update_assignment_field(ncores, 'ncores', assignment_id, res, req);
+    return update_assignment_field("'" + ncores + "'", 'ncores', assignment_id, res, req);
   }
 });
 
