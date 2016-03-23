@@ -31,7 +31,8 @@
 
     <div class="row" style="width:100%">
       <div class="col-md-8 col-md-offset-2">
-        <h4>Score: <%= score.total %> / <%= score.total_possible %> (<%= (100.0 * score.total / score.total_possible).toFixed(2) %>%)</h4>
+        <% var percent_score = score.total_possible > 0.0 ? (100.0 * score.total / score.total_possible) : 0.0; %>
+        <h4>Score: <%= score.total %> / <%= score.total_possible %> (<%= percent_score.toFixed(2) %>%)</h4>
         <% if (finished) { %>
           <font style="float:right" size=4>Time to complete: <%= elapsed_time %></font>
         <% } else { %>

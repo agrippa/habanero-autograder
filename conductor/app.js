@@ -1536,7 +1536,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
 
   slurmFileContents += 'function cleanup() {\n';
   slurmFileContents += '    echo Cleaning up\n';
-  slurmFileContents += '    rm -f /tmp/performance* /tmp/profiler*\n';
+  slurmFileContents += '    rm -f /tmp/performance.' + run_id + '.* /tmp/profiler.' + run_id + '*\n';
   slurmFileContents += '}\n';
   slurmFileContents += 'trap cleanup SIGHUP SIGINT SIGTERM EXIT\n\n';
 
