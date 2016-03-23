@@ -2284,8 +2284,8 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
     var multi_thread_lines = multi_thread_content.split('\n');
 
     for (var multi_thread_line in multi_thread_lines) {
-      if (string_starts_with(multi_thread_line, PERF_TEST_LBL)) {
-        var tokens = multi_thread_line.split(' ');
+      if (string_starts_with(multi_thread_lines[multi_thread_line], PERF_TEST_LBL)) {
+        var tokens = multi_thread_lines[multi_thread_line].split(' ');
         var performance_testname = tokens[2];
         var seq_time = parseInt(tokens[3]);
         var parallel_time = parseInt(tokens[4]);
