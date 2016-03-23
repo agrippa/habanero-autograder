@@ -10,6 +10,11 @@
         $('#dropdown-button').text(lbl);
         $('#assignment_id').val(lbl);
       }
+
+      function on_run_submission() {
+          $('#submit').prop('disabled', true);
+          $('#submit').prop('value', 'Submitting...');
+      }
     </script>
   </head>
 
@@ -55,7 +60,7 @@
             </div>
           </div>
           <div class="col-md-12" style="padding-top: 10px">
-            <input style="width: 40%; margin:0 auto; display:block;" value="Run" name="submit" type="submit" class="btn btn-primary" style="float:right"/>
+            <input style="width: 40%; margin:0 auto; display:block;" value="Run" id="submit" name="submit" type="submit" class="btn btn-primary" style="float:right" onclick="on_run_submission()"/>
           </div>
           <input name="assignment" type="hidden" value="" id="assignment_id"/>
         </form>

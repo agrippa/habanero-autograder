@@ -1576,7 +1576,8 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   var remotePolicyPath = '$CELLO_WORK_DIR/security.policy';
   var securityFlags = '-Djava.security.manager -Djava.security.policy==' + remotePolicyPath;
   var classpath = ['.', 'target/classes', 'target/test-classes', junit_jar,
-                   hamcrest_jar, hj_jar, asm_jar];
+                   hamcrest_jar, asm_jar];
+  if (hj_jar) classpath.push(hj_jar);
 
   // Loop over scalability tests
   for (var t = 0; t < ncores.length; t++) {
@@ -1595,7 +1596,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     slurmFileContents += loop_over_all_perf_tests('taskset --cpu-list ' +
         cpu_list + ' java ' + securityFlags + ' -Dautograder.ncores=' +
         curr_cores + ' -Dhj.numWorkers=' + curr_cores +
-        ' -javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
+        (hj_jar ? (' -javaagent:' + hj_jar) : ' ') + ' -cp ' + classpath.join(':') + ' ' +
         'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
     slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c)\n';
     slurmFileContents += 'if [[ "$NBYTES" -gt "' + MAX_FILE_SIZE + '" ]]; then\n';
@@ -1614,7 +1615,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
       slurmFileContents += loop_over_all_perf_tests(
         'java ' + securityFlags + ' -Dhj.numWorkers=' + max_n_cores +
         ' -agentpath:' + java_profiler_dir + '/liblagent.so ' +
-        '-javaagent:' + hj_jar + ' -cp ' + classpath.join(':') + ' ' +
+        (hj_jar ? ('-javaagent:' + hj_jar) : '') + ' -cp ' + classpath.join(':') + ' ' +
         'org.junit.runner.JUnitCore $CLASSNAME >> ' + profiler_output + ' 2>&1 ; ' +
         'echo ===== Profiling test $CLASSNAME ===== >> $CELLO_WORK_DIR/traces.txt; ' +
         'cat $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/traces.txt >> ' +
@@ -1883,7 +1884,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                                 dependency_lines_index += 1;
                                               }
                                               if (hj === null) {
-                                                return failed_starting_perf_tests(res, 'Unable to find HJ JAR on cluster', run_id);
+                                                  log('local_run_finished: warning, unable to find HJ JAR in uploaded POM');
                                               }
 
                                               fs.appendFileSync(run_dir + '/cello.slurm',
