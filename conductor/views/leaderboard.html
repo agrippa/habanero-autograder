@@ -147,12 +147,13 @@
           <%   for (r in runs) { %>
           <%     var status = runs[r].status %>
           <%     var status_color = status === 'FINISHED' ? 'green' : ((status === 'FAILED' || status === 'CANCELLED') ? 'red' : 'orange'); %>
+          <%     if (status === 'IN CLUSTER QUEUE') status = 'IN QUEUE, job ' + runs[r].job_id; %>
           <%     var checkstyle_color = runs[r].passed_checkstyle ? success_color : failed_color; %>
           <%     var compiled_color = runs[r].compiled ? success_color : failed_color; %>
           <%     var correctness_color = runs[r].passed_all_correctness ? success_color : failed_color; %>
           <%     var performance_color = runs[r].passed_performance ? success_color : failed_color; %>
           <tr><td><center><%= runs[r].run_id %></center></td>
-              <td><center><font color="<%= status_color %>"><%= runs[r].status %></font></center></td>
+              <td><center><font color="<%= status_color %>"><%= status %></font></center></td>
               <td width="200px" bgcolor=<%= checkstyle_color %>></td>
               <td width="200px" bgcolor=<%= compiled_color %>></td>
               <td width="200px" bgcolor=<%= correctness_color %>></td>

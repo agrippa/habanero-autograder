@@ -743,7 +743,7 @@ app.get('/leaderboard/:assignment_id?/:page?', function(req, res, next) {
                 render_vars.has_performance_tests = has_performance_tests;
 
                 pgquery_no_err("SELECT run_id,status,passed_checkstyle,compiled," +
-                    "passed_all_correctness,passed_performance,characteristic_speedup,user_id " +
+                    "passed_all_correctness,passed_performance,characteristic_speedup,user_id,job_id " +
                     "FROM runs WHERE assignment_id=($1) ORDER BY run_id DESC",
                     [target_assignment_id], res, req, function(rows) {
                         render_vars.runs = rows;
@@ -1795,15 +1795,12 @@ app.post('/local_run_finished', function(req, res, next) {
                     var assignment_name = rows[0].name; 
                     var assignment_jvm_args = rows[0].jvm_args;
                     var timeout_str = rows[0].performance_timeout_str;
-                    var ncores = parse_scalability_tests(rows[0].ncores);
+                    var ncores_str = rows[0].ncores;
+                    var ncores = parse_scalability_tests(ncores_str);
                     var custom_slurm_flags_str = rows[0].custom_slurm_flags;
                     var custom_slurm_flags_list =
                       custom_slurm_flags_str.split(',');
 
-                  pgquery_no_err("UPDATE runs SET status='" +
-                      IN_CLUSTER_QUEUE_STATUS + "',viola_msg=$1," +
-                      "ncores=$2 WHERE run_id=($3)",
-                      [viola_err_msg, rows[0].ncores, run_id], res, req, function(rows) {
                         log('local_run_finished: Connecting to ' +
                             CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
                         // Launch on the cluster
@@ -1923,7 +1920,9 @@ app.post('/local_run_finished', function(req, res, next) {
 
                                                               var tokens = stdout.trim().split(' ');
                                                               var job_id = tokens[tokens.length - 1];
-                                                              pgquery_no_err('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [job_id, run_id], res, req, function(rows) {
+                                                              pgquery_no_err("UPDATE runs SET job_id=($1),status='" +
+                                                                  IN_CLUSTER_QUEUE_STATUS + "',viola_msg=$2," +
+                                                                  "ncores=$3 WHERE run_id=($4)", [job_id, viola_err_msg, ncores_str, run_id], res, req, function(rows) {
                                                                       return res.send(
                                                                           JSON.stringify({ status: 'Success' }));
                                                                   });
@@ -1958,7 +1957,6 @@ app.post('/local_run_finished', function(req, res, next) {
                                 });
                           });
                           });
-                      });
                   });
               }
             });
@@ -2903,7 +2901,7 @@ function check_cluster() {
         checkClusterActive = true;
         pgquery("SELECT * FROM runs WHERE (job_id IS NOT " +
             "NULL) AND ((status='" + TESTING_PERFORMANCE_STATUS + "') OR " +
-            "(status='IN CLUSTER QUEUE'))", [], function(err, rows) {
+            "(status='" + IN_CLUSTER_QUEUE_STATUS + "'))", [], function(err, rows) {
                 if (err) {
                     log('Error looking up running perf tests: ' + err);
                     set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
