@@ -125,7 +125,7 @@ if (CLUSTER_TYPE !== 'slurm' && CLUSTER_TYPE !== 'local') {
 }
 var CHECK_CLUSTER_PERIOD_MS = 30 * 1000; // 30 seconds
 var CHECK_CLUSTER_FILES_PERIOD_MS = 30 * 60 * 1000; // 30 minutes
-var CLUSTER_FOLDER_RETENTION_TIME_S = 24 * 60 * 60; // 24 hours
+var CLUSTER_FOLDER_RETENTION_TIME_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 // All run statuses
 var TESTING_CORRECTNESS_STATUS = 'TESTING CORRECTNESS';
@@ -2963,28 +2963,29 @@ function delete_old_folders(folder_index, folder_list) {
     }
 
     var folder = folder_list[folder_index];
-    run_cluster_cmd('stat run dir', 'stat --format=%Y autograder/' + folder,
-            function(err, stdout, stderr) {
-                if (err) {
-                    return abort_and_reset_cluster_file_checking(err);
-                }
-                var current_epoch_time = Math.floor((new Date()).getTime() / 1000);
-                var folder_epoch = parseInt(stdout);
-                if (current_epoch_time - folder_epoch >= CLUSTER_FOLDER_RETENTION_TIME_S) {
-                    log('delete_old_folders: deleting old cluster dir autograder/' + folder);
+    pgquery('SELECT finish_time FROM runs WHERE run_id=' + folder, [], function(err, rows) {
+        if (err) {
+            return abort_and_reset_cluster_file_checking(err);
+        }
 
-                    run_cluster_cmd('delete old cluster dir',
-                        'rm -r autograder/' + folder,
-                        function(err, stdout, stderr) {
-                            if (err) {
-                                return abort_and_reset_cluster_file_checking(err);
-                            }
-                            delete_old_folders(folder_index + 1, folder_list);
-                        });
-                } else {
+        if (rows[0].finish_time && moment().diff(moment(rows[0].finish_time)) >=
+                CLUSTER_FOLDER_RETENTION_TIME_MS) {
+            // Clean up old folder
+            log('delete_old_folders: deleting old cluster dir autograder/' + folder);
+
+            run_cluster_cmd('delete old cluster dir',
+                    'rm -r autograder/' + folder,
+                function(err, stdout, stderr) {
+                    if (err) {
+                        return abort_and_reset_cluster_file_checking(err);
+                    }
                     delete_old_folders(folder_index + 1, folder_list);
-                }
-            });
+                });
+        } else {
+            // Do nothing
+            delete_old_folders(folder_index + 1, folder_list);
+        }
+    });
 }
 
 function check_for_old_runs_on_cluster() {
@@ -3001,6 +3002,7 @@ function check_for_old_runs_on_cluster() {
                 var line = lines[l];
                 var tokens = line.split(' ');
                 if (tokens.length == 9) {
+                    // folder name and run ID
                     run_dirs.push(tokens[8]);
                 }
             }
