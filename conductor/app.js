@@ -124,7 +124,7 @@ if (CLUSTER_TYPE !== 'slurm' && CLUSTER_TYPE !== 'local') {
   throw 'Unsupported cluster type ' + CLUSTER_TYPE;
 }
 var CHECK_CLUSTER_PERIOD_MS = 30 * 1000; // 30 seconds
-var CHECK_CLUSTER_FILES_PERIOD_MS = 60 * 60 * 1000; // 60 minutes
+var CHECK_CLUSTER_FILES_PERIOD_MS = 30 * 60 * 1000; // 30 minutes
 var CLUSTER_FOLDER_RETENTION_TIME_S = 24 * 60 * 60; // 24 hours
 
 // All run statuses
@@ -1543,8 +1543,12 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
 
   slurmFileContents += 'mkdir $CELLO_WORK_DIR/submission/student\n';
   slurmFileContents += 'unzip -qq $CELLO_WORK_DIR/submission/student.zip -d $CELLO_WORK_DIR/submission/student/\n';
-  slurmFileContents += 'rm -f -r $CELLO_WORK_DIR/submission/student/.svn\n';
+  // Clean up several files for disk space
+  slurmFileContents += 'for SVN_DIR in $(find $CELLO_WORK_DIR/submission/student -name ".svn"); do\n';
+  slurmFileContents += '    rm -f -r $SVN_DIR\n';
+  slurmFileContents += 'done\n';
   slurmFileContents += 'rm -f -r $CELLO_WORK_DIR/submission/student/__MACOSX\n';
+  slurmFileContents += 'rm -f $CELLO_WORK_DIR/submission/student.zip\n';
   slurmFileContents += 'NSTUDENT_FILES=$(ls -l $CELLO_WORK_DIR/submission/student/ | grep -v total | wc -l)\n';
   slurmFileContents += 'NSTUDENT_FILES=${NSTUDENT_FILES//[[:blank:]]/}\n';
   slurmFileContents += 'if [[ $NSTUDENT_FILES != 1 ]]; then\n';
@@ -1553,8 +1557,8 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   slurmFileContents += 'fi\n';
   slurmFileContents += 'STUDENT_DIR=$(ls $CELLO_WORK_DIR/submission/student/)\n';
 
-  slurmFileContents += 'mkdir $CELLO_WORK_DIR/assignment/instructor\n';
-  slurmFileContents += 'unzip -qq $CELLO_WORK_DIR/assignment/instructor.zip -d $CELLO_WORK_DIR/assignment/instructor/\n';
+  slurmFileContents += 'mkdir -p $CELLO_WORK_DIR/assignment/instructor\n';
+  slurmFileContents += 'unzip -qq ~/autograder-assignments/' + assignment_id + '/instructor.zip -d $CELLO_WORK_DIR/assignment/instructor/\n';
   slurmFileContents += 'NINSTRUCTOR_FILES=$(ls -l $CELLO_WORK_DIR/assignment/instructor/ | grep -v total | wc -l);\n';
   slurmFileContents += 'NINSTRUCTOR_FILES=${NINSTRUCTOR_FILES//[[:blank:]]/}\n';
   slurmFileContents += 'if [[ $NINSTRUCTOR_FILES != 1 ]]; then\n';
@@ -1564,7 +1568,9 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   slurmFileContents += 'INSTRUCTOR_DIR=$(ls $CELLO_WORK_DIR/assignment/instructor/)\n';
 
   slurmFileContents += 'cp -r $CELLO_WORK_DIR/assignment/instructor/$INSTRUCTOR_DIR/src/test/* $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/src/test/\n';
-  slurmFileContents += 'cp $CELLO_WORK_DIR/assignment/instructor_pom.xml $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml\n';
+  slurmFileContents += 'cp ~/autograder-assignments/' + assignment_id +
+    '/instructor_pom.xml $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml\n';
+  slurmFileContents += 'rm -r $CELLO_WORK_DIR/assignment\n';
 
   slurmFileContents += 'for F in $(find $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/ -name "*CorrectnessTest.java"); do\n';
   slurmFileContents += '    rm $F\n';
@@ -1822,10 +1828,9 @@ app.post('/local_run_finished', function(req, res, next) {
 
                       var cello_work_dir = get_cello_work_dir(home_dir, run_id);
                       var dependency_list_cmd = 'mvn -f ' +
-                          cello_work_dir +
-                          '/assignment/instructor_pom.xml ' +
-                          '-DoutputAbsoluteArtifactFilename=true ' +
-                          'dependency:list';
+                        '~/autograder-assignments/' + assignment_id +
+                        '/instructor_pom.xml -DoutputAbsoluteArtifactFilename=true ' +
+                        'dependency:list';
                       var localPolicyPath = AUTOGRADER_HOME + '/shared/security.policy';
 
                       var junit = vals.JUNIT_JAR;
@@ -1851,115 +1856,107 @@ app.post('/local_run_finished', function(req, res, next) {
                                     return failed_starting_perf_tests(res,
                                          'Failed checking out student code', run_id);
                                   }
-                                  run_cluster_cmd('instructor files cp',
-                                          'cp -r autograder-assignments/' +
-                                          assignment_id + ' autograder/' +
-                                          run_id + '/assignment', function(err, stdout, stderr) {
+
+                                  run_cluster_cmd('get dependencies', dependency_list_cmd,
+                                    function(err, stdout, stderr) {
                                       if (err) {
-                                        return failed_starting_perf_tests(res,
-                                              'Failed checking out assignment code', run_id);
+                                        return failed_starting_perf_tests(
+                                            res, 'Failed getting dependencies', run_id);
                                       }
-                                      run_cluster_cmd('get dependencies', dependency_list_cmd,
-                                        function(err, stdout, stderr) {
-                                          if (err) {
-                                            return failed_starting_perf_tests(
-                                                res, 'Failed getting dependencies', run_id);
-                                          }
-                                          var dependency_lines = stdout.split('\n');
-                                          var dependency_lines_index = 0;
-                                          while (dependency_lines_index < dependency_lines.length &&
-                                              dependency_lines[dependency_lines_index] !== '[INFO] The following files have been resolved:') {
-                                            dependency_lines_index += 1;
-                                          }
-                                          var hj = null;
-                                          while (dependency_lines_index < dependency_lines.length &&
-                                              dependency_lines[dependency_lines_index] !== '[INFO] ') {
-                                            var curr = dependency_lines[dependency_lines_index];
-                                            var components = curr.split(':');
-                                            var path = components[5];
+                                      var dependency_lines = stdout.split('\n');
+                                      var dependency_lines_index = 0;
+                                      while (dependency_lines_index < dependency_lines.length &&
+                                          dependency_lines[dependency_lines_index] !== '[INFO] The following files have been resolved:') {
+                                        dependency_lines_index += 1;
+                                      }
+                                      var hj = null;
+                                      while (dependency_lines_index < dependency_lines.length &&
+                                          dependency_lines[dependency_lines_index] !== '[INFO] ') {
+                                        var curr = dependency_lines[dependency_lines_index];
+                                        var components = curr.split(':');
+                                        var path = components[5];
 
-                                            if (components[1] == 'hjlib-cooperative') {
-                                              hj = path;
+                                        if (components[1] == 'hjlib-cooperative') {
+                                          hj = path;
+                                        }
+                                        dependency_lines_index += 1;
+                                      }
+
+                                      if (hj === null) {
+                                          log('local_run_finished: warning, unable to find HJ JAR in uploaded POM');
+                                      }
+
+                                      fs.appendFileSync(run_dir + '/cello.slurm',
+                                        get_slurm_file_contents(run_id, home_dir,
+                                          username, assignment_id, assignment_name,
+                                          java_profiler_dir, os, ncores, junit,
+                                          hamcrest, hj, asm, rr_agent_jar, rr_runtime_jar,
+                                          assignment_jvm_args, timeout_str, enable_profiling,
+                                          custom_slurm_flags_list));
+
+                                      var copies = [{src: run_dir + '/cello.slurm',
+                                                     dst: 'autograder/' + run_id + '/cello.slurm'},
+                                                    {src: localPolicyPath,
+                                                     dst: 'autograder/' + run_id + '/security.policy'}];
+                                      batched_cluster_copy(copies, true, function(stat) {
+                                          for (var i = 0; i < stat.length; i++) {
+                                            if (!stat[i].success) {
+                                              log('err copying to ' + stat[i].dst + ' from ' + stat[i].src + ', ' + stat[i].err);
+                                              return failed_starting_perf_tests(res,
+                                                'Failed copying cello.slurm+security.policy', run_id);
                                             }
-                                            dependency_lines_index += 1;
                                           }
 
-                                          if (hj === null) {
-                                              log('local_run_finished: warning, unable to find HJ JAR in uploaded POM');
-                                          }
-
-                                          fs.appendFileSync(run_dir + '/cello.slurm',
-                                            get_slurm_file_contents(run_id, home_dir,
-                                              username, assignment_id, assignment_name,
-                                              java_profiler_dir, os, ncores, junit,
-                                              hamcrest, hj, asm, rr_agent_jar, rr_runtime_jar,
-                                              assignment_jvm_args, timeout_str, enable_profiling,
-                                              custom_slurm_flags_list));
-
-                                          var copies = [{src: run_dir + '/cello.slurm',
-                                                         dst: 'autograder/' + run_id + '/cello.slurm'},
-                                                        {src: localPolicyPath,
-                                                         dst: 'autograder/' + run_id + '/security.policy'}];
-                                          batched_cluster_copy(copies, true, function(stat) {
-                                              for (var i = 0; i < stat.length; i++) {
-                                                if (!stat[i].success) {
-                                                  log('err copying to ' + stat[i].dst + ' from ' + stat[i].src + ', ' + stat[i].err);
-                                                  return failed_starting_perf_tests(res,
-                                                    'Failed copying cello.slurm+security.policy', run_id);
-                                                }
-                                              }
-
-                                              if (CLUSTER_TYPE === 'slurm') {
-                                                  run_cluster_cmd('sbatch',
-                                                      'sbatch ~/autograder/' + run_id + '/cello.slurm',
-                                                      function(err, stdout, stderr) {
-                                                          if (err) {
-                                                            return failed_starting_perf_tests(res,
-                                                              'Failed submitting job', run_id);
-                                                          }
-                                                          // stdout == Submitted batch job 474297
-                                                          if (stdout.search('Submitted batch job ') !== 0) {
-                                                              return failed_starting_perf_tests(res,
-                                                                      'Failed submitting batch job', run_id);
-                                                          }
-
-                                                          var tokens = stdout.trim().split(' ');
-                                                          var job_id = tokens[tokens.length - 1];
-                                                          pgquery_no_err("UPDATE runs SET job_id=($1),status='" +
-                                                              IN_CLUSTER_QUEUE_STATUS + "',viola_msg=$2," +
-                                                              "ncores=$3 WHERE run_id=($4)",
-                                                              [job_id, viola_err_msg, ncores_str, run_id],
-                                                              res, req, function(rows) {
-                                                                  return res.send(
-                                                                      JSON.stringify({ status: 'Success' }));
-                                                              });
-                                                      });
-                                              } else {
-                                                // local cluster
-                                                var cello_script = process.env.HOME + '/autograder/' + run_id + '/cello.slurm';
-                                                log('local_run_finished: starting local run from ' + cello_script);
-                                                var run_cmd = '/bin/bash ' + cello_script;
-
-                                                run_cluster_cmd('local perf run', run_cmd,
-                                                    function(err, stdout, stderr) {
-
-                                                      fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stdout.txt', stdout);
-                                                      fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stderr.txt', stderr);
-
+                                          if (CLUSTER_TYPE === 'slurm') {
+                                              run_cluster_cmd('sbatch',
+                                                  'sbatch ~/autograder/' + run_id + '/cello.slurm',
+                                                  function(err, stdout, stderr) {
                                                       if (err) {
                                                         return failed_starting_perf_tests(res,
-                                                          'Failed running on local cluster', run_id);
+                                                          'Failed submitting job', run_id);
+                                                      }
+                                                      // stdout == Submitted batch job 474297
+                                                      if (stdout.search('Submitted batch job ') !== 0) {
+                                                          return failed_starting_perf_tests(res,
+                                                                  'Failed submitting batch job', run_id);
                                                       }
 
-                                                      pgquery_no_err('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [LOCAL_JOB_ID, run_id], res, req, function(rows) {
+                                                      var tokens = stdout.trim().split(' ');
+                                                      var job_id = tokens[tokens.length - 1];
+                                                      pgquery_no_err("UPDATE runs SET job_id=($1),status='" +
+                                                          IN_CLUSTER_QUEUE_STATUS + "',viola_msg=$2," +
+                                                          "ncores=$3 WHERE run_id=($4)",
+                                                          [job_id, viola_err_msg, ncores_str, run_id],
+                                                          res, req, function(rows) {
                                                               return res.send(
                                                                   JSON.stringify({ status: 'Success' }));
                                                           });
-                                                    });
-                                              }
-                                          });
+                                                  });
+                                          } else {
+                                            // local cluster
+                                            var cello_script = process.env.HOME + '/autograder/' + run_id + '/cello.slurm';
+                                            log('local_run_finished: starting local run from ' + cello_script);
+                                            var run_cmd = '/bin/bash ' + cello_script;
+
+                                            run_cluster_cmd('local perf run', run_cmd,
+                                                function(err, stdout, stderr) {
+
+                                                  fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stdout.txt', stdout);
+                                                  fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stderr.txt', stderr);
+
+                                                  if (err) {
+                                                    return failed_starting_perf_tests(res,
+                                                      'Failed running on local cluster', run_id);
+                                                  }
+
+                                                  pgquery_no_err('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [LOCAL_JOB_ID, run_id], res, req, function(rows) {
+                                                          return res.send(
+                                                              JSON.stringify({ status: 'Success' }));
+                                                      });
+                                                });
+                                          }
+                                      });
                                     });
-                                  });
                                 });
                             });
                       });
