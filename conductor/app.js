@@ -2539,6 +2539,10 @@ app.get('/run/:run_id', function(req, res, next) {
                     }
                   });
 
+                  // Calculate score before reordering files
+                  var score = calculate_score(assignment_id, log_files, ncores,
+                          run_status, run_id);
+
                   /*
                    * Order files in reordered_log_files such that they are
                    * displayed in a more intuitive order for the user
@@ -2568,8 +2572,6 @@ app.get('/run/:run_id', function(req, res, next) {
                       cello_err = cello_msg;
                   }
 
-                  var score = calculate_score(assignment_id, log_files, ncores,
-                          run_status, run_id);
                   var render_vars = {run_id: run_id, log_files: reordered_log_files,
                                      viola_err: viola_err_msg, cello_err: cello_err,
                                      passed_checkstyle: passed_checkstyle,
