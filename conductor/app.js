@@ -2539,13 +2539,38 @@ app.get('/run/:run_id', function(req, res, next) {
                     }
                   });
 
+                  /*
+                   * Order files in reordered_log_files such that they are
+                   * displayed in a more intuitive order for the user
+                   */
+                  var reordered_log_files = {};
+                  var file_ordering = ['checkstyle.txt', 'compile.txt', 'correct.txt'];
+                  for (var log_filename_index in file_ordering) {
+                      var log_filename = file_ordering[log_filename_index];
+                      if (log_filename in log_files) {
+                          reordered_log_files[log_filename] = log_files[log_filename];
+                          delete log_files[log_filename];
+                      }
+                  }
+                  for (var ncores_index in ncores) {
+                      var curr_ncores = ncores[ncores_index];
+                      var filename = 'performance.' + curr_ncores + '.txt';
+                      if (filename in log_files) {
+                          reordered_log_files[filename] = log_files[filename];
+                          delete log_files[filename];
+                      }
+                  }
+                  for (var leftover in log_files) {
+                      reordered_log_files[leftover] = log_files[leftover];
+                  }
+
                   if (cello_err === null && cello_msg.length > 0) {
                       cello_err = cello_msg;
                   }
 
                   var score = calculate_score(assignment_id, log_files, ncores,
                           run_status, run_id);
-                  var render_vars = {run_id: run_id, log_files: log_files,
+                  var render_vars = {run_id: run_id, log_files: reordered_log_files,
                                      viola_err: viola_err_msg, cello_err: cello_err,
                                      passed_checkstyle: passed_checkstyle,
                                      compiled: compiled,
