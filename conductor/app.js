@@ -16,6 +16,7 @@ var url = require('url');
 var moment = require('moment');
 var archiver = require('archiver');
 var temp = require('temp');
+var os_package = require('os');
 
 var maintenanceMsg = 'Job submission failed because the autograder is not ' +
     'currently accepting new submissions. This is most likely due to a ' +
@@ -1253,8 +1254,8 @@ function run_setup_failed(run_id, res, req, err_msg, svn_err) {
     log('run_setup_failed: run_id=' + run_id + ' err_msg="' + err_msg +
             '" err="' + svn_err + '"');
     pgquery("UPDATE runs SET status='" + FAILED_STATUS + "'," +
-            "finish_time=CURRENT_TIMESTAMP WHERE run_id=($1)", [run_id],
-            function(err, rows) {
+            "finish_time=CURRENT_TIMESTAMP,viola_msg=($2) WHERE run_id=($1)",
+            [run_id, err_msg], function(err, rows) {
                 if (err) {
                     log('Error storing failure setting up tests for run_id=' +
                         run_id + ': ' + err);
@@ -1781,7 +1782,8 @@ app.post('/local_run_finished', function(req, res, next) {
                       [viola_err_msg, run_id], res, req, function(rows) {
                       if (wants_notification) {
                         var subject = 'Habanero AutoGrader Run ' + run_id + ' Finished';
-                        send_email(email_for_user(username), subject, '', function(err) {
+                        var body = 'http://' + os_package.hostname() + '/run/' + run_id;
+                        send_email(email_for_user(username), subject, body, function(err) {
                           if (err) {
                             return failed_starting_perf_tests(res,
                               'Failed sending notification e-mail, err=' + err, run_id);
@@ -2833,7 +2835,8 @@ function finish_perf_tests(run_status, run, perf_runs,
                                 email = 'jmg3@rice.edu';
                             }
                             var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
-                            send_email(email_for_user(username), subject, '', function(err) {
+                            var body = 'http://' + os_package.hostname() + '/run/' + run.run_id;
+                            send_email(email_for_user(username), subject, body, function(err) {
                                 if (err) {
                                     return abort_and_reset_perf_tests(err,
                                         'sending notification email');
