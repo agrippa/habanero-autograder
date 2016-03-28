@@ -23,6 +23,14 @@
                         $('#submit').prop('value', 'Submitting...');
                       }
                   });
+              $('#zip').bind('change', function() {
+                      if (this.files[0].size > 1 * 1024 * 1024) {
+                          show_error('Your ZIP is large than 1MB, it is strongly ' +
+                              'recommended large files be uploaded via SVN instead');
+                      } else {
+                          hide_error();
+                      }
+                  });
       });
     </script>
   </head>
@@ -54,7 +62,7 @@
 
             <div class="col-md-6" style="padding-right: 30px">
               <div align="center" width="100%" style="padding: 5px 5px 5px 5px; margin: 0px 5px 5px 5px; border: 1px solid gray;">
-                <input name="zip" type="file"/>
+                <input name="zip" id="zip" type="file"/>
                 </p>
                 <p><b>OR</b></p>
                 <input name="svn_url" style="width: 100%" type="text" placeholder="SVN URL" id="svn_url"/>

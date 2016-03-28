@@ -1238,7 +1238,7 @@ function get_user_id_for_name(username, cb) {
 }
 
 function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
-        assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb) {
+        assignment_id, jvm_args, correctness_timeout, username) {
     var viola_params = 'done_token=' + done_token + '&user=' + username +
         '&assignment=' + assignment_name + '&run=' + run_id +
         '&assignment_id=' + assignment_id + '&jvm_args=' + jvm_args +
@@ -1257,17 +1257,32 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
             var body = Buffer.concat(bodyChunks);
             var result = JSON.parse(body);
             if (result.status === 'Success') {
-                return success_cb(run_id);
+                return;
             } else {
-                return redirect_with_err('/overview', res, req,
-                    'Viola error: ' + result.msg);
+                return viola_trigger_failed(run_id, 'Viola error: ' + result.msg, null);
             }
         });
     }).on('error', function(err) {
         log('VIOLA err="' + err + '"');
-        return redirect_with_err('/overview', res, req,
-            'An error occurred launching the local tests');
+        return viola_trigger_failed(run_id,
+            'An error occurred launching the local tests', null);
     });
+}
+
+function viola_trigger_failed(run_id, err_msg, svn_err) {
+    log('viola_trigger_failed: run_id=' + run_id + ' err_msg="' + err_msg +
+            '" err="' + svn_err + '"');
+    pgquery("UPDATE runs SET status='" + FAILED_STATUS + "'," +
+            "finish_time=CURRENT_TIMESTAMP,viola_msg=($2) WHERE run_id=($1)",
+            [run_id, err_msg], function(err, rows) {
+                if (err) {
+                    log('Error storing failure setting up tests for run_id=' +
+                        run_id + ': ' + err);
+                } else {
+                    log('Failure initiating tests for run_id=' + run_id + ': ' +
+                        err_msg);
+                }
+            });
 }
 
 function run_setup_failed(run_id, res, req, err_msg, svn_err) {
@@ -1287,10 +1302,63 @@ function run_setup_failed(run_id, res, req, err_msg, svn_err) {
             });
 }
 
+function kick_off_svn_export(svn_url, temp_dir, run_id, run_dir,
+        assignment_name, done_token, assignment_id, jvm_args, correctness_timeout, username) {
+    svn_cmd(['export', svn_url, temp_dir + '/submission_svn_folder'], function(err, stdout) {
+      if (is_actual_svn_err(err)) {
+          return viola_trigger_failed(run_id,
+              'An error occurred exporting from "' + svn_url + '"', err);
+      }
+
+      svn_cmd(['log', svn_url, '-l', '1'], function(err, stdout) {
+          if (is_actual_svn_err(err)) {
+              return viola_trigger_failure(run_id,
+                  'An error occurred getting the log messages from SVN', err);
+          }
+
+          var stdout_lines = stdout.trim().match(/[^\r\n]+/g);
+          // ignore the 1st, 2nd, 3rd, and last lines
+          var tag = 'revision ' + stdout_lines[1].split(' ')[0] + ': ';
+          for (var i = 2; i < stdout_lines.length - 1; i++) {
+              tag = tag + stdout_lines[i] + ' ';
+          }
+          tag = tag.trim();
+
+          pgquery('UPDATE runs SET tag=($1) WHERE run_id=($2)', [tag, run_id],
+              function(err, rows) {
+                  if (err) {
+                      return viola_trigger_failure(run_id,
+                          'An error occurred setting the run tag', err);
+                  }
+
+                  var output = fs.createWriteStream(run_dir + '/student.zip');
+                  var archive = archiver('zip');
+                  output.on('close', function() {
+                    rmdir_recursively(temp_dir);
+
+                    return trigger_viola_run(run_dir,
+                        assignment_name, run_id, done_token,
+                        assignment_id, jvm_args, correctness_timeout, username);
+                  });
+                  archive.on('error', function(err){
+                      return viola_trigger_failure(run_id,
+                          'An error occurred zipping your submission.', err);
+                  });
+                  archive.pipe(output);
+                  archive.bulk([{expand: true, cwd: temp_dir, src: ["**/*"], dot: true }
+                        ]);
+                  archive.finalize();
+              });
+      });
+    });
+
+}
+
 function submit_run(user_id, username, assignment_name, correctness_only,
         enable_profiling, use_zip, svn_url, res, req, success_cb) {
 
-      pgquery_no_err("SELECT * FROM assignments WHERE name=($1)", [assignment_name], res, req, function(rows) {
+      pgquery_no_err("SELECT * FROM assignments WHERE name=($1)",
+              [assignment_name], res, req, function(rows) {
         if (rows.length === 0) {
           return redirect_with_err('/overview', res, req,
             'Assignment ' + assignment_name + ' does not seem to exist');
@@ -1343,53 +1411,11 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                             'Internal error creating temporary directory', err);
                     }
 
-                    // Export student submission from their SVN folder
-                    svn_cmd(['export', svn_url, temp_dir + '/submission_svn_folder'], function(err, stdout) {
-                      if (is_actual_svn_err(err)) {
-                          return run_setup_failed(run_id, res, req,
-                              'An error occurred exporting from "' + svn_url + '"', err);
-                      }
+                    kick_off_svn_export(svn_url, temp_dir, run_id, run_dir,
+                        assignment_name, done_token, assignment_id, jvm_args,
+                        correctness_timeout, username);
 
-                      svn_cmd(['log', svn_url, '-l', '1'], function(err, stdout) {
-                          if (is_actual_svn_err(err)) {
-                              return run_setup_failed(run_id, res, req,
-                                  'An error occurred getting the log messages from SVN', err);
-                          }
-
-                          var stdout_lines = stdout.trim().match(/[^\r\n]+/g);
-                          // ignore the 1st, 2nd, 3rd, and last lines
-                          var tag = 'revision ' + stdout_lines[1].split(' ')[0] + ': ';
-                          for (var i = 2; i < stdout_lines.length - 1; i++) {
-                              tag = tag + stdout_lines[i] + ' ';
-                          }
-                          tag = tag.trim();
-
-                          pgquery('UPDATE runs SET tag=($1) WHERE run_id=($2)', [tag, run_id], function(err, rows) {
-                              if (err) {
-                                  return run_setup_failed(run_id, res, req,
-                                      'An error occurred setting the run tag', err);
-                              }
-
-                              var output = fs.createWriteStream(run_dir + '/student.zip');
-                              var archive = archiver('zip');
-                              output.on('close', function() {
-                                rmdir_recursively(temp_dir);
-
-                                return trigger_viola_run(run_dir,
-                                    assignment_name, run_id, done_token,
-                                    assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb);
-                              });
-                              archive.on('error', function(err){
-                                  return run_setup_failed(run_id, res, req,
-                                      'An error occurred zipping your submission.', err);
-                              });
-                              archive.pipe(output);
-                              archive.bulk([{expand: true, cwd: temp_dir, src: ["**/*"], dot: true }
-                                    ]);
-                              archive.finalize();
-                          });
-                      });
-                    });
+                    return success_cb(run_id);
                   });
                 }
               });
