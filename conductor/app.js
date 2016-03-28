@@ -17,6 +17,7 @@ var moment = require('moment');
 var archiver = require('archiver');
 var temp = require('temp');
 var os_package = require('os');
+var path_pkg = require('path');
 
 var maintenanceMsg = 'Job submission failed because the autograder is not ' +
     'currently accepting new submissions. This is most likely due to a ' +
@@ -88,6 +89,22 @@ function max(l) {
     return m;
 }
 
+function rmdir_recursively(dir) {
+    var list = fs.readdirSync(dir);
+    for (var i = 0; i < list.length; i++) {
+        var filename = path_pkg.join(dir, list[i]);
+        var stat = fs.statSync(filename);
+
+        if (filename == "." || filename == "..") {
+        } else if (stat.isDirectory()) {
+            rmdir_recursively(filename);
+        } else {
+            fs.unlinkSync(filename);
+        }
+    }
+    fs.rmdirSync(dir);
+};
+
 var POSTGRES_USERNAME = process.env.PGSQL_USER || 'postgres';
 var POSTGRES_PASSWORD = process.env.PGSQL_PASSWORD || 'foobar';
 var POSTGRES_USER_TOKEN = null;
@@ -143,8 +160,6 @@ log('Connecting to remote cluster at ' + CLUSTER_HOSTNAME +
 var conString = "postgres://" + POSTGRES_USER_TOKEN + "@localhost/autograder";
 
 var cancellationSuccessMsg = 'Successfully cancelled. Please give the job status a few minutes to update.';
-
-temp.track();
 
 function pgclient(cb) {
   log('pgclient: acquiring PGSQL client...');
@@ -807,6 +822,11 @@ app.get('/leaderboard/:assignment_id?/:page?', function(req, res, next) {
                         pgquery_no_err('SELECT name FROM assignments where ' +
                                 'assignment_id=($1)', [target_assignment_id],
                                 res, req, function(rows) {
+                                    if (rows.length == 0) {
+                                        return redirect_with_err('/overview', res, req,
+                                            'No assignment with that assignment ID');
+                                    }
+
                                     render_vars.assignment_name = rows[0].name;
                                     return render_page('leaderboard.html', res,
                                         req, render_vars);
@@ -1353,7 +1373,8 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                               var output = fs.createWriteStream(run_dir + '/student.zip');
                               var archive = archiver('zip');
                               output.on('close', function() {
-                                temp.cleanupSync();
+                                rmdir_recursively(temp_dir);
+
                                 return trigger_viola_run(run_dir,
                                     assignment_name, run_id, done_token,
                                     assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb);
