@@ -25,8 +25,11 @@
                   });
               $('#zip').bind('change', function() {
                       if (this.files[0].size > 1 * 1024 * 1024) {
-                          show_error('Your ZIP is large than 1MB, it is strongly ' +
-                              'recommended large files be uploaded via SVN instead');
+                          show_error('Your ZIP is larger than 1MB, it is strongly ' +
+                              'recommended large submissions be made via SVN ' +
+                              'instead. Some browsers do not handle large ' +
+                              'file uploads well, and assume that long upload ' +
+                              'times indicate a failed connection.');
                       } else {
                           hide_error();
                       }
