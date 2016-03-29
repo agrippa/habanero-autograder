@@ -320,6 +320,7 @@ function run_cluster_cmd(lbl, cluster_cmd, cb) {
                 log('run_cluster_cmd: caught error from existing connection: ' + err);
                 cluster_connection.end();
                 cluster_connection = null;
+                cluster_sftp = null;
                 connect_to_cluster(function() {
                     run_cluster_cmd(lbl, cluster_cmd, cb);
                 });
