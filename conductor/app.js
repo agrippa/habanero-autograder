@@ -1402,9 +1402,10 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                 // Move submitted file into newly created local SVN working copy
                 if (use_zip) {
                   fs.renameSync(req.file.path, run_dir + '/student.zip');
-                  return trigger_viola_run(run_dir,
+                  trigger_viola_run(run_dir,
                       assignment_name, run_id, done_token,
-                      assignment_id, jvm_args, correctness_timeout, username, req, res, success_cb);
+                      assignment_id, jvm_args, correctness_timeout, username);
+                  return success_cb(run_id);
                 } else {
                   temp.mkdir('conductor', function(err, temp_dir) {
                     if (err) {
