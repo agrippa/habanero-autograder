@@ -1508,7 +1508,7 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
       use_zip = false;
     }
 
-    var svn_url = req.body.svn_url;
+    var svn_url = req.body.svn_url.trim();
     if (svn_url.substring(0, 7) === 'http://') {
       svn_url = 'https://' + svn_url.substring(7);
     } else if (svn_url.substring(0, 8) !== 'https://') {
