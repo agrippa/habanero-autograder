@@ -30,20 +30,48 @@
     </div>
 
     <div class="row" style="width:100%">
-      <div class="col-md-8 col-md-offset-2">
-        <% var percent_score = score.total_possible > 0.0 ? (100.0 * score.total / score.total_possible) : 0.0; %>
-        <h4>Score: <%= score.total %> / <%= score.total_possible %> (<%= percent_score.toFixed(2) %>%)</h4>
-        <% if (finished) { %>
-          <font style="float:right" size=4>Time to complete: <%= elapsed_time %></font>
-        <% } else { %>
-        <%     var status_color = run_status === 'FINISHED' ? 'green' : ((run_status === 'FAILED' || run_status === 'CANCELLED') ? 'red' : 'orange'); %>
-        <font style="float:right" size=4 color=<%= status_color %>><%= run_status %></font><font style="float:right" size=4>Time so far: <%= elapsed_time %>,&nbsp;</font>
-        <% } %>
+        <div class="col-md-8 col-md-offset-2">
+            <div class="col-md-offset-0" style="margin-bottom: 5px">
+                <% var percent_score = score.total_possible > 0.0 ? (100.0 * score.total / score.total_possible) : 0.0; %>
+                <% if (finished) { %>
+                <font size=4><b>Score: <%= score.total %> / <%= score.total_possible %> (<%= percent_score.toFixed(2) %>%)</b><span style="float:right">Time to complete: <%= elapsed_time %></span></font>
+                <% } else { %>
+                <%     var status_color = run_status === 'FINISHED' ? 'green' : ((run_status === 'FAILED' || run_status === 'CANCELLED') ? 'red' : 'orange'); %>
+                <font style="float:right" size=4 color=<%= status_color %>><%= run_status %></font><font style="float:right" size=4>Time so far: <%= elapsed_time %>,&nbsp;</font>
+                <% } %>
+            </div>
+            <div class="col-md-offset-0" style="margin-bottom: 5px">
+                <font size="2">Click each section below for detailed comments</font>
+            </div>
         
-        <div class="col-md-offset-1">
+        <div class="col-md-offset-0">
+          <div class="panel-group">
           <% for (var iter = 0; iter < score.breakdown.length; iter++) { %>
-          <h5><%= score.breakdown[iter].name %>: <%= score.breakdown[iter].points %> / <%= score.breakdown[iter].total %></h5>
+              <div class="panel panel-default">
+                  <div class="panel-heading">
+                      <h4 class="panel-title">
+                          <!--h5><%= score.breakdown[iter].name %>: <%= score.breakdown[iter].points %> / <%= score.breakdown[iter].total %></h5-->
+                          <a data-toggle="collapse" href="#collapse_<%= score.breakdown[iter].name %>">
+                              <font size=3>
+                                  <%= score.breakdown[iter].name %>: <%= score.breakdown[iter].points %> / <%= score.breakdown[iter].total %>
+                              </font>
+                          </a>
+                      </h4>
+                  </div>
+                  <div id="collapse_<%= score.breakdown[iter].name %>" class="panel-collapse collapse">
+                      <ul class="list-group">
+                          <% if (score.breakdown[iter].comments.length == 0) { %>
+                          <li class="list-group-item">No comments</li>
+                          <% } else { %>
+                              <% for (var comment_iter = 0; comment_iter < score.breakdown[iter].comments.length; comment_iter++) { %>
+                              <li class="list-group-item"><font size=2><%= score.breakdown[iter].comments[comment_iter] %></font></li>
+                              <% } %>
+                          <% } %>
+                      </ul>
+                  </div>
+              </div>
           <% } %>
+          </div>
         </div>
         <% if (viola_err && viola_err.length > 0) { %>
             <h4><center><font color="red">Correctness tests reported error: <%= viola_err %></font></center></h4>

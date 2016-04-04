@@ -2250,6 +2250,10 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
   var rubric_file = rubric_file_path(assignment_id);
   var max_n_cores = max(ncores);
 
+  var correctness_comments = [];
+  var performance_comments = [];
+  var style_comments = [];
+
   var validated = load_and_validate_rubric(rubric_file);
   if (!validated.success) {
     log('calculate_score: failed loading rubric, ' + validated.msg);
@@ -2274,7 +2278,15 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
 
   // Compute correctness score based on test failures
   var correctness = total_correctness_possible;
-  if (run_completed(run_status) && 'correct.txt' in log_files) {
+  if (!run_completed(run_status)) {
+      correctness_comments.push('No correctness points due to run status "' +
+              run_status + '"');
+      correctness = 0.0;
+  } else if (!('correct.txt' in log_files)) {
+      correctness_comments.push('No correctness points due to missing ' +
+              'correctness test output');
+      correctness = 0.0;
+  } else {
     var correctness_content = log_files['correct.txt'].contents.toString('utf8');
     var correctness_lines = correctness_content.split('\n');
 
@@ -2288,6 +2300,8 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
     if (any_nonempty_stderr_lines) {
       log('calculate_score: setting correctness score to 0 for run ' +
               run_id + ' due to non-empty stderr');
+      correctness_comments.push('No correctness points due to non-empty ' +
+              'stderr during correctness tests');
       correctness = 0.0;
     } else {
       var failure_counts = [];
@@ -2315,6 +2329,9 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
          */
         log('calculate_score: setting correctness score to 0 for run ' +
                 run_id + ' because failure report not found');
+        correctness_comments.push('No correctness points, the correctness ' +
+                'test output appears to be incomplete. The most likely cause ' +
+                'is a timeout.');
         correctness = 0.0;
       } else {
         var line_index = 0;
@@ -2336,6 +2353,9 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
               if (correctness_test) {
                 log('calculate_score: taking off ' + correctness_test.points_worth +
                     ' points for test ' + correctness_test.testname + ' on run ' + run_id);
+                correctness_comments.push('Deducted ' +
+                        correctness_test.points_worth +
+                        ' point(s) due to failure of test ' + fullname);
                 correctness -= correctness_test.points_worth;
               }
             }
@@ -2343,11 +2363,6 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
         }
       }
     }
-  } else {
-    log('calculate_score: setting correctness score to 0 for run ' +
-            run_id + ', run_status=' + run_status +
-            ', correct.txt in log files? ' + ('correct.txt' in log_files));
-    correctness = 0.0;
   }
 
   var have_all_performance_files = true;
@@ -2360,7 +2375,26 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
 
   // Compute performance score based on performance of each test
   var performance = 0.0;
-  if (run_completed(run_status) && have_all_performance_files) {
+  if (!have_all_performance_files) {
+      log('calculate_score: forcing performance to 0 for run ' +
+              run_id + ', run_status=' + run_status + ', have performance ' +
+              'log files? ' + have_all_performance_files);
+      performance_comments.push('No performance points due to missing ' +
+              'performance test output');
+  } else if (!run_completed(run_status)) {
+      log('calculate_score: forcing performance to 0 for run ' +
+              run_id + ', run_status=' + run_status + ', have performance ' +
+              'log files? ' + have_all_performance_files);
+      performance_comments.push('No performance points due to run status "' +
+              run_status + '"');
+  } else {
+      var graded_tests = [];
+      for (var i = 0; i < rubric.performance.tests.length; i++) {
+          graded_tests.push({testname: rubric.performance.tests[i].testname,
+              cores: rubric.performance.tests[i].ncores,
+              points: rubric.performance.tests[i].points_worth});
+      }
+
       for (var c = 0; c < ncores.length; c++) {
           var curr_cores = ncores[c];
 
@@ -2393,6 +2427,11 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
                                   (top_exclusive < 0.0 || top_exclusive > speedup)) {
                               matched = true;
                               test_score -= grading[g].points_off;
+                              performance_comments.push('Deducted ' +
+                                      grading[g].points_off +
+                                      ' point(s) on test ' + performance_testname +
+                                      ' for speedup of ' + speedup + ', in range [' +
+                                      bottom_inclusive + ', ' + top_exclusive + ')');
                               log('calculate_score: deducting ' +
                                       grading[g].points_off + ' points on test ' + performance_testname +
                                       ' for speedup of ' + speedup + ', in range ' +
@@ -2403,14 +2442,24 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
                       log('calculate_score: giving test ' + performance_testname + ' ' +
                               test_score + ' points for run ' + run_id + ' with speedup ' + speedup);
                       performance += test_score;
+                      for (var f = 0; f < graded_tests.length; f++) {
+                          if (graded_tests[f].testname == performance_testname &&
+                                  graded_tests[f].cores == curr_cores) {
+                              graded_tests.splice(f, 1);
+                              break;
+                          }
+                      }
                   }
               }
           }
       }
-  } else {
-      log('calculate_score: forcing performance to 0 for run ' +
-              run_id + ', run_status=' + run_status + ', have performance ' +
-              'log files? ' + have_all_performance_files);
+
+      for (var f = 0; f < graded_tests.length; f++) {
+          performance_comments.push('No successful run of test ' +
+                  graded_tests[f].testname + ' on ' + graded_tests[f].cores +
+                  ' cores(s) found, resulted in loss of ' +
+                  graded_tests[f].points + ' point(s)');
+      }
   }
 
   // Compute style score based on number of style violations
@@ -2430,9 +2479,13 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
         iter++;
     }
 
-    style -= errorCount * rubric.style.points_per_error;
-    if (style < 0.0) style = 0.0;
+    var pointsOff = errorCount * rubric.style.points_per_error;
+    if (pointsOff > style) pointsOff = style;
+    style_comments.push('Deducted ' + pointsOff + ' point(s) because of ' +
+            errorCount + ' checkstyle error(s)');
+    style -= pointsOff;
   } else {
+    style_comments.push('No style points due to missing checkstyle output');
     style = 0.0;
   }
 
@@ -2440,11 +2493,14 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
            total_possible: total_possible,
            breakdown: [
                        { name: 'Correctness', points: correctness,
-                         total: total_correctness_possible },
+                         total: total_correctness_possible,
+                         comments: correctness_comments },
                        { name: 'Performance', points: performance,
-                         total: total_performance_possible },
+                         total: total_performance_possible,
+                         comments: performance_comments },
                        { name: 'Style', points: style,
-                         total: rubric.style.max_points_off }
+                         total: rubric.style.max_points_off,
+                         comments: style_comments }
                       ]};
 }
 
@@ -3036,7 +3092,8 @@ function delete_old_folders(folder_index, folder_list) {
         } else {
             // Do nothing
             log('delete_old_folders: skipping deletion of autograder/' +
-                folder + ' because not old enough');
+                folder + ' because not old enough: ' +
+                moment().diff(moment(rows[0].finish_time)) + ' ms');
             delete_old_folders(folder_index + 1, folder_list);
         }
     });
