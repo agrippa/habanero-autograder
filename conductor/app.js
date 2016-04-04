@@ -3035,6 +3035,8 @@ function delete_old_folders(folder_index, folder_list) {
                 });
         } else {
             // Do nothing
+            log('delete_old_folders: skipping deletion of autograder/' +
+                folder + ' because not old enough');
             delete_old_folders(folder_index + 1, folder_list);
         }
     });
