@@ -155,6 +155,8 @@
           <%     var compiled_color = runs[r].compiled ? success_color : failed_color; %>
           <%     var correctness_color = runs[r].passed_all_correctness ? success_color : failed_color; %>
           <%     var performance_color = runs[r].passed_performance ? success_color : failed_color; %>
+          <%     if (runs[r].correctness_only) performance_color = '#EEEEEE'; %>
+          <%     if (runs[r].enable_profiling) performance_color = '#EEEEEE'; %>
           <tr><td><center><%= runs[r].run_id %></center></td>
               <td><center><font color="<%= status_color %>"><%= status %></font></center></td>
               <td width="200px" bgcolor=<%= checkstyle_color %>></td>

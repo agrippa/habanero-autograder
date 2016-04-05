@@ -760,8 +760,9 @@ app.get('/leaderboard/:assignment_id?/:page?', function(req, res, next) {
                 render_vars.has_performance_tests = has_performance_tests;
 
                 pgquery_no_err("SELECT run_id,status,passed_checkstyle,compiled," +
-                    "passed_all_correctness,passed_performance,characteristic_speedup,user_id,job_id " +
-                    "FROM runs WHERE assignment_id=($1) ORDER BY run_id DESC",
+                    "passed_all_correctness,passed_performance," +
+                    "characteristic_speedup,user_id,job_id,correctness_only," +
+                    "enable_profiling FROM runs WHERE assignment_id=($1) ORDER BY run_id DESC",
                     [target_assignment_id], res, req, function(rows) {
                         render_vars.runs = rows;
 
@@ -2551,6 +2552,7 @@ app.get('/run/:run_id', function(req, res, next) {
         // e.g. 2016-02-13 18:30:20.028665
         var start_time = moment(rows[0].start_time);
         var correctness_only = rows[0].correctness_only;
+        var enable_profiling = rows[0].enable_profiling;
         var passed_performance = rows[0].passed_performance;
 
         var elapsed_time = null;
@@ -2690,10 +2692,12 @@ app.get('/run/:run_id', function(req, res, next) {
                                      passed_all_correctness: passed_all_correctness,
                                      elapsed_time: elapsed_time, finished: finished,
                                      has_performance_tests: !correctness_only,
+                                     correctness_only: correctness_only,
                                      passed_performance: passed_performance,
                                      run_status: run_status,
                                      assignment_name: assignment_name,
-                                     run_tag: run_tag};
+                                     run_tag: run_tag,
+                                     enable_profiling: enable_profiling};
                   if (score) {
                     log('run: calculated score ' + score.total + '/' +
                             score.total_possible + ' for run ' + run_id);

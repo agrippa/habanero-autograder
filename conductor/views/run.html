@@ -84,7 +84,10 @@
         <td bgcolor=<%= (!compiled ? '#FF3333' : '#00FF00') %> ><center><b>Compilation</b></center></td>
         <td bgcolor=<%= (!passed_all_correctness ? '#FF3333' : '#00FF00') %> ><center><b>Correctness</b></center></td>
         <% if (has_performance_tests) { %>
-            <td bgcolor=<%= (!passed_performance ? '#FF3333' : '#00FF00') %> ><center><b>Performance</b></center></td>
+        <%     var performance_color = (!passed_performance ? '#FF3333' : '#00FF00'); %>
+        <%     if (correctness_only) performance_color = '#EEEEEE'; %>
+        <%     if (enable_profiling) performance_color = '#EEEEEE'; %>
+            <td bgcolor=<%= performance_color %> ><center><b>Performance</b></center></td>
         <% } %>
       </tr></table>
       <form id="tag_form" action="/update_tag/<%= run_id %>" method="post">
