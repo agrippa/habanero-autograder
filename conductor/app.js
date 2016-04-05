@@ -31,7 +31,6 @@ var excessiveFileSizeMsg = 'The submission appears to perform excessive ' +
 
 var upload = multer({ dest: 'uploads/' });
 
-var KEEP_CLUSTER_DIRS = true;
 var VERBOSE = false;
 
 var LOCAL_JOB_ID = 'LOCAL';
@@ -2942,25 +2941,30 @@ function finish_perf_tests(run_status, run, perf_runs,
                             return;
                         }
 
-                        if (wants_notification) {
-                            var email = username + '@rice.edu';
-                            if (username === 'admin') {
-                                email = 'jmg3@rice.edu';
-                            }
-                            var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
-                            var body = 'http://' + os_package.hostname() + '/run/' + run.run_id;
-                            send_email(email_for_user(username), subject, body, function(err) {
-                                if (err) {
-                                    return abort_and_reset_perf_tests(err,
-                                        'sending notification email');
+                        run_cluster_cmd('delete run dir on cluster',
+                            'rm -r autograder/' + run.run_id,
+                            function(err, stdout, stderr) {
+                                // Ignore errors and send e-mail notification
+                                if (wants_notification) {
+                                    var email = username + '@rice.edu';
+                                    if (username === 'admin') {
+                                        email = 'jmg3@rice.edu';
+                                    }
+                                    var subject = 'Habanero AutoGrader Run ' + run.run_id + ' Finished';
+                                    var body = 'http://' + os_package.hostname() + '/run/' + run.run_id;
+                                    send_email(email_for_user(username), subject, body, function(err) {
+                                        if (err) {
+                                            return abort_and_reset_perf_tests(err,
+                                                'sending notification email');
+                                        }
+                                        check_cluster_helper(perf_runs,
+                                            current_perf_runs_index + 1);
+                                    });
+                                } else {
+                                    check_cluster_helper(perf_runs,
+                                        current_perf_runs_index + 1);
                                 }
-                                check_cluster_helper(perf_runs,
-                                    current_perf_runs_index + 1);
                             });
-                        } else {
-                            check_cluster_helper(perf_runs,
-                                current_perf_runs_index + 1);
-                        }
                 });
             });
         });
@@ -3068,71 +3072,8 @@ function check_cluster() {
     }
 }
 
-function abort_and_reset_cluster_file_checking(err) {
-  if (err) log('abort_and_reset_cluster_file_checking: err=' + err);
-  setTimeout(check_for_old_runs_on_cluster, CHECK_CLUSTER_FILES_PERIOD_MS);
-}
-
-function delete_old_folders(folder_index, folder_list) {
-    if (folder_index >= folder_list.length) {
-        return abort_and_reset_cluster_file_checking(null);
-    }
-
-    var folder = folder_list[folder_index];
-    pgquery('SELECT finish_time FROM runs WHERE run_id=' + folder, [], function(err, rows) {
-        if (err) {
-            return abort_and_reset_cluster_file_checking(err);
-        }
-
-        if (rows[0].finish_time && moment().diff(moment(rows[0].finish_time)) >=
-                CLUSTER_FOLDER_RETENTION_TIME_MS) {
-            // Clean up old folder
-            log('delete_old_folders: deleting old cluster dir autograder/' + folder);
-
-            run_cluster_cmd('delete old cluster dir',
-                    'rm -r autograder/' + folder,
-                function(err, stdout, stderr) {
-                    if (err) {
-                        return abort_and_reset_cluster_file_checking(err);
-                    }
-                    delete_old_folders(folder_index + 1, folder_list);
-                });
-        } else {
-            // Do nothing
-            log('delete_old_folders: skipping deletion of autograder/' +
-                folder + ' because not old enough: ' +
-                moment().diff(moment(rows[0].finish_time)) + ' ms');
-            delete_old_folders(folder_index + 1, folder_list);
-        }
-    });
-}
-
-function check_for_old_runs_on_cluster() {
-    log('check_for_old_runs_on_cluster: starting...');
-
-    run_cluster_cmd('list run dirs', "ls -l autograder/",
-        function(err, stdout, stderr) {
-            if (err) {
-                return abort_and_reset_cluster_file_checking(err);
-            }
-            var run_dirs = [];
-            var lines = stdout.split('\n');
-            for (var l = 1; l < lines.length; l++) {
-                var line = lines[l];
-                var tokens = line.split(' ');
-                if (tokens.length == 9) {
-                    // folder name and run ID
-                    run_dirs.push(tokens[8]);
-                }
-            }
-
-            delete_old_folders(0, run_dirs);
-        });
-}
-
 function launch() {
     set_check_cluster_timeout(0);
-    setTimeout(check_for_old_runs_on_cluster, CHECK_CLUSTER_FILES_PERIOD_MS);
 
     var port = process.env.PORT || 8000;
 
