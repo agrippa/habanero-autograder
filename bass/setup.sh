@@ -32,4 +32,5 @@ if [[ $EXISTS == 1 ]]; then
     exit 1
 fi
 
-echo -e "0\t3\t*\t*\t*\t$USER_TO_RUN_AS\t$SCRIPT_DIR/bass.sh $CONDUCTOR $CONDUCTOR_PORT $CONDUCTOR_USER $CONDUCTOR_RUNS_DIR $SCRIPT_DIR/backups" >> /etc/crontab
+# Run every hour, five minutes after the hour
+echo -e "5\t*\t*\t*\t*\t$USER_TO_RUN_AS\t$SCRIPT_DIR/bass.sh $CONDUCTOR $CONDUCTOR_PORT $CONDUCTOR_USER $CONDUCTOR_RUNS_DIR $SCRIPT_DIR/backups" >> /etc/crontab
