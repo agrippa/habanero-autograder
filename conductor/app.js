@@ -142,8 +142,8 @@ if (CLUSTER_TYPE !== 'slurm' && CLUSTER_TYPE !== 'local') {
   throw 'Unsupported cluster type ' + CLUSTER_TYPE;
 }
 var CHECK_CLUSTER_PERIOD_MS = 30 * 1000; // 30 seconds
-var CHECK_CLUSTER_FILES_PERIOD_MS = 30 * 60 * 1000; // 30 minutes
-var CLUSTER_FOLDER_RETENTION_TIME_MS = 4 * 60 * 60 * 1000; // 4 hours
+var CHECK_CLUSTER_FILES_PERIOD_MS = 10 * 60 * 1000; // 10 minutes
+var CLUSTER_FOLDER_RETENTION_TIME_MS = 1 * 60 * 60 * 1000; // 1 hour
 
 // All run statuses
 var TESTING_CORRECTNESS_STATUS = 'TESTING CORRECTNESS';
@@ -2427,11 +2427,19 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
                                   (top_exclusive < 0.0 || top_exclusive > speedup)) {
                               matched = true;
                               test_score -= grading[g].points_off;
+
+                              var range_msg;
+                              if (top_exclusive < 0) {
+                                  range_msg = '>= ' + bottom_inclusive;
+                              } else {
+                                  range_msg = 'in range [' + bottom_inclusive +
+                                      ', ' + top_exclusive + ')';
+                              }
+
                               performance_comments.push('Deducted ' +
                                       grading[g].points_off +
                                       ' point(s) on test ' + performance_testname +
-                                      ' for speedup of ' + speedup + ', in range [' +
-                                      bottom_inclusive + ', ' + top_exclusive + ')');
+                                      ' for speedup of ' + speedup + ', ' + range_msg);
                               log('calculate_score: deducting ' +
                                       grading[g].points_off + ' points on test ' + performance_testname +
                                       ' for speedup of ' + speedup + ', in range ' +
