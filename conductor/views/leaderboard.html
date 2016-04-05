@@ -11,6 +11,7 @@
             <% for (var r = 0; r < runs.length; r++) { %>
             <%   if (runs[r].characteristic_speedup.length > 0) count_nonempty++; %>
             <% } %>
+            <% if (count_nonempty > 300) count_nonempty = 300; %>
 
         window.onload = function() {
             var history = new CanvasJS.Chart("historyChartContainer",
@@ -35,17 +36,19 @@
                     type: "column",  
                     dataPoints: [
                         <% var nleft = count_nonempty; %>
-                        <% for (var r = 0; r < runs.length - 1; r++) { %>
-                        <%   if (runs[r].characteristic_speedup.length != 0) { %>
-                        <%     var label = ''; %>
-                        <%     if (nleft === count_nonempty) label = 'Latest Run'; %>
-                        <%     if (nleft === 1) label = 'Oldest Run'; %>
+                        <% var r = 0; %>
+                        <% while (nleft > 0) { %>
+                        <%     if (runs[r].characteristic_speedup.length != 0) { %>
+                        <%         var label = ''; %>
+                        <%         if (nleft === count_nonempty) label = 'Latest Run'; %>
+                        <%         if (nleft === 1) label = 'Oldest Run'; %>
                             {y: <%= runs[r].characteristic_speedup %>, label: '<%= label %>' }
-                        <%     nleft--; %>
-                        <%     if (nleft != 0) { %>
+                        <%         nleft--; %>
+                        <%         if (nleft != 0) { %>
                                ,
+                        <%         } %>
                         <%     } %>
-                        <%   } %>
+                        <%     r++; %>
                         <% } %>
                     ]
                 }]
