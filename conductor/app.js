@@ -248,8 +248,10 @@ function connect_to_cluster(cb) {
             ' of type ' + CLUSTER_TYPE + ' as user ' + CLUSTER_USER);
     if (CLUSTER_TYPE === 'slurm') {
         if (cluster_connection) {
+            log('connect_to_cluster: Calling callback immediately');
             cb();
         } else {
+            log('connect_to_cluster: Setting up actual connection');
             var conn = new ssh.Client();
             conn.on('ready', function() {
                 cluster_connection = conn;
@@ -262,9 +264,11 @@ function connect_to_cluster(cb) {
                 log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME +
                     ' emitted end event');
             }).on('timeout', function() {
-                log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME + ' emitted timeout event');
+                log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME +
+                    ' emitted timeout event');
             }).on('close', function() {
-                log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME + ' emitted close event');
+                log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME +
+                    ' emitted close event');
             }).connect({
                 host: CLUSTER_HOSTNAME,
                 port: 22,
@@ -304,6 +308,9 @@ function run_cluster_cmd(lbl, cluster_cmd, cb) {
                     }
                     return cb(null, acc_stdout, acc_stderr);
                 }
+            }).on('exit', function(exitCode) {
+                log('run_cluster_cmd: exit event from cmd "' +
+                    cluster_cmd + '", exitCode=' + exitCode);
             }).on('data', function(data) {
                 acc_stdout = acc_stdout + data;
             }).stderr.on('data', function(data) {
@@ -316,7 +323,8 @@ function run_cluster_cmd(lbl, cluster_cmd, cb) {
             try {
                 cluster_connection.exec(cluster_cmd, handler);
             } catch (err) {
-                log('run_cluster_cmd: caught error from existing connection: ' + err);
+                log('run_cluster_cmd: caught error from existing connection (' +
+                        err + ') during execution of "' + cluster_cmd + '"');
                 cluster_connection.end();
                 cluster_connection = null;
                 cluster_sftp = null;
@@ -807,7 +815,6 @@ app.get('/leaderboard/:assignment_id?/:page?', function(req, res, next) {
                                 var bin_speedup = max_runs_only[bin_user];
                                 var delta_from_min = bin_speedup - min_speedup;
                                 var bin = Math.floor(delta_from_min / bin_width);
-                                log('leaderboard: placing speedup ' + bin_speedup + ' in bin ' + bin);
                                 bins[bin] = bins[bin] + 1;
                             }
                         }
@@ -2635,7 +2642,7 @@ app.get('/run/:run_id', function(req, res, next) {
                                           cello_err = 'Your submission ' +
                                             'appears to have failed to ' +
                                             'compile on the cluster, please ' +
-                                            'check the Cluster-stdout view ' +
+                                            'check the Cluster STDOUT view ' +
                                             'for lines starting with "[ERROR]"';
                                           break;
                                       }
@@ -2882,7 +2889,8 @@ function finish_perf_tests(run_status, run, perf_runs,
                     } else {
                         var trimmed_err = stat[i].err.toString().trim();
                         if (string_ends_with(trimmed_err, 'No such file or directory') || string_ends_with(trimmed_err, 'No such file')) {
-                            log('finish_perf_tests: failed copying ' + stat[i].dst + ' because it didn\'t exist on the cluster');
+                            log('finish_perf_tests: failed copying ' +
+                                stat[i].dst + ' because it didn\'t exist on the cluster: ' + trimmed_err);
                             any_missing_files = true;
                         } else {
                             log('finish_perf_tests: err copying to ' +
