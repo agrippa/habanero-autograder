@@ -21,7 +21,7 @@ var path_pkg = require('path');
 
 var maintenanceMsg = 'Job submission failed because the autograder is not ' +
     'currently accepting new submissions. This is most likely due to a ' +
-    'planned maintenance.';
+    'planned maintenance. Please wait 5-10 minutes and try re-submitting.';
 var permissionDenied = 'Permission denied. But you should shoot me an e-mail ' +
     'at jmaxg3@gmail.com. If you like playing around with systems, we have ' +
     'interesting research for you in the Habanero group.';
@@ -223,20 +223,16 @@ var cluster_sftp = null;
 function sftp_connect_to_cluster(cb) {
     log('sftp_connect_to_cluster: Connecting to cluster ' + CLUSTER_HOSTNAME);
     if (CLUSTER_TYPE === 'slurm') {
-        if (cluster_sftp) {
+        cluster_connection.sftp(function(err, sftp) {
+            if (err) {
+                log('sftp_connect_to_cluster: Error sftp-ing to ' +
+                    CLUSTER_HOSTNAME + ' as user ' + CLUSTER_USER + ': ' +
+                    err);
+                return sftp_connect_to_cluster(cb);
+            }
+            cluster_sftp = sftp;
             cb();
-        } else {
-            cluster_connection.sftp(function(err, sftp) {
-                if (err) {
-                    log('sftp_connect_to_cluster: Error sftp-ing to ' +
-                        CLUSTER_HOSTNAME + ' as user ' + CLUSTER_USER + ': ' +
-                        err);
-                    return sftp_connect_to_cluster(cb);
-                }
-                cluster_sftp = sftp;
-                cb();
-            });
-        }
+        });
     } else {
         cb();
     }
@@ -247,40 +243,56 @@ function connect_to_cluster(cb) {
     log('connect_to_cluster: Connecting to cluster ' + CLUSTER_HOSTNAME +
             ' of type ' + CLUSTER_TYPE + ' as user ' + CLUSTER_USER);
     if (CLUSTER_TYPE === 'slurm') {
-        if (cluster_connection) {
-            log('connect_to_cluster: Calling callback immediately');
-            cb();
-        } else {
-            log('connect_to_cluster: Setting up actual connection');
-            var conn = new ssh.Client();
-            conn.on('ready', function() {
-                cluster_connection = conn;
-                sftp_connect_to_cluster(cb);
-            }).on('error', function(err) {
-                log('connect_to_cluster: Error connecting to ' + CLUSTER_HOSTNAME +
-                    ' as user ' + CLUSTER_USER + ': ' + err);
-                connect_to_cluster(cb);
-            }).on('end', function() {
-                log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME +
-                    ' emitted end event');
-            }).on('timeout', function() {
-                log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME +
-                    ' emitted timeout event');
-            }).on('close', function() {
-                log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME +
-                    ' emitted close event');
-            }).connect({
-                host: CLUSTER_HOSTNAME,
-                port: 22,
-                username: CLUSTER_USER,
-                privateKey: clusterPrivateKey,
-                passphrase: CLUSTER_PRIVATE_KEY_PASSPHRASE,
-                readyTimeout: 60000
-            });
-        }
+        log('connect_to_cluster: Setting up actual connection');
+        var conn = new ssh.Client();
+        conn.on('ready', function() {
+            cluster_connection = conn;
+            sftp_connect_to_cluster(cb);
+        }).on('error', function(err) {
+            log('connect_to_cluster: Error connecting to ' + CLUSTER_HOSTNAME +
+                ' as user ' + CLUSTER_USER + ': ' + err);
+            connect_to_cluster(cb);
+        }).on('end', function() {
+            log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME +
+                ' emitted end event');
+        }).on('timeout', function() {
+            log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME +
+                ' emitted timeout event');
+        }).on('close', function() {
+            log('connect_to_cluster: connection to ' + CLUSTER_HOSTNAME +
+                ' emitted close event');
+            clear_in_flight_cmds();
+        }).connect({
+            host: CLUSTER_HOSTNAME,
+            port: 22,
+            username: CLUSTER_USER,
+            privateKey: clusterPrivateKey,
+            passphrase: CLUSTER_PRIVATE_KEY_PASSPHRASE,
+            readyTimeout: 60000
+        });
     } else {
         // local
         cb();
+    }
+}
+
+var in_flight_cmds = {};
+
+function clear_in_flight_cmds() {
+    var save = in_flight_cmds;
+    in_flight_cmds = {};
+
+    var tokens = [];
+    for (token in save) {
+        log('clear_in_flight_cmds: found token "' + token + '"');
+        tokens.push(token);
+    }
+    for (var t = 0; t < tokens.length; t++) {
+        var token = tokens[t];
+        var curr = save[token];
+        log('clear_in_flight_cmds: marking command "' + curr.cmd +
+            '" as failed, calling its handler');
+        curr.handler('Failed due to SSH disconnect from cluster', null);
     }
 }
 
@@ -289,37 +301,56 @@ function run_cluster_cmd(lbl, cluster_cmd, cb) {
     log('run_cluster_cmd[' + lbl + ']: ' + cluster_cmd);
 
     if (CLUSTER_TYPE === 'slurm') {
-        var handler = function(err, stream) {
-            if (err) {
-                log('[' + lbl + '] err=' + err);
-                return cb(lbl, null, null);
-            }
-            var acc_stdout = '';
-            var acc_stderr = '';
-            stream.on('close', function(code, signal) {
-                if (code !== 0) {
-                    log('[' + lbl + '] code=' + code + ' signal=' + signal);
-                    return cb(lbl, acc_stdout, acc_stderr);
-                } else {
-                    if (VERBOSE) {
-                        log('[' + lbl + '] code=' + code + ' signal=' + signal);
-                        log('[' + lbl + '] stdout=' + acc_stdout);
-                        log('[' + lbl + '] stderr=' + acc_stderr);
-                    }
-                    return cb(null, acc_stdout, acc_stderr);
-                }
-            }).on('exit', function(exitCode) {
-                log('run_cluster_cmd: exit event from cmd "' +
-                    cluster_cmd + '", exitCode=' + exitCode);
-            }).on('data', function(data) {
-                acc_stdout = acc_stdout + data;
-            }).stderr.on('data', function(data) {
-                acc_stderr = acc_stderr + data;
-            });
-        };
+        crypto.randomBytes(48, function(ex, buf) {
+            var token = buf.toString('hex');
+            var save_in_flight_cmds = in_flight_cmds;
 
-        // Most of the time will return right away because cluster_connection will be initialized
-        connect_to_cluster(function() {
+            var handler = function(err, stream) {
+                if (!(token in save_in_flight_cmds)) {
+                    // We seem to have gotten called twice, so avoid calling callback twice
+                    log('run_cluster_cmd: cmd "' + cluster_cmd + '" returned ' +
+                        'but did not find its token in the list of in-flight ' +
+                        'commands, aborting');
+                    return;
+                }
+                log('run_cluster_cmd: cmd "' + cluster_cmd + '" returned.');
+
+                if (err) {
+                    log('[' + lbl + '] err=' + err);
+                    delete save_in_flight_cmds[token];
+                    return cb(lbl, null, null);
+                }
+
+                var acc_stdout = '';
+                var acc_stderr = '';
+                stream.on('close', function(code, signal) {
+                    if (code !== 0) {
+                        log('[' + lbl + '] code=' + code + ' signal=' + signal);
+                        delete save_in_flight_cmds[token];
+                        return cb(lbl, acc_stdout, acc_stderr);
+                    } else {
+                        if (VERBOSE) {
+                            log('[' + lbl + '] code=' + code + ' signal=' + signal);
+                            log('[' + lbl + '] stdout=' + acc_stdout);
+                            log('[' + lbl + '] stderr=' + acc_stderr);
+                        }
+                        delete save_in_flight_cmds[token];
+                        return cb(null, acc_stdout, acc_stderr);
+                    }
+                }).on('exit', function(exitCode) {
+                    log('run_cluster_cmd: exit event from cmd "' +
+                        cluster_cmd + '", exitCode=' + exitCode);
+                }).on('data', function(data) {
+                    acc_stdout = acc_stdout + data;
+                }).stderr.on('data', function(data) {
+                    acc_stderr = acc_stderr + data;
+                });
+            };
+
+            log('run_cluster_cmd: storing "' + cluster_cmd + '" in in-flight ' +
+                    'commands using token "' + token + '"');
+            in_flight_cmds[token] = {cmd: cluster_cmd, handler: handler};
+
             try {
                 cluster_connection.exec(cluster_cmd, handler);
             } catch (err) {
@@ -328,11 +359,15 @@ function run_cluster_cmd(lbl, cluster_cmd, cb) {
                 cluster_connection.end();
                 cluster_connection = null;
                 cluster_sftp = null;
+                delete in_flight_cmds[token];
+
                 connect_to_cluster(function() {
                     run_cluster_cmd(lbl, cluster_cmd, cb);
                 });
             }
+
         });
+
     } else {
       var args = ['-c', cluster_cmd];
       var run = child_process.spawn('/bin/bash', args);
@@ -383,8 +418,7 @@ function cluster_copy(src_file, dst_file, is_upload, cb) {
   if (CLUSTER_TYPE === 'slurm') {
       var start_time = new Date().getTime();
 
-      // Ensure cluster_connection is initialized
-      connect_to_cluster(function() {
+      try {
           if (is_upload) {
               cluster_sftp.fastPut(src_file, dst_file, function(err) {
                   log('cluster_copy: upload from ' + src_file + ' took ' +
@@ -398,7 +432,15 @@ function cluster_copy(src_file, dst_file, is_upload, cb) {
                   cb(err);
               });
           }
-      });
+      } catch (err) {
+          log('cluster_copy: caught error from existing connection: ' + err);
+          cluster_connection.end();
+          cluster_connection = null;
+          cluster_sftp = null;
+          connect_to_cluster(function() {
+              cluster_copy(src_file, dst_file, is_upload, cb);
+          });
+      }
   } else {
       if (is_upload) {
         dst_file = process.env.HOME + '/' + dst_file;
@@ -2445,7 +2487,9 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
 
                               performance_comments.push('Deducted ' +
                                       grading[g].points_off +
-                                      ' point(s) on test ' + performance_testname +
+                                      ' point(s) on test ' +
+                                      performance_testname + ' with ' +
+                                      curr_cores + ' core(s)' +
                                       ' for speedup of ' + speedup + ', ' + range_msg);
                               log('calculate_score: deducting ' +
                                       grading[g].points_off + ' points on test ' + performance_testname +
@@ -3085,17 +3129,19 @@ function check_cluster() {
 }
 
 function launch() {
-    set_check_cluster_timeout(0);
 
     var port = process.env.PORT || 8000;
 
     var oneDay = 86400000;
     app.use(express.static(__dirname + '/views', { maxAge: oneDay }));
 
-    var server = app.listen(port, function() {
-        log('Server listening at http://%s:%s', 
-            server.address().address,
-            server.address().port);
+    connect_to_cluster(function() {
+    set_check_cluster_timeout(0);
+        var server = app.listen(port, function() {
+            log('Server listening at http://%s:%s', 
+                server.address().address,
+                server.address().port);
+        });
     });
 }
 
