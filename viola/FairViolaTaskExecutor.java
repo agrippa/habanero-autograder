@@ -119,6 +119,7 @@ public class FairViolaTaskExecutor {
                   ViolaUtil.log("found run to cancel in pending tasks list, removing.\n");
                   final boolean removed = entry.getValue().remove(found);
                   assert removed;
+                  nPending--;
                   return true;
               }
           }
@@ -161,6 +162,9 @@ public class FairViolaTaskExecutor {
               try {
                   r = getPendingTask(tid);
                   r.run(tid);
+              } catch (Throwable t) {
+                  ViolaUtil.log("thread %d got a top-level unhandled exception:\n");
+                  t.printStackTrace();
               } finally {
                   if (r == null) {
                       ViolaUtil.log("thread %d notifying of completion of null run\n", tid);

@@ -168,7 +168,7 @@ public class LocalTestRunner {
         }
     }
 
-    private void mergeDirs(File dst, File src) {
+    private void mergeDirs(File dst, File src) throws TestRunnerException {
         for (String filename : src.list()) {
           File curr = new File(src.getAbsolutePath(), filename);
           File target = new File(dst.getAbsolutePath(), filename);
@@ -191,7 +191,16 @@ public class LocalTestRunner {
                * ones. If something doesn't look like a test file that JUnit
                * will run, copy it over anyway.
                */
-              curr.renameTo(target);
+                if (target.exists()) {
+                    final boolean successfulDelete = target.delete();
+                    if (!successfulDelete) {
+                        throw new TestRunnerException("Failed overriding test files");
+                    }
+                }
+                final boolean successfulRename = curr.renameTo(target);
+                if (!successfulRename) {
+                    throw new TestRunnerException("Failed overriding test files");
+                }
             }
           }
         }

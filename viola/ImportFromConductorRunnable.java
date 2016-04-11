@@ -70,7 +70,7 @@ public class ImportFromConductorRunnable implements Runnable {
                         } catch (InterruptedException|IOException io) {
                             throw new RuntimeException(io);
                         }
-                    }, nretries, initialPause, backoff);
+                    }, nretries, initialPause, backoff, "copying assignment files to viola");
                 if (assignmentThrowable != null) {
                     curr.setErrMsg("Unable to transfer assignment files: " + assignmentThrowable.getMessage());
                 } else if (scpResults[0].code != 0) {
@@ -83,7 +83,7 @@ public class ImportFromConductorRunnable implements Runnable {
                             } catch (InterruptedException|IOException io) {
                                 throw new RuntimeException(io);
                             }
-                        }, nretries, initialPause, backoff);
+                        }, nretries, initialPause, backoff, "copying submission files to viola");
                     if (submissionThrowable != null) {
                         curr.setErrMsg("Unable to transfer submission files: " + submissionThrowable.getMessage());
                     } else if (scpResults[0].code != 0) {

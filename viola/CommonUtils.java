@@ -96,7 +96,8 @@ public class CommonUtils {
         writer.close();
     }
 
-    public static Throwable retryUntilSuccess(Runnable r, final int nretries, final int initialPause, final int backoff) {
+    public static Throwable retryUntilSuccess(Runnable r, final int nretries, final int initialPause, final int backoff,
+            final String lbl) {
         boolean success = false;
         int ntries = 0;
         int pause = initialPause;
@@ -113,6 +114,8 @@ public class CommonUtils {
             ntries++;
 
             if (!success && ntries < nretries) {
+                ViolaUtil.log("received exception while \"%s\", on try %d/%d. Sleeping for %d ms\n", lbl, ntries,
+                        nretries);
                 try {
                     Thread.sleep(pause);
                 } catch (InterruptedException ie) { }

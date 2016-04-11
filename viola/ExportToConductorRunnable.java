@@ -47,7 +47,7 @@ public class ExportToConductorRunnable implements Runnable {
                     } catch (IOException|InterruptedException io) {
                         throw new RuntimeException(io);
                     }
-                }, 10, 1000, 2);
+                }, 10, 1000, 2, "copying viola results to conductor");
                 
                 if (err != null) {
                     curr.setErrMsg("Unable to save log files: " + err.getMessage());
