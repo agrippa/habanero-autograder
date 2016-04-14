@@ -1183,13 +1183,19 @@ app.post('/update_n_nodes/:assignment_id', function(req, res, next) {
       return redirect_with_err('/admin', res, req,
           'Malformed request, missing n_nodes field?');
     }
-    if (isNaN(req.body.n_nodes)) {
-        return redirect_with_err('/admin', res, req,
-            'Malformed request, not a number');
-    }
     var assignment_id = req.params.assignment_id;
     var n_nodes = req.body.n_nodes;
-    return update_assignment_field(n_nodes, 'n_nodes', assignment_id, res, req);
+
+    var tokens = n_nodes.split(',');
+    for (var t = 0; t < tokens.length; t++) {
+        if (isNaN(tokens[t])) {
+            return redirect_with_err('/admin', res, req,
+                'Invalid format for n_nodes, must be comma separated integers');
+        }
+    }
+
+    return update_assignment_field("'" + n_nodes + "'", 'n_nodes',
+            assignment_id, res, req);
   }
 });
 
@@ -1596,7 +1602,7 @@ function get_cello_work_dir(home_dir, run_id) {
   return home_dir + "/autograder/" + run_id;
 }
 
-function parse_scalability_tests(ncores_str) {
+function parse_comma_separated_ints(ncores_str) {
     var tokens = ncores_str.split(',');
     var ncores = [];
     for (var t = 0; t < tokens.length; t++) {
@@ -1626,12 +1632,13 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     asm_jar, rr_agent_jar, rr_runtime_jar, assignment_jvm_args, timeout_str,
     enable_profiling, custom_slurm_flags, n_nodes, pom_jars) {
   var max_n_cores = max(ncores);
+  var max_n_nodes = max(n_nodes);
 
   var slurmFileContents =
     "#!/bin/bash\n" +
     "\n" +
     "#SBATCH --job-name=habanero-autograder-" + run_id + "\n" +
-    "#SBATCH --nodes=" + n_nodes + "\n" +
+    "#SBATCH --nodes=" + max_n_nodes + "\n" +
     "#SBATCH --ntasks-per-node=1\n" +
     "#SBATCH --cpus-per-task=" + max_n_cores + "\n" +
     "#SBATCH --mem=16000m\n" +
@@ -1706,32 +1713,38 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
 
   if (!enable_profiling) {
     // Loop over scalability tests
-    for (var t = 0; t < ncores.length; t++) {
-      var curr_cores = ncores[t];
-      var output_file = '/tmp/performance.' + run_id + '.' + curr_cores + '.txt';
-      var final_output_file = '$CELLO_WORK_DIR/performance.' + curr_cores + '.txt';
+    for (var n = 0; n < n_nodes.length; n++) {
+      var curr_n_nodes = n_nodes[n];
 
-      // Limit the number of cores this test can use
-      var cpu_list = '0';
-      for (var c = 1; c < curr_cores; c++) {
-          cpu_list += ',' + c;
+      for (var t = 0; t < ncores.length; t++) {
+        var curr_cores = ncores[t];
+        var output_file = '/tmp/performance.' + run_id + '.' + curr_cores + '.txt';
+        var final_output_file = '$CELLO_WORK_DIR/performance.' + curr_cores + '.txt';
+
+        // Limit the number of cores this test can use
+        var cpu_list = '0';
+        for (var c = 1; c < curr_cores; c++) {
+            cpu_list += ',' + c;
+        }
+
+        slurmFileContents += 'touch ' + output_file + '\n';
+        slurmFileContents += 'touch ' + final_output_file + '\n';
+        slurmFileContents += loop_over_all_perf_tests('srun -N ' +
+            curr_n_nodes + ' -n ' + curr_n_nodes + ' taskset --cpu-list ' +
+            cpu_list + ' java ' + securityFlags + ' -Dautograder.nranks=' +
+            curr_n_nodes + ' -Dautograder.ncores=' +
+            curr_cores + ' -Dhj.numWorkers=' + curr_cores +
+            (hj_jar ? (' -javaagent:' + hj_jar) : ' ') + ' -cp ' + classpath.join(':') + pom_jars + ' ' +
+            'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
+        slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c)\n';
+        slurmFileContents += 'if [[ "$NBYTES" -gt "' + MAX_FILE_SIZE + '" ]]; then\n';
+        slurmFileContents += '    echo "' + excessiveFileSizeMsg + '" > ' + final_output_file + '\n';
+        slurmFileContents += '    echo "" >> ' + final_output_file + '\n';
+        slurmFileContents += '    truncate --size ' + MAX_FILE_SIZE + ' ' + output_file + '\n';
+        slurmFileContents += 'fi\n';
+        slurmFileContents += 'cat ' + output_file + ' >> ' + final_output_file + '\n';
+        slurmFileContents += 'rm -f ' + output_file + '\n';
       }
-
-      slurmFileContents += 'touch ' + output_file + '\n';
-      slurmFileContents += 'touch ' + final_output_file + '\n';
-      slurmFileContents += loop_over_all_perf_tests('srun taskset --cpu-list ' +
-          cpu_list + ' java ' + securityFlags + ' -Dautograder.ncores=' +
-          curr_cores + ' -Dhj.numWorkers=' + curr_cores +
-          (hj_jar ? (' -javaagent:' + hj_jar) : ' ') + ' -cp ' + classpath.join(':') + pom_jars + ' ' +
-          'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
-      slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c)\n';
-      slurmFileContents += 'if [[ "$NBYTES" -gt "' + MAX_FILE_SIZE + '" ]]; then\n';
-      slurmFileContents += '    echo "' + excessiveFileSizeMsg + '" > ' + final_output_file + '\n';
-      slurmFileContents += '    echo "" >> ' + final_output_file + '\n';
-      slurmFileContents += '    truncate --size ' + MAX_FILE_SIZE + ' ' + output_file + '\n';
-      slurmFileContents += 'fi\n';
-      slurmFileContents += 'cat ' + output_file + ' >> ' + final_output_file + '\n';
-      slurmFileContents += 'rm -f ' + output_file + '\n';
     }
     slurmFileContents += '\n';
   } else { // enable_profiling
@@ -1923,8 +1936,9 @@ app.post('/local_run_finished', function(req, res, next) {
                     var assignment_jvm_args = rows[0].jvm_args;
                     var timeout_str = rows[0].performance_timeout_str;
                     var ncores_str = rows[0].ncores;
-                    var ncores = parse_scalability_tests(ncores_str);
-                    var n_nodes = rows[0].n_nodes;
+                    var ncores = parse_comma_separated_ints(ncores_str);
+                    var n_nodes_str = rows[0].n_nodes;
+                    var n_nodes = parse_comma_separated_ints(n_nodes_str);
                     var custom_slurm_flags_str = rows[0].custom_slurm_flags;
                     var custom_slurm_flags_list =
                       custom_slurm_flags_str.split(',');
@@ -2619,7 +2633,7 @@ app.get('/run/:run_id', function(req, res, next) {
         var assignment_id = rows[0].assignment_id;
         var viola_err_msg = rows[0].viola_msg;
         var cello_msg = rows[0].cello_msg;
-        var ncores = parse_scalability_tests(rows[0].ncores);
+        var ncores = parse_comma_separated_ints(rows[0].ncores);
         var passed_checkstyle = rows[0].passed_checkstyle;
         var compiled = rows[0].compiled;
         var passed_all_correctness = rows[0].passed_all_correctness;
@@ -2938,7 +2952,7 @@ function finish_perf_tests(run_status, run, perf_runs,
             //   copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
             // }
 
-            var tests = parse_scalability_tests(run.ncores);
+            var tests = parse_comma_separated_ints(run.ncores);
             var max_n_cores = max(tests);
             for (var i = 0; i < tests.length; i++) {
                 var curr_cores = tests[i];
