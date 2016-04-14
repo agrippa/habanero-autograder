@@ -38,6 +38,7 @@
             <td bgcolor="#AAAAAA"><center><b>Correctness Tests Timeout (ms)</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Performance Tests Timeout (HH:MM:SS)</b></center></td>
             <td bgcolor="#AAAAAA"><center><b># Cores</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b># Nodes</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Reupload Zip</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Reupload Instructor POM</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Reupload Rubric</b></center></td>
@@ -101,6 +102,14 @@
                       <center>
                           <form action="/update_ncores/<%= curr.assignment_id %>" method="post" enctype="application/x-www-form-urlencoded">
                               <input name="ncores" type="text" value="<%= curr.ncores %>">
+                              <input value="Update" name="submit" type="submit">
+                          </form>
+                      </center>
+                  </td>
+                  <td>
+                      <center>
+                          <form action="/update_n_nodes/<%= curr.assignment_id %>" method="post" enctype="application/x-www-form-urlencoded">
+                              <input name="n_nodes" type="text" value="<%= curr.n_nodes %>">
                               <input value="Update" name="submit" type="submit">
                           </form>
                       </center>

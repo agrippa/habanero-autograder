@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS assignments
  correctness_timeout_ms INTEGER NOT NULL DEFAULT 1200000,
  performance_timeout_str TEXT NOT NULL DEFAULT '00:10:00',
  ncores TEXT NOT NULL DEFAULT '16',
- custom_slurm_flags TEXT NOT NULL DEFAULT ''
+ custom_slurm_flags TEXT NOT NULL DEFAULT '',
+ n_nodes INT NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS runs

@@ -1150,7 +1150,7 @@ app.post('/update_performance_timeout/:assignment_id', function(req, res, next) 
 
 app.post('/update_ncores/:assignment_id', function(req, res, next) {
   log('update_ncores: is_admin=' + req.session.is_admin +
-      ', new timeout=' + req.body.performance_timeout);
+      ', new # cores=' + req.body.ncores);
   if (!req.session.is_admin) {
     return redirect_with_err('/overview', res, req, permissionDenied);
   } else {
@@ -1170,6 +1170,26 @@ app.post('/update_ncores/:assignment_id', function(req, res, next) {
     }
 
     return update_assignment_field("'" + ncores + "'", 'ncores', assignment_id, res, req);
+  }
+});
+
+app.post('/update_n_nodes/:assignment_id', function(req, res, next) {
+  log('update_n_nodes: is_admin=' + req.session.is_admin +
+      ', new # nodes=' + req.body.n_nodes);
+  if (!req.session.is_admin) {
+    return redirect_with_err('/overview', res, req, permissionDenied);
+  } else {
+    if (req.body.n_nodes === null) {
+      return redirect_with_err('/admin', res, req,
+          'Malformed request, missing n_nodes field?');
+    }
+    if (isNaN(req.body.n_nodes)) {
+        return redirect_with_err('/admin', res, req,
+            'Malformed request, not a number');
+    }
+    var assignment_id = req.params.assignment_id;
+    var n_nodes = req.body.n_nodes;
+    return update_assignment_field(n_nodes, 'n_nodes', assignment_id, res, req);
   }
 });
 
@@ -1604,14 +1624,14 @@ function loop_over_all_perf_tests(cmd) {
 function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     assignment_name, java_profiler_dir, os, ncores, junit_jar, hamcrest_jar, hj_jar,
     asm_jar, rr_agent_jar, rr_runtime_jar, assignment_jvm_args, timeout_str,
-    enable_profiling, custom_slurm_flags) {
+    enable_profiling, custom_slurm_flags, n_nodes, pom_jars) {
   var max_n_cores = max(ncores);
 
   var slurmFileContents =
     "#!/bin/bash\n" +
     "\n" +
     "#SBATCH --job-name=habanero-autograder-" + run_id + "\n" +
-    "#SBATCH --nodes=1\n" +
+    "#SBATCH --nodes=" + n_nodes + "\n" +
     "#SBATCH --ntasks-per-node=1\n" +
     "#SBATCH --cpus-per-task=" + max_n_cores + "\n" +
     "#SBATCH --mem=16000m\n" +
@@ -1699,10 +1719,10 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
 
       slurmFileContents += 'touch ' + output_file + '\n';
       slurmFileContents += 'touch ' + final_output_file + '\n';
-      slurmFileContents += loop_over_all_perf_tests('taskset --cpu-list ' +
+      slurmFileContents += loop_over_all_perf_tests('srun taskset --cpu-list ' +
           cpu_list + ' java ' + securityFlags + ' -Dautograder.ncores=' +
           curr_cores + ' -Dhj.numWorkers=' + curr_cores +
-          (hj_jar ? (' -javaagent:' + hj_jar) : ' ') + ' -cp ' + classpath.join(':') + ' ' +
+          (hj_jar ? (' -javaagent:' + hj_jar) : ' ') + ' -cp ' + classpath.join(':') + pom_jars + ' ' +
           'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
       slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c)\n';
       slurmFileContents += 'if [[ "$NBYTES" -gt "' + MAX_FILE_SIZE + '" ]]; then\n';
@@ -1720,7 +1740,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
       slurmFileContents += loop_over_all_perf_tests(
         'java ' + securityFlags + ' -Dhj.numWorkers=' + max_n_cores +
         ' -agentpath:' + java_profiler_dir + '/liblagent.so ' +
-        (hj_jar ? ('-javaagent:' + hj_jar) : '') + ' -cp ' + classpath.join(':') + ' ' +
+        (hj_jar ? ('-javaagent:' + hj_jar) : '') + ' -cp ' + classpath.join(':') + pom_jars + ' ' +
         'org.junit.runner.JUnitCore $CLASSNAME >> ' + profiler_output + ' 2>&1 ; ' +
         'echo ===== Profiling test $CLASSNAME ===== >> $CELLO_WORK_DIR/traces.txt; ' +
         'cat $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/traces.txt >> ' +
@@ -1744,7 +1764,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   //   var rr_output = '$CELLO_WORK_DIR/datarace.txt';
   //   slurmFileContents += loop_over_all_perf_tests('java ' +
   //     assignment_jvm_args + ' ' + securityFlags + ' -cp ' +
-  //     classpath.join(':') + ' -Dhj.numWorkers=' + ncores + ' -javaagent:' +
+  //     classpath.join(':') + pom_jars + ' -Dhj.numWorkers=' + ncores + ' -javaagent:' +
   //     hj_jar + ' -javaagent:' + rr_agent_jar + ' -Xbootclasspath/p:' +
   //     rr_runtime_jar + ' rr.RRMain -toolpath= -maxTid=80 -tool=FT_CHECKER ' +
   //     '-noWarn=+edu.rice.hj.runtime.* -classpath=' + classpath.join(':') +
@@ -1904,6 +1924,7 @@ app.post('/local_run_finished', function(req, res, next) {
                     var timeout_str = rows[0].performance_timeout_str;
                     var ncores_str = rows[0].ncores;
                     var ncores = parse_scalability_tests(ncores_str);
+                    var n_nodes = rows[0].n_nodes;
                     var custom_slurm_flags_str = rows[0].custom_slurm_flags;
                     var custom_slurm_flags_list =
                       custom_slurm_flags_str.split(',');
@@ -1969,12 +1990,15 @@ app.post('/local_run_finished', function(req, res, next) {
                                           dependency_lines[dependency_lines_index] !== '[INFO] The following files have been resolved:') {
                                         dependency_lines_index += 1;
                                       }
+                                      var pom_jars = '';
                                       var hj = null;
                                       while (dependency_lines_index < dependency_lines.length &&
                                           dependency_lines[dependency_lines_index] !== '[INFO] ') {
                                         var curr = dependency_lines[dependency_lines_index];
                                         var components = curr.split(':');
                                         var path = components[5];
+
+                                        pom_jars += ':' + path;
 
                                         if (components[1] == 'hjlib-cooperative') {
                                           hj = path;
@@ -1992,7 +2016,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                           java_profiler_dir, os, ncores, junit,
                                           hamcrest, hj, asm, rr_agent_jar, rr_runtime_jar,
                                           assignment_jvm_args, timeout_str, enable_profiling,
-                                          custom_slurm_flags_list));
+                                          custom_slurm_flags_list, n_nodes, pom_jars));
 
                                       var copies = [{src: run_dir + '/cello.slurm',
                                                      dst: 'autograder/' + run_id + '/cello.slurm'},
