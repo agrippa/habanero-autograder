@@ -1693,6 +1693,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   slurmFileContents += 'fi\n';
   slurmFileContents += 'INSTRUCTOR_DIR=$(ls $CELLO_WORK_DIR/assignment/instructor/)\n';
 
+  slurmFileContents += 'mkdir -p $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/src/test\n';
   slurmFileContents += 'cp -r $CELLO_WORK_DIR/assignment/instructor/$INSTRUCTOR_DIR/src/test/* $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/src/test/\n';
   slurmFileContents += 'cp ~/autograder-assignments/' + assignment_id +
     '/instructor_pom.xml $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml\n';

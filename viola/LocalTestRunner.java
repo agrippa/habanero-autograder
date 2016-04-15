@@ -332,7 +332,7 @@ public class LocalTestRunner {
             }
             File mainTestFolder = new File(mainSrcFolder, "test");
             if (!mainTestFolder.exists()) {
-                throw new TestRunnerException("Expected a test folder under the src/ directory in zip.");
+                mainTestFolder.mkdir();
             }
 
             ViolaUtil.log("mainCodeFolder = " + mainCodeFolder.getAbsolutePath() + "\n");
