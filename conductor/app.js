@@ -1507,7 +1507,8 @@ app.post('/submit_run_as', function(req, res, next) {
         return res.send('submit_run_as not enabled');
     }
 
-    var required_fields = ['username', 'for_username', 'svn_url', 'assignment_name'];
+    var required_fields = ['username', 'for_username', 'svn_url',
+        'assignment_name', 'correctness_only'];
     for (var field in required_fields) {
         if (!(required_fields[field] in req.query)) {
             return res.send('Missing "' + required_fields[field] +
@@ -1519,9 +1520,10 @@ app.post('/submit_run_as', function(req, res, next) {
     var for_username = req.query.for_username;
     var svn_url = req.query.svn_url;
     var assignment_name = req.query.assignment_name;
+    var correctness_only = req.query.correctness_only;
     log('submit_run_as: username="' + username + '" for_username="' +
         for_username + '" svn_url="' + svn_url + '" assignment_name="' +
-        assignment_name + '"');
+        assignment_name + '" correctness_only="' + correctness_only + '"');
 
     get_user_id_for_name(username, function(user_id, err) {
         if (err) {
@@ -1531,8 +1533,9 @@ app.post('/submit_run_as', function(req, res, next) {
             if (err) {
                 return res.send('Failed getting user ID for "' + for_username + '"');
             }
-            return submit_run(user_id, username, assignment_name, false, false,
-                false, svn_url, res, req, function(run_id) {
+            return submit_run(user_id, username, assignment_name,
+                (correctness_only === 'true'), false, false, svn_url, res, req,
+                function(run_id) {
                     pgquery("UPDATE runs SET on_behalf_of=($1) WHERE " +
                         "run_id=($2)", [for_user_id, run_id],
                         function(err, rows) {
@@ -2694,8 +2697,8 @@ app.get('/run/:run_id', function(req, res, next) {
                 var username = rows[0].user_name;
                 var run_dir = __dirname + '/submissions/' + username + '/' + run_id;
                 /*
-                 * If bugs cause submissions to fail, their storage may not exist.
-                 * This shouldn't happen in a bugless AutoGrader.
+                 * If bugs cause submissions to fail or we cleared out older
+                 * folders to save disk space, their storage may not exist.
                  */
                 if (!fs.existsSync(run_dir)) {
                   return render_page('missing_run.html', res, req, { run_id: run_id });
