@@ -1733,8 +1733,9 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
 
         slurmFileContents += 'touch ' + output_file + '\n';
         slurmFileContents += 'touch ' + final_output_file + '\n';
-        slurmFileContents += loop_over_all_perf_tests('srun -N ' +
-            curr_n_nodes + ' -n ' + curr_n_nodes + ' taskset --cpu-list ' +
+        slurmFileContents += loop_over_all_perf_tests('srun --nodes=' +
+            curr_n_nodes + ' --ntasks=' + curr_n_nodes +
+            ' --distribution=cyclic --tasks-per-node=1 taskset --cpu-list ' +
             cpu_list + ' java ' + securityFlags + ' -Dautograder.nranks=' +
             curr_n_nodes + ' -Dautograder.ncores=' +
             curr_cores + ' -Dhj.numWorkers=' + curr_cores +
