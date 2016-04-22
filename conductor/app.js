@@ -1662,7 +1662,8 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   } else {
     slurmFileContents += "echo Local job\n";
   }
-  slurmFileContents += "echo CELLO_WORK_DIR=$CELLO_WORK_DIR\n\n";
+  slurmFileContents += "echo CELLO_WORK_DIR=$CELLO_WORK_DIR\n";
+  slurmFileContents += "echo SLURM_NODELIST=$SLURM_NODELIST\n\n";
 
   slurmFileContents += 'function cleanup() {\n';
   slurmFileContents += '    echo Cleaning up\n';

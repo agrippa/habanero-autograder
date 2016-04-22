@@ -70,7 +70,7 @@
                   <center>
                       <form action="/update_jvm_args/<%= curr.assignment_id %>" method="post" enctype="application/x-www-form-urlencoded">
                           <input name="jvm_args" type="text" value="<%= curr.jvm_args %>">
-                          <input value="Update" name="submit" type="submit">
+                          <input value="Update JVM" name="submit" type="submit">
                       </form>
                       </center>
                   </td>
@@ -78,7 +78,7 @@
                       <center>
                           <form action="/update_custom_slurm_flags/<%= curr.assignment_id %>" method="post" enctype="application/x-www-form-urlencoded">
                               <input name="custom_slurm_flags" type="text" value="<%= curr.custom_slurm_flags %>">
-                              <input value="Update" name="submit" type="submit">
+                              <input value="Update SLURM" name="submit" type="submit">
                           </form>
                       </center>
                   </td>
