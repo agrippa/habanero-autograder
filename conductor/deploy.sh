@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# A script for launching this NodeJS server which ensures a new and unique log
+# file is created on each boot.
+
 set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"

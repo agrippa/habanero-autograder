@@ -1,4 +1,4 @@
-The Habanero AutoGrader for parallel programs
+The conductor component of the Habanero AutoGrader for parallel programs
 
 ===== Dependencies =====
 
@@ -72,7 +72,7 @@ On RedHat, follow the instructions at http://www.if-not-true-then-false.com/2012
 
 ===== AutoGrader Conductor installation instructions =====
 
- 1. git clone https://max-grossman@bitbucket.org/max-grossman/habanero-autograder.git
+ 1. git clone https://github.com/agrippa/habanero-autograder.git
  2. cd habanero-autograder/conductor
  3. ./setup.sh
  4. npm install
@@ -92,7 +92,6 @@ The conductor host must have key-based SSH access to the configured cluster.
  2. PGSQL_PASSWORD
  3. SVN_USER
  4. SVN_PASSWORD
- 5. SVN_REPO
- 6. PORT
- 7. VIOLA_HOST
- 8. VIOLA_PORT
+ 5. PORT
+ 6. VIOLA_HOST
+ 7. VIOLA_PORT

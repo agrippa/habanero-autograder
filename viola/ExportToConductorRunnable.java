@@ -3,6 +3,10 @@ import java.util.LinkedList;
 import java.io.File;
 import java.io.IOException;
 
+/**
+ * This class implements a late stage in the Viola pipeline: transferring the outputs of the Viola tests back to the
+ * Conductor for display.
+ */
 public class ExportToConductorRunnable implements Runnable {
     private final LinkedList<LocalTestRunner> toImport;
     private final LinkedList<LocalTestRunner> toNotify;
@@ -19,6 +23,7 @@ public class ExportToConductorRunnable implements Runnable {
     @Override
     public void run() {
         while (true) {
+            // Wait for some work.
             LocalTestRunner curr = null;
             synchronized(toImport) {
                 while (toImport.isEmpty()) {
@@ -36,6 +41,7 @@ public class ExportToConductorRunnable implements Runnable {
              * error message was set by the test runner.
              */
 
+            // Transfer the output files for this run back to the conductor.
             for (String path : curr.getFilesToSave()) {
                 final CommonUtils.ProcessResults[] scpResults = new CommonUtils.ProcessResults[1];
                 final String[] scpCmd = new String[] {"scp", path, curr.getEnv().conductorUser + "@" +
@@ -58,6 +64,7 @@ public class ExportToConductorRunnable implements Runnable {
 
             ViolaUtil.log("export job for run %d completed\n", curr.getRunId());
 
+            // Indicate that the conductor should be notified that the results for this Viola run have been copied back.
             synchronized (toNotify) {
                 toNotify.push(curr);
                 toNotify.notify();

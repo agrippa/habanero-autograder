@@ -9,6 +9,10 @@ import java.util.HashMap;
 import java.util.PriorityQueue;
 import java.util.concurrent.Executor;
 
+/**
+ * The FairViolaTaskExecutor implements fair-share scheduling for users accessing Viola, giving higher priority to
+ * submissions from users that have not been recently submitting large amounts of jobs.
+ */
 public class FairViolaTaskExecutor {
   private final long windowSizeMilliseconds = 120 * 60 * 1000; // 2 hours
   private final LinkedList<TaskExecution> executedTaskWindow =
@@ -21,6 +25,7 @@ public class FairViolaTaskExecutor {
     new HashMap<String, LinkedList<LocalTestRunner>>();
   private int nPending = 0;
 
+  // The underlying thread pool user tests are executed on.
   private final Thread[] workerThreads;
   private final LocalTestRunner[] runningTasks;
 
@@ -33,6 +38,7 @@ public class FairViolaTaskExecutor {
     }
   }
 
+  // Enqueue a new job to be run by the Viola component.
   private void newPendingTask(LocalTestRunner r, String username) {
     synchronized(this) {
       if (!tasksInWindowPerUser.containsKey(username)) {
@@ -50,6 +56,7 @@ public class FairViolaTaskExecutor {
     }
   }
 
+  // Find a new piece of work to process.
   private LocalTestRunner getPendingTask(int tid) {
     LocalTestRunner result = null;
 
@@ -104,6 +111,10 @@ public class FairViolaTaskExecutor {
     newPendingTask(command, command.getUser());
   }
 
+  /**
+   * Try to cancel a job on the Viola component, either by removing it from the list of pending tasks or by interrupting
+   * the thread handling its execution.
+   */
   public boolean cancel(String done_token) {
       synchronized (this) {
           for (Map.Entry<String, LinkedList<LocalTestRunner>> entry : pendingTasks.entrySet()) {
@@ -148,6 +159,10 @@ public class FairViolaTaskExecutor {
       return false;
   }
 
+  /**
+   * Implements the core work loop for the Viola's thread pool. This class is responsible for basically polling for new
+   * work and then executing it.
+   */
   class ViolaRunner implements Runnable {
       private final int tid;
 
@@ -180,6 +195,10 @@ public class FairViolaTaskExecutor {
       }
   }
 
+  /**
+   * Represents a single submission by a single user. TaskExecution objects are tracked to help enforce the fair-share
+   * policy implemented by this executor.
+   */
   class TaskExecution implements Comparable<TaskExecution> {
     public final long time;
     public final String user;
@@ -209,6 +228,10 @@ public class FairViolaTaskExecutor {
     }
   }
 
+  /**
+   * TasksInWindow counts the number of tasks that have executed within a recent window of time, in support of the
+   * fair-share scheduling policy.
+   */
   class TasksInWindow implements Comparable<TasksInWindow> {
     private int count;
     private final String username;

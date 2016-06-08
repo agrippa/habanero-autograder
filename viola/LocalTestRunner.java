@@ -35,29 +35,46 @@ import java.io.PrintWriter;
 import org.apache.commons.io.FileUtils;
 
 /*
- * Logic for actually running single-threaded tests.
+ * Logic for actually running single-threaded tests, this class encapsulates most of the logic for processing a single
+ * submission.
  */
 public class LocalTestRunner {
 
+    /*
+     * A unique, random, long token used to identify each submission. The done token is passed back to the conductor
+     * when testing of a given submission completes to notify it of completion.
+     */
     private final String done_token;
+    // User that owns this submission
     private final String user;
+    // Name of the assignment for this submission
     private final String assignment_name;
+    // Run ID for this submission
     private final int run_id;
+    // Assignment this submission is targeting
     private final int assignment_id;
+    // Testing arguments for the JVM
     private final String[] jvm_args;
+    // Time limit on correctness tests
     private final int timeout;
+    // Path to the user-provided submission files
     private final String submissionPath;
+    // Path to the instructor-provided testing files
     private final String assignmentPath;
 
     private File createdAssignmentDir = null;
     private File createdSubmissionDir = null;
 
+    // Various environmental information
     private final ViolaEnv env;
     private volatile boolean beingCancelled = false;
 
+    // Track all directories created as part of processing this submission so that we can clean up after ourselves later
     private final List<String> createdDirectories = new LinkedList<String>();
+    // Track any created processes so we can be sure to clean them up later.
     private final List<Process> createdProcesses = new LinkedList<Process>();
 
+    // Track any files created that we want to send back to the conductor after this run completes.
     private final List<String> createdFilesToSave = new LinkedList<String>();
 
     private File logDir = null;
@@ -65,6 +82,7 @@ public class LocalTestRunner {
 
     private final LinkedList<LocalTestRunner> toImport;
 
+    // Constructor
     public LocalTestRunner(String done_token, String user,
             String assignment_name, int run_id, int assignment_id,
             String jvm_args, int timeout, ViolaEnv env, LinkedList<LocalTestRunner> toImport, String assignmentPath,
@@ -87,7 +105,8 @@ public class LocalTestRunner {
 
         this.toImport = toImport;
     }
-   
+  
+    // Getters and setters
     public List<String> getFilesToSave() { return createdFilesToSave; }
     public String getUser() {  return user; }
     public int getRunId() {  return run_id; }
@@ -119,7 +138,8 @@ public class LocalTestRunner {
 
     /*
      * Partially taken from http://stackoverflow.com/questions/4205980/java-sending-http-parameters-via-post-method-easily
-     * TODO Problem here is we could fail silently to succeed.
+     *
+     * Sends a message to the conductor indicating that this run has completed.
      */
     private void notifyConductor(String errMsg) throws MalformedURLException, IOException {
         if (errMsg == null) errMsg = "";
@@ -168,6 +188,7 @@ public class LocalTestRunner {
         }
     }
 
+    // Merge the contents of directory src in to directory dst, recursively.
     private void mergeDirs(File dst, File src) throws TestRunnerException {
         for (String filename : src.list()) {
           File curr = new File(src.getAbsolutePath(), filename);
@@ -227,12 +248,14 @@ public class LocalTestRunner {
       }
     }
 
+    // Given a directory, find and collect all Java files beneath it.
     private List<String> findAllJavaFiles(File dir, boolean correctnessTestsOnly) {
       List<String> acc = new LinkedList<String>();
       findAllJavaFilesHelper(dir, acc, correctnessTestsOnly);
       return acc;
     }
 
+    // The main testing body for this submission.
     public void run(final int tid) {
         ViolaUtil.log("Running local tests for user=%s assignment=%s run=%d " +
                 "jvm_args length=%d\n", user, assignment_name, run_id,
@@ -267,12 +290,14 @@ public class LocalTestRunner {
             String[] unzip_instructor = new String[]{"unzip", createdAssignmentDir.getAbsolutePath() + "/instructor.zip",
               "-d", extractInstructorDir.getAbsolutePath()};
 
+            // Unzip the provided user code from createdSubmissionDir/student.zip to unzip_code
             final CommonUtils.ProcessResults unzip_code_results = CommonUtils.runInProcess(lbl, unzip_code,
                     createdSubmissionDir, this.timeout, createdProcesses);
             if (unzip_code_results.code != 0) {
                 throw new TestRunnerException("Error unzipping code");
             }
 
+            // Unzip the instructor-provided testing from createdAssignmentDir to unzip_instructor
             final CommonUtils.ProcessResults unzip_instructor_results = CommonUtils.runInProcess(lbl, unzip_instructor,
                     createdAssignmentDir, this.timeout, createdProcesses);
             if (unzip_instructor_results.code != 0) {
@@ -299,6 +324,7 @@ public class LocalTestRunner {
   
               throw new TestRunnerException(sb.toString());
             }
+
             if (instructor_directories.length != 1) {
               throw new TestRunnerException("Unexpected number of instructor directories (" +
                   instructor_directories.length + ")");
@@ -511,6 +537,10 @@ public class LocalTestRunner {
         }
     }
 
+    /*
+     * Clean up after this run, including ensuring any temporary directories are deleted and any leftover processes are
+     * killed.
+     */
     public void cleanup(String errMsg) throws MalformedURLException, IOException {
         for (String path : createdDirectories) {
             deleteDir(new File(path));

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Deployment script for the viola component.
+
 set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -10,8 +12,11 @@ if [[ $# != 3 ]]; then
     exit 1
 fi
 
+# The host at which the conductor can be found
 CONDUCTOR_HOST=$1
+# The port at which the conductor is accepting HTTP requests
 CONDUCTOR_PORT=$2
+# An SSH user on the conductor host
 CONDUCTOR_USER=$3
 
 LOG_FILE_INDEX=1

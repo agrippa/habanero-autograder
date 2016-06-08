@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# 'Kill' a job by altering its status in Postgres. Realistically, this doesn't
+# change the actual state of the running job but simply makes it appear to have
+# failed to the user.
+
 set -e
 
 if [[ $# != 1 ]]; then

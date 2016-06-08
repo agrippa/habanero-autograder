@@ -3,6 +3,9 @@ import java.util.LinkedList;
 import java.io.File;
 import java.io.IOException;
 
+/**
+ * This class implements the first stage in the Viola pipeline, the import of submission files from the conductor.
+ */
 public class ImportFromConductorRunnable implements Runnable {
 
     private final LinkedList<LocalTestRunner> toImport;
@@ -38,6 +41,10 @@ public class ImportFromConductorRunnable implements Runnable {
 
             final String lbl = String.format("run=%d", curr.getRunId());
 
+            /*
+             * Set up directories for storing the student-provided submission files and instructor-provided testing
+             * files.
+             */
             File assignmentDir = null;
             File submissionDir = null;
             try {
@@ -92,6 +99,7 @@ public class ImportFromConductorRunnable implements Runnable {
                 }
             }
 
+            // When finished, notify the next stage of the pipeline that we have local copies of all files on the Viola.
             if (curr.getErrMsg() != null) {
                 synchronized(toNotify) {
                     toNotify.add(curr);

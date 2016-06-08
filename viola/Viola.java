@@ -29,6 +29,10 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 
+/**
+ * This is the main entrypoint for the viola component. This class sets up a web browser and offers endpoints for
+ * submitting and cancelling Viola runs.
+ */
 public class Viola {
     // Executor for running the local tests
     private final static int poolSize = 4;
@@ -39,6 +43,7 @@ public class Viola {
           new LinkedBlockingQueue());
 
     private static ViolaEnv env = null;
+    // Different queues between stages of the Viola pipeline
     private static final LinkedList<LocalTestRunner> toImport = new LinkedList<LocalTestRunner>();
     private static final LinkedList<LocalTestRunner> toExport = new LinkedList<LocalTestRunner>();
     private static final LinkedList<LocalTestRunner> toNotify = new LinkedList<LocalTestRunner>();
@@ -68,10 +73,6 @@ public class Viola {
         final String autograderHome = getEnvVarOrFail("AUTOGRADER_HOME");
         final String checkstyle = getEnvVarOrFail("CHECKSTYLE_JAR");
 
-        // final SVNClientManager ourClientManager =
-        //     SVNClientManager.newInstance(SVNWCUtil.createDefaultOptions(true),
-        //             svnUser, svnPassword);
-
         System.out.println("============== Viola ==============");
         System.out.printf("Viola port = %d\n", port);
         System.out.printf("Conductor  = %s:%d\n", conductorHost, conductorPort);
@@ -98,6 +99,7 @@ public class Viola {
         final Thread notifyThread = new Thread(notifyRunner);
         notifyThread.start();
 
+        // Set up an HTTP server with run and cancellation endpoints
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/run", new RunHandler());
         server.createContext("/cancel", new CancelHandler());
@@ -106,6 +108,9 @@ public class Viola {
         server.start();
     }
 
+    /**
+     * Handler for cancellation requests.
+     */
     static class CancelHandler implements HttpHandler {
         public void handle(HttpExchange t) throws IOException {
             ViolaUtil.log("Received cancel request - %s\n", t.getRequestURI().getQuery());
@@ -133,6 +138,9 @@ public class Viola {
         }
     }
 
+    /**
+     * Handler for run requests.
+     */
     static class RunHandler implements HttpHandler {
         public void handle(HttpExchange t) throws IOException {
             ViolaUtil.log("Received run request - %s\n", t.getRequestURI().getQuery());

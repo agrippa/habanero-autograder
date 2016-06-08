@@ -1,5 +1,8 @@
 import java.util.LinkedList;
 
+/**
+ * Signal the conductor that a Viola run has completed.
+ */
 public class NotifyConductorRunnable implements Runnable {
     private final LinkedList<LocalTestRunner> toNotify;
 
@@ -27,6 +30,7 @@ public class NotifyConductorRunnable implements Runnable {
 
             boolean success = false;
             try {
+                // Cleanup after a Viola run, including sending notification to the conductor
                 curr.cleanup(curr.getErrMsg());
                 success = true;
                 ViolaUtil.log("successfully notified conductor of run %d completion\n", curr.getRunId());

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Some general utilities shared among multiple scripts.
+
 set -e
 
 DICT=password-seeds

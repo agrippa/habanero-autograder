@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Change a single user's password.
+
 set -e
 
 source common.sh
@@ -9,7 +11,9 @@ if [[ $# != 1 ]]; then
     exit 1
 fi
 
+# The user to have their password changed.
 NETID=$1
+# The password to change it to
 PW=$(generate_password)
 EXISTS=$(check_user_exists $NETID)
 

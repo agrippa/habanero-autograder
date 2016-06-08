@@ -3,6 +3,8 @@ import os
 import sys
 import smtplib
 
+# Helper script for sending an e-mail from the autograder e-mail account.
+
 def send_email(user, pwd, recipient, subject, body):
     gmail_user = user
     gmail_pwd = pwd

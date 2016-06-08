@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# A script for allowing the submit_run_as endpoint to be used to create job
+# submissions from one user, but which are visible from another.
+
 set -e
 
 if [[ $# != 1 ]]; then
