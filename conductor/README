@@ -37,14 +37,15 @@ The conductor component of the Habanero AutoGrader for parallel programs
  - jshint
      | sudo npm install -g jshint
 
-===== npm installation instructions =====
-
- 1. sudo apt-get install npm
-
 ===== nodejs installation instructions =====
 
+On Linux:
  1. curl -sL https://deb.nodesource.com/setup_4.x | sudo -E bash -
- 2. sudo apt-get install -y nodejs
+ 2. sudo apt-get install npm
+ 3. sudo apt-get install -y nodejs
+
+On Mac OS:
+ 1. https://changelog.com/install-node-js-with-homebrew-on-os-x/
 
 If that doesn't work, take a look at https://nodejs.org/en/download/package-manager/.
 
