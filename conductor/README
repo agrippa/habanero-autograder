@@ -51,7 +51,8 @@ If that doesn't work, take a look at https://nodejs.org/en/download/package-mana
 
 ===== postgres installation instructions =====
 
-On RedHat, follow the instructions at http://www.if-not-true-then-false.com/2012/install-postgresql-on-fedora-centos-red-hat-rhel/. Create an 'autograder' database instead of a 'test' database. Set the password of postgres as necessary. Then run the setup.sql script.
+On Linux, follow the below instructions to create a new Postgres database named
+autograder, initialized using the provided setup.sql script:
 
  1. apt-get install postgresql
  2. apt-get install postgresql-contrib
@@ -70,6 +71,20 @@ On RedHat, follow the instructions at http://www.if-not-true-then-false.com/2012
  7. Configure the database, the command to use varies from platform to platform, e.g.:
     a. sudo -u postgres psql --username=postgres --dbname=autograder --file=setup.sql
     b. /Applications/Postgres.app/Contents/Versions/9.4/bin/psql --username=jmg3 --dbname=autograder --file=setup.sql
+
+On Mac OS, using Homebrew:
+ 1. brew install postgresql94
+ 2. brew services start homebrew/versions/postgresql94
+ 3. Create a new autograder database:
+    a. psql -d postgres --command="CREATE DATABASE autograder" 
+ 4. Restart the database:
+    b. brew services restart postgresql94
+ 5. Ensure you can manually log in to the autograder database using the instructions below. Log out using Ctrl+D when you are done.
+    a. psql -d autograder
+    b. \l to list all databases (this should show autograder)
+    c. \dt to list all tables in the current database (should be empty now)
+ 6. Configure the database:
+    a. psql -d autograder --file=setup.sql
 
 ===== AutoGrader Conductor installation instructions =====
 
