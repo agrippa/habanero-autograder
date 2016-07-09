@@ -418,6 +418,7 @@ function run_cluster_cmd(lbl, cluster_cmd, cb) {
             log('[' + lbl + '] stdout=' + acc_stdout);
             log('[' + lbl + '] stderr=' + acc_stderr);
           }
+
           return cb(null, acc_stdout, acc_stderr);
         }
       });
@@ -1288,6 +1289,14 @@ app.post('/update_n_nodes/:assignment_id', function(req, res, next) {
         }
     }
 
+    if (CLUSTER_TYPE === 'local') {
+        if (tokens.length !== 1 || parseInt(tokens[0]) !== 1) {
+            return redirect_with_err('/admin', res, req,
+                    'Only single node assignments permitted for local ' +
+                    'cluster configurations');
+        }
+    }
+
     return update_assignment_field("'" + n_nodes + "'", 'n_nodes',
             assignment_id, res, req);
   }
@@ -1869,10 +1878,14 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
 
         slurmFileContents += 'touch ' + output_file + '\n';
         slurmFileContents += 'touch ' + final_output_file + '\n';
-        slurmFileContents += loop_over_all_perf_tests('srun --nodes=' +
-            curr_n_nodes + ' --ntasks=' + curr_n_nodes +
-            ' --distribution=cyclic --tasks-per-node=1 taskset --cpu-list ' +
-            cpu_list + ' java ' + securityFlags + ' -Dautograder.nranks=' +
+        var launch_cmd = '';
+        if (CLUSTER_TYPE === 'slurm') {
+            launch_cmd = 'srun --nodes=' + curr_n_nodes + ' --ntasks=' +
+                curr_n_nodes + ' --distribution=cyclic --tasks-per-node=1 ' +
+                'taskset --cpu-list ' + cpu_list + ' ';
+        }
+        slurmFileContents += loop_over_all_perf_tests(launch_cmd + 'java ' +
+            securityFlags + ' -Dautograder.nranks=' +
             curr_n_nodes + ' -Dautograder.ncores=' +
             curr_cores + ' -Dhj.numWorkers=' + curr_cores +
             (hj_jar ? (' -javaagent:' + hj_jar) : ' ') + ' -cp ' + classpath.join(':') + pom_jars + ' ' +
@@ -3335,7 +3348,8 @@ function check_cluster() {
         checkClusterActive = true;
         pgquery("SELECT * FROM runs WHERE (job_id IS NOT " +
             "NULL) AND ((status='" + TESTING_PERFORMANCE_STATUS + "') OR " +
-            "(status='" + IN_CLUSTER_QUEUE_STATUS + "'))", [], function(err, rows) {
+            "(status='" + IN_CLUSTER_QUEUE_STATUS + "') OR (job_id='" +
+            LOCAL_JOB_ID + "'))", [], function(err, rows) {
                 if (err) {
                     log('Error looking up running perf tests: ' + err);
                     set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);

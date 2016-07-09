@@ -157,6 +157,8 @@ public class LocalTestRunner {
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod("POST");
         conn.setUseCaches(false);
+        conn.setRequestProperty("User-Agent","Mozilla/5.0 ( compatible ) ");
+        conn.setRequestProperty("Accept","*/*");
 
         DataOutputStream wr = new DataOutputStream(conn.getOutputStream());
         wr.writeBytes(urlParameters);
