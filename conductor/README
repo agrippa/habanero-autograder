@@ -36,6 +36,9 @@ The conductor component of the Habanero AutoGrader for parallel programs
      | server, cluster) to the root autograder directory.
  - jshint
      | sudo npm install -g jshint
+ - RSA keys
+     | RSA authentication must be configured using $HOME/.ssh/id_rsa on the
+     | conductor with any cluster you wish to execute performance tests on.
 
 ===== nodejs installation instructions =====
 
