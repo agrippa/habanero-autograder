@@ -5,7 +5,7 @@ set -e
 source common.sh
 
 if [[ $# != 1 ]]; then
-    echo 'usage: add-student.sh netid'
+    echo 'usage: change_password.sh netid'
     exit 1
 fi
 
@@ -14,7 +14,7 @@ PW=$(generate_password)
 EXISTS=$(check_user_exists $NETID)
 
 if [[ $EXISTS == 1 ]]; then
-    HASH=$(nodejs password_hash.js $PW)
+    HASH=$(node password_hash.js $PW)
     SQL_CMD="UPDATE users SET password_hash='$HASH' WHERE user_name='$NETID'"
     sudo -u postgres psql --tuples-only --username=postgres \
         --dbname=autograder --command="$SQL_CMD"
