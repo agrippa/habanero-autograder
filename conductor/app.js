@@ -1649,9 +1649,9 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     "#SBATCH --export=ALL\n" +
     "#SBATCH --exclusive\n" +
     "#SBATCH --partition=commons\n" +
-    "#SBATCH --account=scavenge\n" +
     "#SBATCH --output=" + home_dir + "/autograder/" + run_id + "/stdout.txt\n" +
     "#SBATCH --error=" + home_dir + "/autograder/" + run_id + "/stderr.txt\n\n";
+  // "#SBATCH --account=scavenge\n" +
   for (var i = 0; i < custom_slurm_flags.length; i++) {
       slurmFileContents += '#SBATCH ' + custom_slurm_flags[i] + '\n';
   }
