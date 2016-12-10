@@ -15,6 +15,7 @@
         <div class="col-md-4 col-md-offset-4">
           <form action="/assignment" method="post" enctype="multipart/form-data" role="form">
             <input name="assignment_name" type="text" class="form-control" placeholder="Assignment Name" id="name"></input>
+            <input name="assignment_deadline" type="text" class="form-control" placeholder="Deadline: MM/DD/YYYY HH:MM:SS" id="deadline"></input>
             <label>Instructor Tests</label><input name="zip" type="file">
             <label>Instructor POM</label><input name="instructor_pom" type="file">
             <label>Assignment Rubric</label><input name="rubric" type="file">
@@ -32,6 +33,7 @@
           <tr>
             <td bgcolor="#AAAAAA"><center><b>Name</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Visibility</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Deadline</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Correctness Only</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>JVM Args</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>SLURM Flags</b></center></td>
@@ -56,6 +58,22 @@
                       <input type="hidden" name="set_visible" value="<%= !curr.visible %>">
                       <input class="btn btn-primary" value=<%= curr.visible ? 'Disable' : 'Enable' %> name="submit" type="submit">
                   </form>
+                  </center>
+              </td>
+              <td>
+                  <center>
+                      <form action="/update_deadline/<%= curr.assignment_id %>" method="post" enctype="application/x-www-form-urlencoded">
+                          <% var deadline_str = (curr.deadline.getMonth() + 1) + '-' +
+                                 curr.deadline.getDate() + '-' +
+                                 curr.deadline.getFullYear() + ' ' +
+                                 curr.deadline.getHours() + ':' +
+                                 (curr.deadline.getMinutes() <= 9 ? '0' : '') +
+                                 curr.deadline.getMinutes() + ':' +
+                                 (curr.deadline.getSeconds() <= 9 ? '0' : '') +
+                                 curr.deadline.getSeconds(); %>
+                          <input name="deadline" type="text" value="<%= deadline_str %>">
+                          <input value="Update Deadline" name="submit" type="submit">
+                      </form>
                   </center>
               </td>
               <td>

@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS assignments
  performance_timeout_str TEXT NOT NULL DEFAULT '00:10:00',
  ncores TEXT NOT NULL DEFAULT '16',
  custom_slurm_flags TEXT NOT NULL DEFAULT '',
- n_nodes TEXT NOT NULL DEFAULT '1'
+ n_nodes TEXT NOT NULL DEFAULT '1',
+ deadline TIMESTAMP NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS runs

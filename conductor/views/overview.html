@@ -130,7 +130,8 @@
       <%         finish_time_str = curr.finish_time.getMonth() + 1 + '/' +
                      curr.finish_time.getDate() + '/' +
                      curr.finish_time.getFullYear() + ' ' + normalized_hours +
-                     ':' + curr.finish_time.getMinutes() + ' ' +
+                     ':' + (curr.finish_time.getMinutes() <= 9 ? '0' : '') +
+                     curr.finish_time.getMinutes() + ' ' +
                      (is_afternoon ? 'PM' : 'AM') + ' CST'; %>
       <%     } %>
              <tr><td><center><a href=/run/<%= curr.run_id %>><%= curr.run_id %></a></center></td>

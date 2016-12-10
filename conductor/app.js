@@ -1032,6 +1032,13 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
       return redirect_with_err('/admin', res, req,
         'Please provide a non-empty assignment name');
     }
+
+    var assignment_deadline = req.body.assignment_deadline;
+    if (assignment_deadline.length === 0) {
+      return redirect_with_err('/admin', res, req,
+          'Please provide a non-empty assignment deadline');
+    }
+
     if (!req.files.zip) {
       return redirect_with_err('/admin', res, req,
         'Please provide test files for the assignment');
@@ -1051,7 +1058,8 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
 
     var rubric_validated = load_and_validate_rubric(req.files.rubric[0].path);
     if (!rubric_validated.success) {
-        return redirect_with_err('/admin', res, req, 'Error in rubric: ' + rubric_validated.msg);
+        return redirect_with_err('/admin', res, req,
+                'Error in rubric: ' + rubric_validated.msg);
     }
 
     var pom_validated = validate_instructor_pom(req.files.instructor_pom[0].path);
@@ -1059,9 +1067,10 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
         return redirect_with_err('/admin', res, req, 'Error in POM: ' + pom_validated.msg);
     }
 
-    pgquery_no_err("INSERT INTO assignments (name, visible) VALUES " +
-            "($1,false) RETURNING assignment_id", [assignment_name], res, req,
-            function(rows) {
+    pgquery_no_err("INSERT INTO assignments (name, visible, deadline) VALUES " +
+            "($1,false,to_timestamp($2, 'MM/DD,YYYY hh24:mi:ss')) " +
+            "RETURNING assignment_id", [assignment_name, assignment_deadline],
+            res, req, function(rows) {
                 var assignment_id = rows[0].assignment_id;
                 var assignment_dir = assignment_path(assignment_id);
 
@@ -1179,6 +1188,22 @@ app.post('/update_jvm_args/:assignment_id', function(req, res, next) {
     var jvm_args = req.body.jvm_args;
 
     return update_assignment_field("'" + jvm_args + "'", 'jvm_args', assignment_id, res, req);
+  }
+});
+
+// Update the deadline for an assignment
+app.post('/update_deadline/:assignment_id', function(req, res, next) {
+  log('update_deadline: is_admin=' + req.session.is_admin + ', jvm_args=' + req.body.deadline);
+  if (!req.session.is_admin) {
+    return redirect_with_err('/overview', res, req, permissionDenied);
+  } else {
+    if (req.body.deadline === null) {
+      return redirect_with_err('/admin', res, req, 'Malformed request, missing deadline field?');
+    }
+    var assignment_id = req.params.assignment_id;
+    var deadline = req.body.deadline;
+
+    return update_assignment_field("'" + deadline + "'", 'deadline', assignment_id, res, req);
   }
 });
 
