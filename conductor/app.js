@@ -28,6 +28,8 @@ var permissionDenied = 'Permission denied. But you should shoot me an e-mail ' +
 var excessiveFileSizeMsg = 'The submission appears to perform excessive ' +
     'prints, resulting in large log files. Please reduce the prints performed ' +
     'and resubmit. A truncated version of your output is included below.';
+var cancellationSuccessMsg = 'Successfully cancelled. Please give the job ' +
+    'status a few minutes to update.';
 
 var upload = multer({ dest: 'uploads/' });
 
@@ -37,12 +39,16 @@ var LOCAL_JOB_ID = 'LOCAL';
 
 var PERF_TEST_LBL = 'HABANERO-AUTOGRADER-PERF-TEST';
 
+// For pagination
 var PAGE_SIZE = 50;
 
+// Logging utility, includes a timestamp with the log message
 function log(msg) {
     console.log(new Date().toLocaleString() + ' ' + msg);
 }
 
+// Check the environment for a given variable, and return it if present.
+// Otherwise, exit with an error message.
 function check_env(varname) {
   if (!(varname in process.env)) {
     log('The ' + varname + ' environment variable must be set');
@@ -55,9 +61,11 @@ var AUTOGRADER_HOME = check_env('AUTOGRADER_HOME');
 
 var HOME = check_env('HOME');
 
+// A gmail account that can be used to send messages from the autograder to users.
 var GMAIL_USER = check_env('GMAIL_USER');
 var GMAIL_PASS = check_env('GMAIL_PASS');
 
+// Used for sending e-mail messages
 var transporter = nodemailer.createTransport({
   service: 'Gmail',
   auth: {
@@ -66,6 +74,8 @@ var transporter = nodemailer.createTransport({
   }
 });
 
+// Send an e-mail to the provided destination e-mail address with the provided
+// subject and body. Call cb when this completes, passing an error code or null.
 function send_email(to, subject, body, cb) {
   log('send_email: to=' + to + ' subject="' + subject + '"');
 
@@ -80,6 +90,7 @@ function send_email(to, subject, body, cb) {
   });
 }
 
+// Return the maximum value stored in a list.
 function max(l) {
     var m = l[0];
     for (var i = 1; i < l.length; i++) {
@@ -88,6 +99,7 @@ function max(l) {
     return m;
 }
 
+// Delete a directory, including all files and directories beneath it.
 function rmdir_recursively(dir) {
     var list = fs.readdirSync(dir);
     for (var i = 0; i < list.length; i++) {
@@ -104,6 +116,9 @@ function rmdir_recursively(dir) {
     fs.rmdirSync(dir);
 };
 
+// Account credentials to use when connecting to a local Postgres instance used
+// as a persistent store for autograder user accounts, assignment info, and run
+// info.
 var POSTGRES_USERNAME = process.env.PGSQL_USER || 'postgres';
 var POSTGRES_PASSWORD = process.env.PGSQL_PASSWORD || 'foobar';
 var POSTGRES_USER_TOKEN = null;
@@ -115,27 +130,35 @@ if (POSTGRES_PASSWORD.length === 0) {
 
 log('Connecting to local PGSQL instance with user ' + POSTGRES_USERNAME);
 
+// Account credentials to a shared SVN instance that users can upload submission
+// to for the autograder to pull down. Alternatively, users can also choose to
+// simply upload ZIP files of their submission.
 var SVN_USERNAME = process.env.SVN_USER || 'jmg3';
 var SVN_PASSWORD = process.env.SVN_PASSWORD || '';
 var SVN_REPO = process.env.SVN_REPO ||
     'https://svn.rice.edu/r/parsoft/projects/AutoGrader/student-runs';
 
-log('Connecting to SVN repo ' + SVN_REPO + ' as user ' + SVN_USERNAME);
+log('Using SVN repo ' + SVN_REPO + ' as user ' + SVN_USERNAME);
 
+// The location of the viola component, to be used to do lightweight correctness
+// testing.
 var VIOLA_HOST = process.env.VIOLA_HOST || 'localhost';
 var VIOLA_PORT = parseInt(process.env.VIOLA_PORT || '8080');
 
 log('Connecting to Viola at ' + VIOLA_HOST + ':' + VIOLA_PORT);
 
+// Information on a SLURM-based compute cluster on which we run heavyweight
+// performance tests. In the future, support should be extended to include other
+// server infrastructures, such as EC2, GCE, etc.
 var CLUSTER_HOSTNAME = process.env.CLUSTER_HOSTNAME || 'stic.rice.edu';
 var CLUSTER_USER = process.env.CLUSTER_USER || 'jmg3';
 var CLUSTER_PRIVATE_KEY_PASSPHRASE = process.env.CLUSTER_PRIVATE_KEY_PASSPHRASE || null;
 var clusterPrivateKey = fs.readFileSync(HOME + '/.ssh/id_rsa');
-/*
- * We support cluster types of 'slurm' and 'local'. However, 'local' clusters are
- * purely for testing locally and should never be used in production, as they
- * block on every performance test.
- */
+
+
+// We support cluster types of 'slurm' and 'local'. However, 'local' clusters are
+// purely for testing locally and should never be used in production, as they
+// block on every performance test.
 var CLUSTER_TYPE = process.env.CLUSTER_TYPE || 'slurm';
 if (CLUSTER_TYPE !== 'slurm' && CLUSTER_TYPE !== 'local') {
   throw 'Unsupported cluster type ' + CLUSTER_TYPE;
@@ -155,23 +178,10 @@ var FAILED_STATUS = 'FAILED';
 log('Connecting to remote cluster at ' + CLUSTER_HOSTNAME +
   ' of type ' + CLUSTER_TYPE + ' as ' + CLUSTER_USER);
 
-// TODO load this from JSON file
 var conString = "postgres://" + POSTGRES_USER_TOKEN + "@localhost/autograder";
 
-var cancellationSuccessMsg = 'Successfully cancelled. Please give the job status a few minutes to update.';
-
-function pgclient(cb) {
-  log('pgclient: acquiring PGSQL client...');
-  pg.connect(conString, function(err, client, done) {
-      log("pgclient: finished acquiring PGSQL client, err=" + err);
-      if (err) {
-        done();
-        return console.error('error fetching client from pool', err);
-      }
-      cb(client, done);
-  });
-}
-
+// Issue a query to the configured Postgres instance, passing the callback cb
+// the results (either an error or the output of the query).
 function pgquery(query, query_args, cb) {
   log('pgquery: acquiring PGSQL client...');
   pg.connect(conString, function(err, client, done) {
@@ -195,7 +205,8 @@ function pgquery(query, query_args, cb) {
   });
 }
 
-// A simpler pgquery that doesn't pass the error back to the user, simply redirects
+// A simpler pgquery that doesn't pass the error back to the user, simply
+// redirects to the main page with a vague internal error message.
 function pgquery_no_err(query, query_args, res, req, cb) {
     pgquery(query, query_args, function(err, rows) {
         if (err) {
@@ -207,11 +218,14 @@ function pgquery_no_err(query, query_args, res, req, cb) {
     });
 }
 
+// Connection information for the configured SVN instance
 var svn_client = new svn({
         username: SVN_USERNAME,
         password: SVN_PASSWORD
     });
 
+// Issue an SVN command to the configured SVN repo, using a callback to handle
+// the results.
 function svn_cmd(cmd, cb) {
     log('svn_cmd: ' + cmd.join(' '));
     return svn_client.cmd(cmd, cb);
@@ -220,6 +234,11 @@ function svn_cmd(cmd, cb) {
 var cluster_connection = null;
 var cluster_sftp = null;
 
+// Set up an sftp connection to the configured compute cluster, saving the
+// connection in the global cluster_sftp variable so that it can be reused by
+// multiple sftp commands. In the past, the autograder has experience issues
+// with SSH throttling as clusters detect excessive connection requests from a
+// single IP. To deal with this, we share SSH connections as much as possible.
 function sftp_connect_to_cluster(cb) {
     log('sftp_connect_to_cluster: Connecting to cluster ' + CLUSTER_HOSTNAME);
     if (CLUSTER_TYPE === 'slurm') {
@@ -238,7 +257,10 @@ function sftp_connect_to_cluster(cb) {
     }
 }
 
-// Should only be used from run_cluster_cmd or cluster_scp
+// Create an SSH connection to the configured cluster, doing the same connection
+// caching as we do in sftp_connect_to_cluster. This should only be used from
+// run_cluster_cmd or cluster_scp, and is not intended to be used from many
+// places in the code.
 function connect_to_cluster(cb) {
     log('connect_to_cluster: Connecting to cluster ' + CLUSTER_HOSTNAME +
             ' of type ' + CLUSTER_TYPE + ' as user ' + CLUSTER_USER);
@@ -276,8 +298,15 @@ function connect_to_cluster(cb) {
     }
 }
 
+// Keep track of all in-flight SSH commands. If our SSH connection to the
+// cluster is cut, this list is used to ensure no commands/callbacks are left
+// handing indefinitely (even if they fail, we need to ensure this failure is
+// reported up the chain).
 var in_flight_cmds = {};
 
+// Called when our connection to the cluster is ended. For each command still
+// in in_flight_cmds, we call its callback indicating that an error has
+// occurred. The callback is expected to handle this error gracefully.
 function clear_in_flight_cmds() {
     var save = in_flight_cmds;
     in_flight_cmds = {};
@@ -296,7 +325,10 @@ function clear_in_flight_cmds() {
     }
 }
 
-// Assume this is called after 'ready' event is triggered.
+// Run a given shell command on the remote compute cluster. lbl is used to
+// uniquely identify the command issued for error and informational reporting.
+// cluster_cmd is a string storing the command to issue. cb is called when the
+// command completes, and may be passed an error code if the command fails.
 function run_cluster_cmd(lbl, cluster_cmd, cb) {
     log('run_cluster_cmd[' + lbl + ']: ' + cluster_cmd);
 
@@ -386,22 +418,29 @@ function run_cluster_cmd(lbl, cluster_cmd, cb) {
             log('[' + lbl + '] stdout=' + acc_stdout);
             log('[' + lbl + '] stderr=' + acc_stderr);
           }
+
           return cb(null, acc_stdout, acc_stderr);
         }
       });
     }
 }
 
+// Limit the size of files student runs can produce.
 var MAX_FILE_SIZE = 10 * 1024 * 1024;
 // Account for inserted error message and two new lines
 var MAX_DISPLAY_FILE_SIZE = MAX_FILE_SIZE + excessiveFileSizeMsg.length + 2;
 
+// Get the size of the file at path, in bytes.
 function get_file_size(path) {
     var stats = fs.statSync(path);
     return stats.size;
 }
 
-// Only supports individual files, assumes parent directories are already created
+// Copy from src_file to dst_file. is_upload specifies the direction of the
+// transfer. If is_upload is true, then the copy is to the cluster. Else, it is
+// from the cluster. On completion, cb is called with a single error argument.
+// Only supports individual files, assumes parent directories are already
+// created.
 function cluster_copy(src_file, dst_file, is_upload, cb) {
   if (is_upload) {
     if (dst_file.trim().search('/') === 0) {
@@ -453,6 +492,9 @@ function cluster_copy(src_file, dst_file, is_upload, cb) {
   }
 }
 
+// A helper for issuing multiple copies in a batch. This handles a single copy
+// in the last, and recurses to handle the next. The success/failure of each
+// copy is aggregated in the stat list.
 function batched_cluster_copy_helper(pair_index, file_pairs, is_upload, stat, cb) {
   if (pair_index >= file_pairs.length) {
     return cb(stat);
@@ -469,11 +511,15 @@ function batched_cluster_copy_helper(pair_index, file_pairs, is_upload, stat, cb
       });
 }
 
+// Perform multiple copies in a single call, where file_pairs specifies the
+// pairs of source and destination files and is_upload specifies the direction
+// of these copies.
 function batched_cluster_copy(file_pairs, is_upload, cb) {
   var stat = [];
   return batched_cluster_copy_helper(0, file_pairs, is_upload, stat, cb);
 }
 
+// Create a directory on the cluster, including any missing parent directories.
 function create_cluster_dir(dirname, cb) {
   if (dirname.trim().search('/') === 0) {
     throw 'Remote directory names should be relative to $HOME, got ' + dirname;
@@ -489,6 +535,7 @@ function create_cluster_dir(dirname, cb) {
   run_cluster_cmd('creating dir', MKDIR_CMD, cb);
 }
 
+// Get the value of an environment variable on the cluster.
 function get_cluster_env_var(varname, cb) {
   var ECHO_CMD = 'echo $' + varname;
   run_cluster_cmd('getting variable ' + varname, ECHO_CMD,
@@ -501,6 +548,9 @@ function get_cluster_env_var(varname, cb) {
       });
 }
 
+// Helper for batched fetching of environment variables from the cluster. This
+// function handles a single variable in the list, and then recurses on the rest
+// of the list.
 function batched_get_cluster_env_var_helper(index, varnames, acc, cb) {
   if (index >= varnames.length) {
     return cb(null, acc);
@@ -521,10 +571,12 @@ function batched_get_cluster_env_var_helper(index, varnames, acc, cb) {
   });
 }
 
+// Fetch the values for multiple environment variables at once from the cluster.
 function batched_get_cluster_env_var(varnames, cb) {
   return batched_get_cluster_env_var_helper(0, varnames, {}, cb);
 }
 
+// Check the cluster operating system using the uname command.
 function get_cluster_os(cb) {
   var UNAME_CMD = 'uname';
   run_cluster_cmd('get cluster OS', UNAME_CMD,
@@ -540,18 +592,19 @@ function get_cluster_os(cb) {
       });
 }
 
+// Utility for checking if a string starts with the specified prefix.
 function string_starts_with(st, prefix) {
   return st.slice(0, prefix.length) === prefix;
 }
 
+// Utility for checking if a string ends with the specified suffix.
 function string_ends_with(st, suffix) {
     return st.indexOf(suffix, st.length - suffix.length) !== -1;
 }
 
-function string_ends_with(st, suffix) {
-  return st.indexOf(suffix, st.length - suffix.length) !== -1;
-}
-
+// Utility function for rendering a specific page that checks for success and
+// error messages in the session and sets the appropriate render variables, such
+// that these messages will appear on the rendered page.
 function render_page(html_doc, res, req, render_vars) {
     render_vars = typeof render_vars !== 'undefined' ? render_vars : {};
     if ('err_msg' in req.session && req.session.err_msg !== null &&
@@ -568,12 +621,14 @@ function render_page(html_doc, res, req, render_vars) {
     return res.render(html_doc, render_vars);
 }
 
+// Redirect to the specified page with an error message at the top of the page.
 function redirect_with_err(target, res, req, err_msg) {
     log('redirect_with_err: target=' + target + ' err_msg=' + err_msg);
     req.session.err_msg = err_msg;
     return res.redirect(target);
 }
 
+// Redirect to the specified page with a success message displayed.
 function redirect_with_success(target, res, req, success_msg) {
     req.session.success_msg = success_msg;
     return res.redirect(target);
@@ -586,14 +641,14 @@ app.engine('html', ejs.renderFile);
 app.set('view engine', 'html');
 app.set('views', __dirname + "/views");
 
+// Fetch a status for the specified run ID. This API is insecure (i.e. users can
+// query run statuses for runs that are not their own).
 app.get('/status/:run_id', function(req, res, next) {
     var run_id = req.params.run_id;
     log('status: run_id=' + run_id);
 
-    /*
-     * Deliberately don't check permissions, it's okay to leave this endpoint
-     * in the open.
-     */
+    // Deliberately don't check permissions, it's okay to leave this endpoint
+    // in the open.
     pgquery("SELECT * FROM runs WHERE run_id=($1)", [run_id], function(err, rows) {
         if (err) {
             return res.send('INTERNAL FAILURE');
@@ -605,6 +660,8 @@ app.get('/status/:run_id', function(req, res, next) {
     });
 });
 
+// Look up the most recently completed run for which all runs with a run ID less
+// than it have also completed.
 app.get('/latest_complete_run', function(req, res, next) {
     pgquery('SELECT MAX(run_id) FROM runs', [], function(err, rows) {
         if (err) {
@@ -633,13 +690,12 @@ app.get('/latest_complete_run', function(req, res, next) {
     });
 });
 
-/*
- * login/logout routes should always be the only routes above the wildcard '*' route
- */
+// Render the log in page.
 app.get('/login', function(req, res, next) {
     return render_page('login.html', res, req);
 });
 
+// Check user credentials and start a session for them if they are correct.
 app.post('/login', function(req, res, next) {
   var username = req.body.username;
   var password = req.body.pw.replace(/[^\x00-\x7F]/g, ""); // delete non-ascii
@@ -671,6 +727,7 @@ app.post('/login', function(req, res, next) {
       });
 });
 
+// Terminate this user's session.
 app.get('/logout', function(req, res, next) {
   log('logout: username=' + req.session.username);
 
@@ -681,6 +738,8 @@ app.get('/logout', function(req, res, next) {
   return res.redirect('/login');
 });
 
+// For all paths below this set up information on the user's name and
+// permissions for later endpoints to use.
 app.get('*', function(req, res, next) {
   if (req.session.username) {
     res.locals.username = req.session.username;
@@ -699,6 +758,8 @@ app.get('*', function(req, res, next) {
   }
 });
 
+// Display the user's profile page, where they can change their e-mail
+// notification settings and view run statistics for their account.
 app.get('/profile', function(req, res, next) {
   var username = req.session.username;
   log('profile: username=' + username);
@@ -723,6 +784,7 @@ app.get('/profile', function(req, res, next) {
       });
 });
 
+// Change a user's e-mail notification settings
 app.post('/notifications/', function(req, res, next) {
   var enable_notifications = ('enable' in req.body);
   log('notifications: user=' + req.session.username +
@@ -734,12 +796,14 @@ app.post('/notifications/', function(req, res, next) {
       });
 });
 
+// Render a user's overview page.
 app.get('/overview/:page?', function(req, res, next) {
   var page_str = req.params.page;
   if (!page_str) page_str = '0';
 
   log('overview: user=' + req.session.username + ' page=' + page_str);
 
+  // Validate the page being loaded
   if (isNaN(page_str)) {
       return render_page('overview.html', res, req,
           {err_msg: 'Invalid URL, ' + page_str + ' is not a number', runs: [],
@@ -753,6 +817,7 @@ app.get('/overview/:page?', function(req, res, next) {
               runs: [], page: 0, npages: 1});
   }
 
+  // Fetch all runs for this user, to be displayed on the overview page.
   get_runs_for_username(req.session.username, function(runs, err) {
       if (err) {
           return render_page('overview.html', res, req,
@@ -760,6 +825,8 @@ app.get('/overview/:page?', function(req, res, next) {
                   page: 0, npages: 1});
       }
 
+      // Fetch all visible assignments this user can submit for, for displaying
+      // on the overview page alongside the upload dialogue.
       get_visible_assignments(function(assignments, err) {
           if (err) {
               return render_page('overview.html', res, req,
@@ -774,6 +841,8 @@ app.get('/overview/:page?', function(req, res, next) {
                       runs: [], page: 0, npages: 1});
           }
 
+          // Generate a subset of runs to display based on the overview page
+          // being loaded.
           var subsetted_runs = [];
           var limit = (page + 1) * PAGE_SIZE;
           if (limit > runs.length) limit = runs.length;
@@ -786,12 +855,14 @@ app.get('/overview/:page?', function(req, res, next) {
   });
 });
 
+// Render the leaderboard for the specified assignment, paginated.
 app.get('/leaderboard/:assignment_id?/:page?', function(req, res, next) {
   var target_assignment_id = req.params.assignment_id;
   var page = req.params.page;
   log('leaderboard: username=' + req.session.username +
       ' target_assignment_id=' + target_assignment_id + ' page=' + page);
 
+  // Get the metadata for the selected assignment
   pgquery_no_err("SELECT assignment_id,name,correctness_only FROM " +
         "assignments WHERE visible=true ORDER BY assignment_id DESC", [], res,
         req, function(rows) {
@@ -809,6 +880,7 @@ app.get('/leaderboard/:assignment_id?/:page?', function(req, res, next) {
                 }
                 render_vars.has_performance_tests = has_performance_tests;
 
+                // Find all runs for the selected assignment, for display in the leaderboard.
                 pgquery_no_err("SELECT run_id,status,passed_checkstyle,compiled," +
                     "passed_all_correctness,passed_performance," +
                     "characteristic_speedup,user_id,job_id,correctness_only," +
@@ -888,20 +960,26 @@ app.get('/leaderboard/:assignment_id?/:page?', function(req, res, next) {
         });
 });
 
+// Render the comments page, where users  can leave anonymous comments on the
+// autograder.
 app.get('/comments', function(req, res, next) {
   return render_page('comments.html', res, req);
 });
 
+// Render the user guide page for the autograder.
 app.get('/user_guide', function(req, res, next) {
   log('user_guide: ' + req.session.username);
   return render_page('user_guide.html', res, req);
 });
 
+// Render the FAQ page for the autograder.
 app.get('/faq', function(req, res, next) {
   log('faq: ' + req.session.username);
   return render_page('faq.html', res, req);
 });
 
+// Post a comment made by the user, by sending an e-mail to a hard-coded e-mail
+// address.
 app.post('/comments', function(req, res, next) {
   var comment = req.body.comments;
   log('comments: comment="' + comment + '"');
@@ -915,6 +993,7 @@ app.post('/comments', function(req, res, next) {
   });
 });
 
+// Render the admin page, only accessible to admin users.
 app.get('/admin', function(req, res, next) {
   if (req.session.is_admin) {
     get_all_assignments(function(assignments, err) {
@@ -940,6 +1019,9 @@ var assignment_file_fields = [
                               { name: 'rubric', maxCount: 1 },
                               { name: 'checkstyle_config', maxCount: 1 }
                              ];
+// Upload a new assignment, consisting of an assignment name, a ZIP file
+// containing instructor tests, a POM file for compilation, a rubric, and a
+// checkstyle XML file.
 app.post('/assignment', upload.fields(assignment_file_fields), function(req, res, next) {
   log('assignment: is_admin=' + req.session.is_admin);
   if (!req.session.is_admin) {
@@ -1029,6 +1111,9 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
   }
 });
 
+// Handle a re-upload of one of the files that make up an assignment
+// configuration. This includes both updating the file locally and remotely on
+// the cluster.
 function handle_reupload(req, res, missing_msg, target_filename) {
   if (!req.session.is_admin) {
     return redirect_with_err('/overview', res, req, permissionDenied);
@@ -1063,6 +1148,7 @@ function handle_reupload(req, res, missing_msg, target_filename) {
   }
 }
 
+// Update some metadata for an assignment.
 function update_assignment_field(timeout_val, column_name, assignment_id, res, req) {
     pgquery_no_err("SELECT * FROM assignments WHERE assignment_id=($1)",
             [assignment_id], res, req, function(rows) {
@@ -1079,6 +1165,8 @@ function update_assignment_field(timeout_val, column_name, assignment_id, res, r
             });
 }
 
+// Update the arguments passed to the JVM when testing a user submission for a
+// given assignment.
 app.post('/update_jvm_args/:assignment_id', function(req, res, next) {
   log('update_jvm_args: is_admin=' + req.session.is_admin + ', jvm_args=' + req.body.jvm_args);
   if (!req.session.is_admin) {
@@ -1094,6 +1182,7 @@ app.post('/update_jvm_args/:assignment_id', function(req, res, next) {
   }
 });
 
+// Update the timeout allowed for the correctness tests for a given assignment.
 app.post('/update_correctness_timeout/:assignment_id', function(req, res, next) {
   log('update_correctness_timeout: is_admin=' + req.session.is_admin +
       ', new timeout=' + req.body.correctness_timeout);
@@ -1112,6 +1201,8 @@ app.post('/update_correctness_timeout/:assignment_id', function(req, res, next) 
   }
 });
 
+// Add some custom SLURM flags to be used when running performance tests for a
+// given assignment.
 app.post('/update_custom_slurm_flags/:assignment_id', function(req, res, next) {
     log('update_custom_slurm_flags: is_admin=' + req.session.is_admin +
         ', new slurm flags = "' + req.body.custom_slurm_flags + '"');
@@ -1130,6 +1221,7 @@ app.post('/update_custom_slurm_flags/:assignment_id', function(req, res, next) {
   }
 });
 
+// Update the timeout allowed for the performance tests for a given assignment.
 app.post('/update_performance_timeout/:assignment_id', function(req, res, next) {
   log('update_performance_timeout: is_admin=' + req.session.is_admin +
       ', new timeout=' + req.body.performance_timeout);
@@ -1148,6 +1240,8 @@ app.post('/update_performance_timeout/:assignment_id', function(req, res, next) 
   }
 });
 
+// Update the list of the number of cores per node to test a given submission
+// with.
 app.post('/update_ncores/:assignment_id', function(req, res, next) {
   log('update_ncores: is_admin=' + req.session.is_admin +
       ', new # cores=' + req.body.ncores);
@@ -1173,6 +1267,7 @@ app.post('/update_ncores/:assignment_id', function(req, res, next) {
   }
 });
 
+// Update the list of number of nodes to test a given submission with.
 app.post('/update_n_nodes/:assignment_id', function(req, res, next) {
   log('update_n_nodes: is_admin=' + req.session.is_admin +
       ', new # nodes=' + req.body.n_nodes);
@@ -1194,17 +1289,27 @@ app.post('/update_n_nodes/:assignment_id', function(req, res, next) {
         }
     }
 
+    if (CLUSTER_TYPE === 'local') {
+        if (tokens.length !== 1 || parseInt(tokens[0]) !== 1) {
+            return redirect_with_err('/admin', res, req,
+                    'Only single node assignments permitted for local ' +
+                    'cluster configurations');
+        }
+    }
+
     return update_assignment_field("'" + n_nodes + "'", 'n_nodes',
             assignment_id, res, req);
   }
 });
 
+// Re-upload the ZIP file containing instructor tests for a given assignment.
 app.post('/upload_zip/:assignment_id', upload.single('zip'),
     function(req, res, next) {
       log('upload_zip: is_admin=' + req.session.is_admin);
       return handle_reupload(req, res, 'Please provide a ZIP', 'instructor.zip');
     });
 
+// Re-upload the instructor POM file for a given assignment.
 app.post('/upload_instructor_pom/:assignment_id', upload.single('pom'),
     function(req, res, next) {
       log('upload_instructor_pom: is_admin=' + req.session.is_admin);
@@ -1222,6 +1327,7 @@ app.post('/upload_instructor_pom/:assignment_id', upload.single('pom'),
         'instructor_pom.xml');
     });
 
+// Re-upload the grading rubric for a given assignment.
 app.post('/upload_rubric/:assignment_id', upload.single('rubric'),
     function(req, res, next) {
       log('upload_rubric: is_admin=' + req.session.is_admin);
@@ -1238,6 +1344,7 @@ app.post('/upload_rubric/:assignment_id', upload.single('rubric'),
       return handle_reupload(req, res, 'Please provide a rubric', 'rubric.json');
     });
 
+// Update the checkstyle file used for a given assignment.
 app.post('/upload_checkstyle/:assignment_id', upload.single('checkstyle_config'),
     function(req, res, next) {
       log('upload_checkstyle: is_admin=' + req.session.is_admin);
@@ -1245,6 +1352,8 @@ app.post('/upload_checkstyle/:assignment_id', upload.single('checkstyle_config')
       return handle_reupload(req, res, 'Please provide a checkstyle file', 'checkstyle.xml');
     });
 
+// Toggle whether an assignment's tests should only ever run correctness tests.
+// By default, this is false.
 app.post('/set_assignment_correctness_only/:assignment_id', function(req, res, next) {
   log('set_assignment_correctness_only: is_admin=' + req.session.is_admin);
   if (!req.session.is_admin) {
@@ -1258,6 +1367,7 @@ app.post('/set_assignment_correctness_only/:assignment_id', function(req, res, n
       assignment_id, res, req);
 });
 
+// Toggle whether a given assignment is visible to users.
 app.post('/set_assignment_visible/:assignment_id', function(req, res, next) {
   log('set_assignment_visible: is_admin=' + req.session.is_admin);
   if (!req.session.is_admin) {
@@ -1271,6 +1381,9 @@ app.post('/set_assignment_visible/:assignment_id', function(req, res, next) {
       assignment_id, res, req);
 });
 
+// Update the user-specified tag for a given run. Tags are provided as a way for
+// users to keep notes on each experiment they run, so that they can recall what
+// they were testing with each run.
 app.post('/update_tag/:run_id', function(req, res, next) {
     var run_id = req.params.run_id;
     var tag = req.body.tag;
@@ -1293,6 +1406,7 @@ app.post('/update_tag/:run_id', function(req, res, next) {
     });
 });
 
+// Fetch the user ID for a given username.
 function get_user_id_for_name(username, cb) {
     pgquery("SELECT * FROM users WHERE user_name=($1)", [username], function(err, rows) {
         if (err) {
@@ -1313,6 +1427,7 @@ function get_user_id_for_name(username, cb) {
     });
 }
 
+// Launch the correctness tests for a user submission on the viola component.
 function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
         assignment_id, jvm_args, correctness_timeout, username) {
     var viola_params = 'done_token=' + done_token + '&user=' + username +
@@ -1324,6 +1439,9 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
     var viola_options = { host: VIOLA_HOST,
         port: VIOLA_PORT, path: '/run?' + encodeURI(viola_params) };
     log('submit_run: sending viola request for run ' + run_id);
+
+    // Send viola the metadata for this run so that it can handle the
+    // correctness testing for us.
     http.get(viola_options, function(viola_res) {
         var bodyChunks = [];
         viola_res.on('data', function(chunk) {
@@ -1345,6 +1463,8 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
     });
 }
 
+// Called when triggering correctness tests on the Viola component fail. Mostly,
+// we signal here that the run has failed.
 function viola_trigger_failed(run_id, err_msg, svn_err) {
     log('viola_trigger_failed: run_id=' + run_id + ' err_msg="' + err_msg +
             '" err="' + svn_err + '"');
@@ -1361,6 +1481,8 @@ function viola_trigger_failed(run_id, err_msg, svn_err) {
             });
 }
 
+// Called if some error occurs during run configuration, and simply marks that
+// run as failed.
 function run_setup_failed(run_id, res, req, err_msg, svn_err) {
     log('run_setup_failed: run_id=' + run_id + ' err_msg="' + err_msg +
             '" err="' + svn_err + '"');
@@ -1378,6 +1500,8 @@ function run_setup_failed(run_id, res, req, err_msg, svn_err) {
             });
 }
 
+// Given the URL to a student's SVN directory, export that directory into a ZIP
+// file and kick off a viola run using it.
 function kick_off_svn_export(svn_url, temp_dir, run_id, run_dir,
         assignment_name, done_token, assignment_id, jvm_args, correctness_timeout, username) {
     svn_cmd(['export', svn_url, temp_dir + '/submission_svn_folder'], function(err, stdout) {
@@ -1427,80 +1551,94 @@ function kick_off_svn_export(svn_url, temp_dir, run_id, run_dir,
               });
       });
     });
-
 }
 
+// Main logic for handing a user submission.
 function submit_run(user_id, username, assignment_name, correctness_only,
         enable_profiling, use_zip, svn_url, res, req, success_cb) {
 
-      pgquery_no_err("SELECT * FROM assignments WHERE name=($1)",
-              [assignment_name], res, req, function(rows) {
-        if (rows.length === 0) {
-          return redirect_with_err('/overview', res, req,
-            'Assignment ' + assignment_name + ' does not seem to exist');
-        } else if (rows.length > 1) {
-          return redirect_with_err('/overview', res, req,
-            'There appear to be duplicate assignments ' + assignment_name);
-        } else {
-          var assignment_id = rows[0].assignment_id;
-          var jvm_args = rows[0].jvm_args;
-          var correctness_timeout = rows[0].correctness_timeout_ms;
-          log('submit_run: found assignment_id=' + assignment_id +
-              ' jvm_args="' + jvm_args + '" correctness_timeout=' +
-              correctness_timeout + ' for user_id=' + user_id);
+    // Check that this assignment exists.
+    pgquery_no_err("SELECT * FROM assignments WHERE name=($1)",
+            [assignment_name], res, req, function(rows) {
+      if (rows.length === 0) {
+        return redirect_with_err('/overview', res, req,
+          'Assignment ' + assignment_name + ' does not seem to exist');
+      } else if (rows.length > 1) {
+        return redirect_with_err('/overview', res, req,
+          'There appear to be duplicate assignments ' + assignment_name);
+      } else {
 
-          // Allow assignment settings to override user-provided setting
-          var assignment_correctness_only = rows[0].correctness_only;
-          if (assignment_correctness_only) correctness_only = true;
+        var assignment_id = rows[0].assignment_id;
+        var jvm_args = rows[0].jvm_args;
+        var correctness_timeout = rows[0].correctness_timeout_ms;
+        log('submit_run: found assignment_id=' + assignment_id +
+            ' jvm_args="' + jvm_args + '" correctness_timeout=' +
+            correctness_timeout + ' for user_id=' + user_id);
 
-          crypto.randomBytes(48, function(ex, buf) {
-              log('submit_run: got random bytes');
-              var done_token = buf.toString('hex');
+        // Allow assignment settings to override user-provided setting
+        var assignment_correctness_only = rows[0].correctness_only;
+        if (assignment_correctness_only) correctness_only = true;
 
-              pgquery_no_err("INSERT INTO runs (user_id,assignment_id," +
-                  "done_token,status,correctness_only,enable_profiling) " +
-                  "VALUES ($1,$2,$3,'" + TESTING_CORRECTNESS_STATUS +
-                  "',$4,$5) RETURNING run_id", [user_id, assignment_id,
-                  done_token, correctness_only, enable_profiling], res, req,
-                  function(rows) {
-                var run_id = rows[0].run_id;
-                log('submit_run: got run_id=' + run_id +
-                    ' for user_id=' + user_id + ' on assignment_id=' +
-                    assignment_id);
-                var run_dir = run_dir_path(username, run_id);
-                var svn_dir = SVN_REPO + '/' + username + '/' + run_id;
+        // Generate a unique and long token for identifying this submission.
+        // This is passed back to us by the viola component when the correctness
+        // tests complete.
+        crypto.randomBytes(48, function(ex, buf) {
+            log('submit_run: got random bytes');
+            var done_token = buf.toString('hex');
 
-                // Create run directory to store information on this run
-                var mkdir_msg = '"mkdir ' + username + ' ' + assignment_name + ' ' + run_id + '"';
-                fs.mkdirSync(run_dir);
+            // Add the submission metadata to the runs table.
+            pgquery_no_err("INSERT INTO runs (user_id,assignment_id," +
+                "done_token,status,correctness_only,enable_profiling) " +
+                "VALUES ($1,$2,$3,'" + TESTING_CORRECTNESS_STATUS +
+                "',$4,$5) RETURNING run_id", [user_id, assignment_id,
+                done_token, correctness_only, enable_profiling], res, req,
+                function(rows) {
+              var run_id = rows[0].run_id;
+              log('submit_run: got run_id=' + run_id +
+                  ' for user_id=' + user_id + ' on assignment_id=' +
+                  assignment_id);
+              var run_dir = run_dir_path(username, run_id);
+              var svn_dir = SVN_REPO + '/' + username + '/' + run_id;
 
-                // Move submitted file into newly created local SVN working copy
-                if (use_zip) {
-                  fs.renameSync(req.file.path, run_dir + '/student.zip');
-                  trigger_viola_run(run_dir,
-                      assignment_name, run_id, done_token,
-                      assignment_id, jvm_args, correctness_timeout, username);
+              // Create run directory to store information on this run
+              var mkdir_msg = '"mkdir ' + username + ' ' + assignment_name + ' ' + run_id + '"';
+              fs.mkdirSync(run_dir);
+
+              if (use_zip) {
+                // Trigger viola run using the uploaded ZIP file
+                fs.renameSync(req.file.path, run_dir + '/student.zip');
+                trigger_viola_run(run_dir,
+                    assignment_name, run_id, done_token,
+                    assignment_id, jvm_args, correctness_timeout, username);
+                return success_cb(run_id);
+              } else {
+                // Create a ZIP file from the user-provided SVN location, and
+                // then trigger a viola run using it.
+                temp.mkdir('conductor', function(err, temp_dir) {
+                  if (err) {
+                      return run_setup_failed(run_id, res, req,
+                          'Internal error creating temporary directory', err);
+                  }
+
+                  kick_off_svn_export(svn_url, temp_dir, run_id, run_dir,
+                      assignment_name, done_token, assignment_id, jvm_args,
+                      correctness_timeout, username);
+
                   return success_cb(run_id);
-                } else {
-                  temp.mkdir('conductor', function(err, temp_dir) {
-                    if (err) {
-                        return run_setup_failed(run_id, res, req,
-                            'Internal error creating temporary directory', err);
-                    }
-
-                    kick_off_svn_export(svn_url, temp_dir, run_id, run_dir,
-                        assignment_name, done_token, assignment_id, jvm_args,
-                        correctness_timeout, username);
-
-                    return success_cb(run_id);
-                  });
-                }
-              });
-          });
-        }
-      });
+                });
+              }
+            });
+        });
+      }
+    });
 }
 
+// This API is normally disabled, but it allows us to submit runs on behalf of
+// any user. Paired with the scripts in habanero-autograder/submit_run_as, this
+// capability allows the creation of runs that can be used to give user feedback
+// to the entire class on their submitted code (and check that their submitted
+// code is performing as they expect). The run is performed using a given user
+// (usually the 'admin' user) but is visible by someone else as well.
 app.post('/submit_run_as', function(req, res, next) {
     log('submit_run_as: enabled? ' + (fs.existsSync(__dirname + '/enable_run_as')));
     if (!fs.existsSync(__dirname + '/enable_run_as')) {
@@ -1550,6 +1688,8 @@ app.post('/submit_run_as', function(req, res, next) {
     });
 });
 
+// Main endpoint for user-submitted runs, which mostly checks inputs and then
+// hands control to submit_run().
 app.post('/submit_run', upload.single('zip'), function(req, res, next) {
 
     if (fs.existsSync(__dirname + '/block_submissions')) {
@@ -1601,10 +1741,13 @@ app.post('/submit_run', upload.single('zip'), function(req, res, next) {
                 return redirect_with_success('/overview', res, req, 'Successfully launched run #' + run_id); });
 });
 
+// Get the working directory on the compute cluster for a given run.
 function get_cello_work_dir(home_dir, run_id) {
   return home_dir + "/autograder/" + run_id;
 }
 
+// A simple utility function for parsing a list of integers expressed as a
+// comma-separated string.
 function parse_comma_separated_ints(ncores_str) {
     var tokens = ncores_str.split(',');
     var ncores = [];
@@ -1614,6 +1757,7 @@ function parse_comma_separated_ints(ncores_str) {
     return ncores;
 }
 
+// Emit some code that runs the provided command for each performance test.
 function loop_over_all_perf_tests(cmd) {
   var acc = '';
   acc += 'for F in $(find src/test/java -name "*PerformanceTest.java"); do\n';
@@ -1626,10 +1770,10 @@ function loop_over_all_perf_tests(cmd) {
   return acc;
 }
 
-/*
- * ncores should be an array of integers specifying the scalability tests we
- * would like to run.
- */
+// Return a string representing the contents of the SLURM file we generate to
+// pass to a SLURM-based cluster for executing all performance tests (as well as
+// some performance profiling tests, if enabled). ncores should be an array of
+// integers specifying the scalability tests we would like to run.
 function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     assignment_name, java_profiler_dir, os, ncores, junit_jar, hamcrest_jar, hj_jar,
     asm_jar, rr_agent_jar, rr_runtime_jar, assignment_jvm_args, timeout_str,
@@ -1734,10 +1878,14 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
 
         slurmFileContents += 'touch ' + output_file + '\n';
         slurmFileContents += 'touch ' + final_output_file + '\n';
-        slurmFileContents += loop_over_all_perf_tests('srun --nodes=' +
-            curr_n_nodes + ' --ntasks=' + curr_n_nodes +
-            ' --distribution=cyclic --tasks-per-node=1 taskset --cpu-list ' +
-            cpu_list + ' java ' + securityFlags + ' -Dautograder.nranks=' +
+        var launch_cmd = '';
+        if (CLUSTER_TYPE === 'slurm') {
+            launch_cmd = 'srun --nodes=' + curr_n_nodes + ' --ntasks=' +
+                curr_n_nodes + ' --distribution=cyclic --tasks-per-node=1 ' +
+                'taskset --cpu-list ' + cpu_list + ' ';
+        }
+        slurmFileContents += loop_over_all_perf_tests(launch_cmd + 'java ' +
+            securityFlags + ' -Dautograder.nranks=' +
             curr_n_nodes + ' -Dautograder.ncores=' +
             curr_cores + ' -Dhj.numWorkers=' + curr_cores +
             (hj_jar ? (' -javaagent:' + hj_jar) : ' ') + ' -cp ' + classpath.join(':') + pom_jars + ' ' +
@@ -1794,6 +1942,8 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   return slurmFileContents;
 }
 
+// Called when launching the performance tests on the cluster fails, marks the
+// current submission as failed.
 function failed_starting_perf_tests(res, failure_msg, run_id) {
   pgquery(
       "UPDATE runs SET status='" + FAILED_STATUS + "',finish_time=CURRENT_TIMESTAMP," +
@@ -1808,6 +1958,8 @@ function failed_starting_perf_tests(res, failure_msg, run_id) {
       });
 }
 
+// Get an e-mail address for a given username. This is currently hard-coded for
+// Rice University.
 function email_for_user(username) {
   var email = username + '@rice.edu';
   if (username === 'admin') {
@@ -1816,6 +1968,7 @@ function email_for_user(username) {
   return email;
 }
 
+// Count the number of new line characters in the provided string.
 function count_new_lines(content) {
   var count = 0;
   for (var i = 0; i < content.length; i++) {
@@ -1824,6 +1977,9 @@ function count_new_lines(content) {
   return count;
 }
 
+// This endpoint is hit by the viola component when the correctness tests for a
+// given run completes. It passes back the token created for this run to
+// uniquely identify the completed submission.
 app.post('/local_run_finished', function(req, res, next) {
     var done_token = req.body.done_token;
     var viola_err_msg = req.body.err_msg;
@@ -1913,7 +2069,10 @@ app.post('/local_run_finished', function(req, res, next) {
               if (viola_err_msg === 'Cancelled by user') {
                   run_status = CANCELLED_STATUS;
               }
+
               if (correctness_only || run_status === CANCELLED_STATUS) {
+                  // If only the correctness tests should be run, send an
+                  // immediate e-mail notification.
                   pgquery_no_err("UPDATE runs SET status='" + run_status +
                       "',viola_msg=$1,finish_time=CURRENT_TIMESTAMP WHERE run_id=($2)",
                       [viola_err_msg, run_id], res, req, function(rows) {
@@ -1935,6 +2094,7 @@ app.post('/local_run_finished', function(req, res, next) {
                       }
                   });
               } else {
+                  // Otherwise trigger the performance tests on the cluster.
                   pgquery_no_err(
                     "SELECT * FROM assignments WHERE assignment_id=($1)",
                     [assignment_id], res, req, function(rows) {
@@ -1984,12 +2144,14 @@ app.post('/local_run_finished', function(req, res, next) {
                             'Failed getting cluster OS', run_id);
                         }
 
+                        // Create a working directory for these performance tests
                         create_cluster_dir('autograder/' + run_id + '/submission',
                             function(err, stdout, stderr) {
                               if (err) {
                                 return failed_starting_perf_tests(res,
                                   'Failed creating autograder dir', run_id);
                               }
+
                               cluster_copy(run_dir_path(username, run_id) +
                                   '/student.zip', 'autograder/' + run_id +
                                   '/submission/student.zip', true, function(err) {
@@ -2030,6 +2192,8 @@ app.post('/local_run_finished', function(req, res, next) {
                                           log('local_run_finished: warning, unable to find HJ JAR in uploaded POM');
                                       }
 
+                                      // Generate a SLURM file for executing the
+                                      // performance tests.
                                       fs.appendFileSync(run_dir + '/cello.slurm',
                                         get_slurm_file_contents(run_id, home_dir,
                                           username, assignment_id, assignment_name,
@@ -2052,6 +2216,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                           }
 
                                           if (CLUSTER_TYPE === 'slurm') {
+                                              // Submit the performance tests to the cluster
                                               run_cluster_cmd('sbatch',
                                                   'sbatch ~/autograder/' + run_id + '/cello.slurm',
                                                   function(err, stdout, stderr) {
@@ -2114,6 +2279,7 @@ app.post('/local_run_finished', function(req, res, next) {
     });
 });
 
+// Get a list of all assignments. This is used for displaying the admin view.
 function get_all_assignments(cb) {
     pgquery("SELECT * FROM assignments ORDER BY assignment_id ASC", [], function(err, rows) {
         if (err) {
@@ -2124,6 +2290,7 @@ function get_all_assignments(cb) {
     });
 }
 
+// Get a list of all assignments visible to users.
 function get_visible_assignments(cb) {
     pgquery("SELECT * FROM assignments WHERE visible=true", [], function(err, rows) {
         if (err) {
@@ -2134,6 +2301,8 @@ function get_visible_assignments(cb) {
     });
 }
 
+// Get a list of runs for a given username. The metadata returned for each run
+// includes its run ID, assignment name, status, and completion time.
 function get_runs_for_username(username, cb) {
     pgquery("SELECT * FROM users WHERE user_name=($1)", [username], function(err, rows) {
         if (err) return cb(null, err);
@@ -2168,6 +2337,7 @@ function get_runs_for_username(username, cb) {
 
 var dont_display = ['profiler.txt'];
 
+// Check if the provided array contains a specified value.
 function arr_contains(target, arr) {
   for (var i = 0; i < arr.length; i++) {
     if (target === arr[i]) {
@@ -2177,11 +2347,13 @@ function arr_contains(target, arr) {
   return false;
 }
 
+// Indicate that some validation of instructor-uploaded files has failed.
 function failed_validation(err_msg) {
     log('failed_validation: ' + err_msg);
     return {success: false, msg: err_msg};
 }
 
+// Check that the provided POM file has certain required properties set.
 function validate_instructor_pom(pom_file) {
   var xml = fs.readFileSync(pom_file, 'utf8');
   var hjlib_version_tag = '<hjlib.version>';
@@ -2206,6 +2378,8 @@ function validate_instructor_pom(pom_file) {
   return { success: true, version: version_str };
 }
 
+// Load the instructor-provided grading rubric and verify that it contains all
+// of the fields it is expected to contain.
 function load_and_validate_rubric(rubric_file) {
   var rubric = null;
   try {
@@ -2286,6 +2460,7 @@ function load_and_validate_rubric(rubric_file) {
   return { success: true, rubric: rubric };
 }
 
+// Find the metadata for a correctness test given its name.
 function find_correctness_test_with_name(name, rubric) {
   for (var c = 0; c < rubric.correctness.length; c++) {
     if (rubric.correctness[c].testname === name) {
@@ -2295,6 +2470,7 @@ function find_correctness_test_with_name(name, rubric) {
   return null;
 }
 
+// Find the metadata for a performance test given its name.
 function find_performance_test_with_name_and_cores(name, cores, rubric) {
   for (var p = 0; p < rubric.performance.tests.length; p++) {
     if (rubric.performance.tests[p].testname === name &&
@@ -2305,6 +2481,8 @@ function find_performance_test_with_name_and_cores(name, cores, rubric) {
   return null;
 }
 
+// Parse the output of a performance test for a non-empty STDERR. Non-empty
+// STDERR may indicate a failed test, so we conservatively mark it so.
 function check_for_empty_stderr(lines) {
   var i = lines.length - 1;
   while (i >= 0 && lines[i] !== '======= STDERR =======') {
@@ -2321,6 +2499,8 @@ function check_for_empty_stderr(lines) {
   return any_nonempty_lines;
 }
 
+// Check if a run has finished successfully, i.e. has not failed and was not
+// cancelled.
 function run_completed(run_status) {
   return run_status !== FAILED_STATUS && run_status !== CANCELLED_STATUS;
 }
@@ -2330,6 +2510,7 @@ function assignment_path(assignment_id) {
     return __dirname + '/instructor-tests/' + assignment_id;
 }
 
+// Path to the local rubric file on the conductor.
 function rubric_file_path(assignment_id) {
     return assignment_path(assignment_id) + '/rubric.json';
 }
@@ -2339,6 +2520,9 @@ function run_dir_path(username, run_id) {
     return __dirname + '/submissions/' + username + '/' + run_id;
 }
 
+// Calculate the score for a given run based on correctness results, performance
+// results, and checkstyle results. Include detailed feedback on where points
+// were lost.
 function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
   var rubric_file = rubric_file_path(assignment_id);
   var max_n_cores = max(ncores);
@@ -2607,6 +2791,8 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
                       ]};
 }
 
+// Get a human-readable label for each test output file to display alongside
+// that file's contents in the autograder.
 function get_default_file_lbl(file) {
     if (file === 'cluster-stderr.txt') {
         return 'Cluster STDERR';
@@ -2626,6 +2812,7 @@ function get_default_file_lbl(file) {
     }
 }
 
+// Render a page showing detailed information on a specific run.
 app.get('/run/:run_id', function(req, res, next) {
     var run_id = req.params.run_id;
     log('run: run_id=' + run_id);
@@ -2811,6 +2998,7 @@ app.get('/run/:run_id', function(req, res, next) {
     });
 });
 
+// Cancel a given run
 app.post('/cancel/:run_id', function(req, res, next) {
     log('cancel: run_id=' + req.params.run_id + ' user=' + req.session.username);
     if (!req.params.run_id) {
@@ -2828,6 +3016,7 @@ app.post('/cancel/:run_id', function(req, res, next) {
         var correctness_only = rows[0].correctness_only;
         var run_status = rows[0].status;
 
+        // Quit early if the provided run has already completed.
         if (run_status === FINISHED_STATUS ||
             run_status === CANCELLED_STATUS || run_status === FAILED_STATUS) {
             return redirect_with_success('/overview', res, req,
@@ -2838,6 +3027,8 @@ app.post('/cancel/:run_id', function(req, res, next) {
         var viola_options = { host: VIOLA_HOST,
             port: VIOLA_PORT, path: '/cancel?' + encodeURI(viola_params) };
         log('cancel: signaling Viola to cancel run ' + req.params.run_id);
+
+        // Ask the viola to cancel a run.
         http.get(viola_options, function(viola_res) {
             var bodyChunks = [];
             viola_res.on('data', function(chunk) {
@@ -2869,6 +3060,7 @@ app.post('/cancel/:run_id', function(req, res, next) {
                                     return redirect_with_success('/overview',
                                         res, req, cancellationSuccessMsg);
                                 } else {
+                                    // If we were unable to cancel on viola, try to cancel on the cluster.
                                     run_cluster_cmd('job cancellation', 'scancel ' + job_id, function(err, stdout, stderr) {
                                         if (err) {
                                             return redirect_with_err('/overview', res, req, 'Failed cancelling job on cluster');
@@ -2894,25 +3086,28 @@ app.post('/cancel/:run_id', function(req, res, next) {
     });
 });
 
-// Should be the last route in this file
+// Should be the last route in this file, redirect to the overview page.
 app.get('/', function(req, res, next) {
   return res.redirect('overview');
 });
 
 var checkClusterActive = false;
+// Set a timeout for the next time to check the cluster for completed performance tests.
 function set_check_cluster_timeout(t) {
     log('set_check_cluster_timeout: timeout=' + t);
     checkClusterActive = false;
     setTimeout(check_cluster, t);
 }
 
+// Abort checking the performance tests and retry again later.
 function abort_and_reset_perf_tests(err, lbl) {
   log('abort_and_reset_perf_tests: ' + lbl + ' err=' + err);
   set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
 }
 
-function finish_perf_tests(run_status, run, perf_runs,
-        current_perf_runs_index) {
+// When a performance test is detected as complete on the cluster,
+// finish_perf_tests transfers its output back to the conductor.
+function finish_perf_tests(run_status, run, perf_runs, current_perf_runs_index) {
     pgquery('SELECT * FROM users WHERE user_id=($1)', [run.user_id], function(err, rows) {
         if (err) {
             set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
@@ -3071,6 +3266,7 @@ function finish_perf_tests(run_status, run, perf_runs,
     });
 }
 
+// Check the status of an individual run on the cluster.
 function check_cluster_helper(perf_runs, i) {
     if (i >= perf_runs.length) {
         set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
@@ -3144,7 +3340,7 @@ function check_cluster_helper(perf_runs, i) {
     }
 }
 
-// Cluster functionality
+// Main entrypoint for polling a SLURM-based cluster for completed performance tests.
 function check_cluster() {
     if (checkClusterActive) {
         log('check_cluster: woke up and a cluster checker was already active?!');
@@ -3152,7 +3348,8 @@ function check_cluster() {
         checkClusterActive = true;
         pgquery("SELECT * FROM runs WHERE (job_id IS NOT " +
             "NULL) AND ((status='" + TESTING_PERFORMANCE_STATUS + "') OR " +
-            "(status='" + IN_CLUSTER_QUEUE_STATUS + "'))", [], function(err, rows) {
+            "(status='" + IN_CLUSTER_QUEUE_STATUS + "') OR (job_id='" +
+            LOCAL_JOB_ID + "'))", [], function(err, rows) {
                 if (err) {
                     log('Error looking up running perf tests: ' + err);
                     set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
@@ -3172,6 +3369,7 @@ function check_cluster() {
     }
 }
 
+// Setup for this web server, kicking off the cluster polling mechanism.
 function launch() {
 
     var port = process.env.PORT || 8000;
@@ -3193,10 +3391,10 @@ function launch() {
  * At one point, we conservatively marked all running jobs as failed on startup.
  * However, Viola has been refactored to continually retry conductor
  * notifications and the cluster job status can be checked at any time, so it
- * appears it is safe to pick up running jobs on reboot. We still allow this to
- * enabled by a CLI flag, but it is disabled by default.
+ * appears it is safe to pick up running jobs on reboot. We still allow more
+ * aggressive killing of jobs on boot through a CLI flag, but it is disabled by
+ * default.
  */
-
 if (process.argv.length > 2 && process.argv[2] === 'kill-running-jobs') {
     /*
      * Mark any in-progress tests as failed on reboot.

@@ -10,10 +10,15 @@ if [[ $# != 5 ]]; then
     exit 1
 fi
 
+# A user account on the local bass host to run the bass script as
 USER_TO_RUN_AS=$1
+# The hostname where the conductor is located
 CONDUCTOR=$2
+# The port at which the conductor accepts HTTP requests
 CONDUCTOR_PORT=$3
+# A user account on the conductor with SSH access and permissions on the conductor files
 CONDUCTOR_USER=$4
+# The absolute path of the run files directory on the conductor
 CONDUCTOR_RUNS_DIR=$5
 
 if [[ "$(id -u)" != "0" ]]; then

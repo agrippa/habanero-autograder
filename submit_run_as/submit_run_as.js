@@ -1,5 +1,8 @@
 var request = require('request');
 
+// A JS script for performing a post to a conductor instance that launches a job
+// on behalf of a user.
+
 if (process.argv.length != 7) {
     console.log('usage: node submit_run_as.js <as-username> <for-username> <assignment-name> <svn_url> <corectness_only>');
     process.exit(1);

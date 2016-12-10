@@ -6,3 +6,7 @@ the last backup (i.e. these are incremental backups).
 Bass configuration is simple. Running the setup.sh script will add a CRON entry
 for Bass that runs every night at 3am local time. Bass will store all back ups
 in the bass/backups folder.
+
+The only requirements for proper Bass operation are that it have SSH credentials
+on the Conductor host, and that those credentials be properly configured through
+the setup.sh script.

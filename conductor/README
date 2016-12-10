@@ -1,4 +1,4 @@
-The Habanero AutoGrader for parallel programs
+The conductor component of the Habanero AutoGrader for parallel programs
 
 ===== Dependencies =====
 
@@ -36,21 +36,26 @@ The Habanero AutoGrader for parallel programs
      | server, cluster) to the root autograder directory.
  - jshint
      | sudo npm install -g jshint
-
-===== npm installation instructions =====
-
- 1. sudo apt-get install npm
+ - RSA keys
+     | RSA authentication must be configured using $HOME/.ssh/id_rsa on the
+     | conductor with any cluster you wish to execute performance tests on.
 
 ===== nodejs installation instructions =====
 
+On Linux:
  1. curl -sL https://deb.nodesource.com/setup_4.x | sudo -E bash -
- 2. sudo apt-get install -y nodejs
+ 2. sudo apt-get install npm
+ 3. sudo apt-get install -y nodejs
+
+On Mac OS:
+ 1. https://changelog.com/install-node-js-with-homebrew-on-os-x/
 
 If that doesn't work, take a look at https://nodejs.org/en/download/package-manager/.
 
 ===== postgres installation instructions =====
 
-On RedHat, follow the instructions at http://www.if-not-true-then-false.com/2012/install-postgresql-on-fedora-centos-red-hat-rhel/. Create an 'autograder' database instead of a 'test' database. Set the password of postgres as necessary. Then run the setup.sql script.
+On Linux, follow the below instructions to create a new Postgres database named
+autograder, initialized using the provided setup.sql script:
 
  1. apt-get install postgresql
  2. apt-get install postgresql-contrib
@@ -70,21 +75,35 @@ On RedHat, follow the instructions at http://www.if-not-true-then-false.com/2012
     a. sudo -u postgres psql --username=postgres --dbname=autograder --file=setup.sql
     b. /Applications/Postgres.app/Contents/Versions/9.4/bin/psql --username=jmg3 --dbname=autograder --file=setup.sql
 
+On Mac OS, using Homebrew:
+ 1. brew install postgresql94
+ 2. brew services start homebrew/versions/postgresql94
+ 3. Create a new autograder database:
+    a. psql -d postgres --command="CREATE DATABASE autograder" 
+ 4. Restart the database:
+    b. brew services restart postgresql94
+ 5. Ensure you can manually log in to the autograder database using the instructions below. Log out using Ctrl+D when you are done.
+    a. psql -d autograder
+    b. \l to list all databases (this should show autograder)
+    c. \dt to list all tables in the current database (should be empty now)
+ 6. Configure the database:
+    a. psql -d autograder --file=setup.sql
+
 ===== AutoGrader Conductor installation instructions =====
 
- 1. git clone https://max-grossman@bitbucket.org/max-grossman/habanero-autograder.git
+ 1. git clone https://github.com/agrippa/habanero-autograder.git
  2. cd habanero-autograder/conductor
  3. ./setup.sh
  4. npm install
- 5. node app.js
+ 5. ./deploy.sh
 
 The conductor host must have key-based SSH access to the configured cluster.
 
 ===== AutoGrader Viola installation instructions =====
 
  1. cd habanero-autograder/viola
- 2. javac Viola.java
- 3. java Viola 8080
+ 2. make
+ 3. ./deploy.sh localhost 8080 jmg3
 
 ===== Conductor configurable environment variables =====
 
@@ -92,7 +111,6 @@ The conductor host must have key-based SSH access to the configured cluster.
  2. PGSQL_PASSWORD
  3. SVN_USER
  4. SVN_PASSWORD
- 5. SVN_REPO
- 6. PORT
- 7. VIOLA_HOST
- 8. VIOLA_PORT
+ 5. PORT
+ 6. VIOLA_HOST
+ 7. VIOLA_PORT

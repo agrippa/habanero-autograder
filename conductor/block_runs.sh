@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# A script for preventing new runs from being submitted, useful for entering a
+# maintenance period.
+
 set -e
 
 if [[ $# != 1 ]]; then

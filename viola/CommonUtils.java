@@ -6,6 +6,9 @@ import java.util.Arrays;
 public class CommonUtils {
     private static final long TIMEOUT_CHECK_INTERVAL = 5 * 1000;
 
+    /**
+     * Encapsulate the results of a process's execution.
+     */
     public static class ProcessResults {
       public final String stdout;
       public final String stderr;
@@ -18,6 +21,9 @@ public class CommonUtils {
       }
     }
 
+    /**
+     * Utility method for executing a given command from a given working directory and returning the results.
+     */
     public static ProcessResults runInProcess(String lbl, String[] cmd, File working_dir, final long processTimeoutMs,
             List<Process> trackProcesses) throws IOException, InterruptedException {
       ViolaUtil.log("runInProcess: %s working_dir=%s cmd=%s\n", lbl, working_dir.getAbsolutePath(),
@@ -63,6 +69,9 @@ public class CommonUtils {
       }
     }
 
+    /**
+     * Utility method for checking whether a given process has exited.
+     */
     private static boolean processIsFinished(Process p) {
       boolean finished = true;
       try {
@@ -73,6 +82,9 @@ public class CommonUtils {
       return finished;
     }
 
+    /**
+     * Get a temporary directory name (but don't create that directory).
+     */
     public static File getTempDirectoryName() throws IOException {
         final File code_dir = File.createTempFile("temp", Long.toString(System.nanoTime()));
 
@@ -83,6 +95,9 @@ public class CommonUtils {
         return code_dir;
     }
 
+    /**
+     * Given the results of a process, save them to a destination file.
+     */
     public static void saveResultsToFile(ProcessResults results, String dest, boolean saveAll) throws IOException {
         PrintWriter writer = new PrintWriter(dest, "UTF-8");
         if (results.code != 0 || saveAll) {
@@ -96,6 +111,9 @@ public class CommonUtils {
         writer.close();
     }
 
+    /**
+     * Retry the logic inside the provided runnable until success, or until we run out of attempts.
+     */
     public static Throwable retryUntilSuccess(Runnable r, final int nretries, final int initialPause, final int backoff,
             final String lbl) {
         boolean success = false;

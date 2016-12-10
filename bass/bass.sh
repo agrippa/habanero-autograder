@@ -8,12 +8,18 @@ if [[ $# != 5 ]]; then
     exit 1
 fi
 
+# The host of the conductor
 CONDUCTOR=$1
+# The port at which the conductor accepts HTTP requests
 CONDUCTOR_PORT=$2
+# A user account on the conductor host that has remote SSH access
 CONDUCTOR_USER=$3
+# The absolute path to the directory used to store final run files on the conductor
 CONDUCTOR_RUNS_DIR=$4
+# The absolute path on the local bass host to place saved files at
 BACKUPS_DIR=$5
 
+# When this script exits, be sure that it cleans up after itself
 function cleanup() {
     rm -f $BACKUPS_DIR/dont_run
 }
@@ -26,6 +32,7 @@ if [[ -f $BACKUPS_DIR/dont_run ]]; then
 fi
 touch $BACKUPS_DIR/dont_run
 
+# Find the highest run ID for which all run IDs <= to it have completed
 MAX_RUN=$(wget -qO- $CONDUCTOR:$CONDUCTOR_PORT/latest_complete_run)
 if [[ "$MAX_RUN" == "INTERNAL FAILURE" ]]; then
     exit 1
@@ -33,6 +40,7 @@ elif [[ "$MAX_RUN" == "NO RUNS" ]]; then
     exit 1
 fi
 
+# Find the highest run ID for which we already have a local backup
 ANY_BACKUPS=$(ls -l $BACKUPS_DIR | wc -l)
 START_FROM=
 if [[ $ANY_BACKUPS -eq 0 ]]; then
@@ -43,8 +51,12 @@ else
     START_FROM=$(echo $MAX_TRANSFERRED + 1 | bc)
 fi
 
+# Print diagnostics on what we're backing up
 echo $START_FROM \-\> $MAX_RUN
 
+# If there are runs to back up, iterate over them and transfer the run files
+# from the conductor to the bass. If the transfer is successful, we delete the
+# uploaded student code from the conductor to save on space.
 if [[ $START_FROM -le $MAX_RUN ]]; then
     for RUN in $(seq $START_FROM $MAX_RUN); do
         REMOTE_PATH=$(ssh $CONDUCTOR_USER@$CONDUCTOR "find $CONDUCTOR_RUNS_DIR -maxdepth 2 -name $RUN")
