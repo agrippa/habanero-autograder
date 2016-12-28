@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS users
  user_name TEXT NOT NULL UNIQUE,
  password_hash TEXT NOT NULL,
  is_admin BOOLEAN NOT NULL,
- receive_email_notifications BOOLEAN NOT NULL DEFAULT TRUE
+ receive_email_notifications BOOLEAN NOT NULL DEFAULT TRUE,
+ allowed_slip_days INT NOT NULL DEFAULT 3
 );
 
 /* Create a default admin user with default password 'supreme-power' */
@@ -54,4 +55,12 @@ CREATE TABLE IF NOT EXISTS runs
  on_behalf_of INTEGER,
  characteristic_speedup TEXT NOT NULL DEFAULT '',
  tag TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS final_runs
+(
+  final_run_id BIGSERIAL PRIMARY KEY,
+  run_id BIGSERIAL,
+  user_id BIGSERIAL,
+  assignment_id BIGSERIAL
 );

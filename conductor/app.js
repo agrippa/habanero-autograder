@@ -2837,6 +2837,47 @@ function get_default_file_lbl(file) {
     }
 }
 
+// Update the submission to be marked as final
+app.post('/mark_final/:run_id', function(req, res, next) {
+    var run_id = req.params.run_id;
+
+    log('mark_final: run_id=' + run_id);
+
+    pgquery_no_err('SELECT * FROM runs WHERE run_id=($1)', [run_id], res, req,
+    function(rows) {
+        if (rows.length != 1) {
+            // checking if primary key is valid
+            return redirect_with_err('/overview', res, req, 'Invalid run');
+        }
+
+        // Permission check (only mark final on runs that are ours)
+        if (rows[0].user_id !== req.session.user_id) {
+            return res.sendStatus(401);
+        }
+
+        // Insert the final submission into the final_runs table
+        pgquery_no_err("INSERT INTO final_runs (run_id, user_id, assignment_id) VALUES ($1, $2, $3)", [run_id, rows[0].user_id, rows[0].assignment_id], res, req,
+        function(rows) {
+           return redirect_with_success('/run/' + run_id, res, req,
+               'Marked run as final');
+       });
+
+    });
+});
+
+function is_final(run_id, user_id, assignment_id, cb, res, req) {
+    // Select the latest final run from this user from this assignment
+    pgquery_no_err('SELECT * FROM final_runs WHERE user_id=($1) AND ' +
+            'assignment_id=($2) ORDER BY final_run_id DESC LIMIT 1',
+            [user_id, assignment_id], res, req, function(rows) {
+      if (rows.length != 1) {
+          return cb(false);
+      }
+      // Make sure that the run ID is the run ID that they actually want
+      return cb(rows[0].run_id === run_id);
+    });
+}
+
 // Render a page showing detailed information on a specific run.
 app.get('/run/:run_id', function(req, res, next) {
     var run_id = req.params.run_id;
@@ -2992,31 +3033,35 @@ app.get('/run/:run_id', function(req, res, next) {
                       cello_err = cello_msg;
                   }
 
-                  var render_vars = {run_id: run_id, log_files: reordered_log_files,
-                                     viola_err: viola_err_msg, cello_err: cello_err,
-                                     passed_checkstyle: passed_checkstyle,
-                                     compiled: compiled,
-                                     passed_all_correctness: passed_all_correctness,
-                                     elapsed_time: elapsed_time, finished: finished,
-                                     has_performance_tests: !correctness_only,
-                                     correctness_only: correctness_only,
-                                     passed_performance: passed_performance,
-                                     run_status: run_status,
-                                     assignment_name: assignment_name,
-                                     run_tag: run_tag,
-                                     enable_profiling: enable_profiling};
-                  if (score) {
-                    log('run: calculated score ' + score.total + '/' +
-                            score.total_possible + ' for run ' + run_id);
-                    render_vars.score = score;
-                  } else {
-                    log('run: error calculating score for run ' + run_id);
-                    render_vars.score = {total: 0.0, total_possible: 0.0,
-                        breakdown: []};
-                    render_vars.err_msg = 'Error calculating score';
-                  }
+                  is_final(run_id, user_id, assignment_id, function(marked_final) {
 
-                  return render_page('run.html', res, req, render_vars);
+                    var render_vars = {run_id: run_id, log_files: reordered_log_files,
+                                       viola_err: viola_err_msg, cello_err: cello_err,
+                                       passed_checkstyle: passed_checkstyle,
+                                       compiled: compiled,
+                                       passed_all_correctness: passed_all_correctness,
+                                       elapsed_time: elapsed_time, finished: finished,
+                                       has_performance_tests: !correctness_only,
+                                       correctness_only: correctness_only,
+                                       passed_performance: passed_performance,
+                                       run_status: run_status,
+                                       assignment_name: assignment_name,
+                                       run_tag: run_tag,
+                                       enable_profiling: enable_profiling,
+                                       is_final: marked_final};
+                    if (score) {
+                      log('run: calculated score ' + score.total + '/' +
+                              score.total_possible + ' for run ' + run_id);
+                      render_vars.score = score;
+                    } else {
+                      log('run: error calculating score for run ' + run_id);
+                      render_vars.score = {total: 0.0, total_possible: 0.0,
+                          breakdown: []};
+                      render_vars.err_msg = 'Error calculating score';
+                    }
+
+                    return render_page('run.html', res, req, render_vars);
+                  });
                 }
             });
         });
