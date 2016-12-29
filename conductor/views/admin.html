@@ -28,7 +28,6 @@
       <div class="col-md-8 col-md-offset-2">
         <hr></hr>
         <h2>Existing Assignments</h2>
-        <h4 id="assignment-count"></h4>
         <table id="existing-assignments" style="width:100%" class="table table-hover table-bordered table-condensed">
           <tr>
             <td bgcolor="#AAAAAA"><center><b>Name</b></center></td>
@@ -168,7 +167,38 @@
           <% } %>
         </table>
       </div>
-    </div>
+
+      <hr></hr>
+
+      <div class="col-md-8 col-md-offset-2">
+        <hr></hr>
+        <h2>Student Stats</h2>
+        <table id="student-stats" style="width:100%" class="table table-hover table-bordered table-condensed">
+          <tr>
+            <td bgcolor="#AAAAAA"><center><b>User ID</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>User Name</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Total Slip Days</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Remaining Slip Days</b></center></td>
+          </tr>
+          <% for (var i = 0; i < users.length; i++) { %>
+          <%   var curr = users[i]; %>
+          <tr>
+              <td><center><%= curr.user_id %></center></td>
+              <td><center><%= curr.user_name %></center></td>
+              <td>
+                  <center>
+                      <form action="/update_slip_days/<%= curr.user_id %>" method="post" enctype="application/x-www-form-urlencoded">
+                          <input name="slip_days" type="text" value="<%= curr.allowed_slip_days %>">
+                          <input value="Update Allowed Slip Days" name="submit" type="submit">
+                      </form>
+                  </center>
+              </td>
+              <td><center><%= curr.remaining_slip_days %></center></td>
+          </tr>
+          <% } %>
+        </table>
+      </div>
+  </div>
 
     <% include footer.html %>
   </body>

@@ -22,6 +22,24 @@
         <hr/>
         <h4>Statistics</h4>
         <h5># of Runs: <%= nruns %></h5>
+        <h5>Remaining Slip Days: <%= remaining_slip_days %></h5>
+        <h5>Final Runs:</h5>
+        <div class="col-md-8 col-md-offset-0">
+        <table style="width: 100%" class="table table-hover table-bordered table-condensed">
+            <tr>
+                <td bgcolor="#AAAAAA"><center><b>Assignment</b></center></td>
+                <td bgcolor="#AAAAAA"><center><b>Run</b></center></td>
+            </tr>
+            <% for (var i = 0; i < final_runs.length; i++) { %>
+            <%     var final_run = final_runs[i]; %>
+            <%     var run_url = '/run/' + final_run.run_id; %>
+            <tr>
+                <td><%= final_run.assignment_name %></td>
+                <td><a href=<%= run_url %>>Link</a></td>
+            </tr>
+            <% } %>
+        </table>
+        </div>
       </div>
     </div>
 

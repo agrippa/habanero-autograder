@@ -62,5 +62,6 @@ CREATE TABLE IF NOT EXISTS final_runs
   final_run_id BIGSERIAL PRIMARY KEY,
   run_id BIGSERIAL,
   user_id BIGSERIAL,
-  assignment_id BIGSERIAL
+  assignment_id BIGSERIAL,
+  timestamp TIMESTAMP DEFAULT current_timestamp
 );

@@ -770,15 +770,34 @@ app.get('/profile', function(req, res, next) {
             return redirect_with_err('/overview', res, req,
                 'User "' + username + '" does not exist');
           } else {
-            var user_id = rows[0].user_id;
-            var has_notifications_enabled = rows[0].receive_email_notifications;
+            var user_obj = rows[0];
+            var user_id = user_obj.user_id;
+            var has_notifications_enabled = user_obj.receive_email_notifications;
 
             pgquery_no_err('SELECT COUNT(*) FROM runs WHERE user_id=($1)',
                 [user_id], res, req, function(rows) {
-                    var render_vars = {username: req.session.username,
-                                       nruns: rows[0].count,
-                                       notifications_enabled: has_notifications_enabled};
-                    return render_page('profile.html', res, req, render_vars);
+
+                    get_all_assignments(function(assignments, err) {
+                        if (err) {
+                            return redirect_with_err('/overview', res, req, "Error fetching assignments");
+                        }
+
+                        get_all_final_runs(res, req, assignments, function(final_runs) {
+
+                            var final_runs_info =
+                                compute_remaining_slip_days_for(user_obj,
+                                    final_runs, assignments);
+                            var remaining_slip_days = final_runs_info.remaining_slip_days;
+                            var final_runs = final_runs_info.collected_final_runs;
+
+                            var render_vars = {username: req.session.username,
+                                               nruns: rows[0].count,
+                                               remaining_slip_days: remaining_slip_days,
+                                               final_runs: final_runs,
+                                               notifications_enabled: has_notifications_enabled};
+                            return render_page('profile.html', res, req, render_vars);
+                        });
+                    });
                 });
           }
       });
@@ -1000,8 +1019,31 @@ app.get('/admin', function(req, res, next) {
         if (err) {
             return redirect_with_err('/overview', res, req, "Error fetching assignments");
         }
-        var render_vars = {assignments: assignments};
-        return render_page('admin.html', res, req, render_vars);
+
+        get_all_users(function(users, err) {
+            if (err) {
+                return redirect_with_err('/overview', res, req, "Error fetching users");
+            }
+
+            get_all_final_runs(res, req, assignments, function(final_runs) {
+                for (var i = 0; i < users.length; i++) {
+                    var curr_user = users[i];
+                    /*
+                     * For each assignment, determine if this user has selected a
+                     * final run for this assignment. If they have, determine the
+                     * delta between the deadline for that assignment and the
+                     * timestamp on that final run selection. Use this to calculate
+                     * slip day usage.
+                     */
+                    curr_user.remaining_slip_days =
+                        compute_remaining_slip_days_for(curr_user, final_runs,
+                            assignments).remaining_slip_days;
+                }
+
+                var render_vars = {assignments: assignments, users: users};
+                return render_page('admin.html', res, req, render_vars);
+            });
+        });
     });
   } else {
     return res.redirect('/overview');
@@ -1156,6 +1198,39 @@ function handle_reupload(req, res, missing_msg, target_filename) {
             });
   }
 }
+
+// Update some metadata for an assignment.
+function update_user_field(val, column_name, user_id, res, req) {
+    pgquery_no_err("SELECT * FROM users WHERE user_id=($1)", [user_id], res,
+            req, function(rows) {
+                if (rows.length != 1) {
+                  return redirect_with_err('/admin', res, req,
+                    'That user doesn\'t seem to exist');
+                }
+                pgquery_no_err("UPDATE users SET " + column_name + "=" +
+                    val + " WHERE user_id=($1)", [user_id], res,
+                    req, function(rows) {
+                        return redirect_with_success('/admin', res, req,
+                            'Updated ' + column_name + ' to ' + val);
+                    });
+            });
+}
+
+app.post('/update_slip_days/:user_id', function(req, res, next) {
+  log('update_slip_days: is_admin=' + req.session.is_admin + ', slip_days=' +
+      req.body.slip_days);
+  if (!req.session.is_admin) {
+    return redirect_with_err('/overview', res, req, permissionDenied);
+  } else {
+    if (req.body.slip_days === null) {
+      return redirect_with_err('/admin', res, req, 'Malformed request, missing slip days field?');
+    }
+    var user_id = req.params.user_id;
+    var slip_days = req.body.slip_days;
+
+    return update_user_field(slip_days, 'allowed_slip_days', user_id, res, req);
+  }
+});
 
 // Update some metadata for an assignment.
 function update_assignment_field(timeout_val, column_name, assignment_id, res, req) {
@@ -2315,6 +2390,17 @@ function get_all_assignments(cb) {
     });
 }
 
+// Get a list of all assignments. This is used for displaying the admin view.
+function get_all_users(cb) {
+    pgquery("SELECT * FROM users ORDER BY user_id DESC", [], function(err, rows) {
+        if (err) {
+            cb(null, err);
+        } else {
+            cb(rows, null);
+        }
+    });
+}
+
 // Get a list of all assignments visible to users.
 function get_visible_assignments(cb) {
     pgquery("SELECT * FROM assignments WHERE visible=true", [], function(err, rows) {
@@ -2865,17 +2951,88 @@ app.post('/mark_final/:run_id', function(req, res, next) {
     });
 });
 
-function is_final(run_id, user_id, assignment_id, cb, res, req) {
+function get_final_run_for(user_id, assignment_id, cb, res, req) {
     // Select the latest final run from this user from this assignment
     pgquery_no_err('SELECT * FROM final_runs WHERE user_id=($1) AND ' +
             'assignment_id=($2) ORDER BY final_run_id DESC LIMIT 1',
             [user_id, assignment_id], res, req, function(rows) {
       if (rows.length != 1) {
-          return cb(false);
+          return cb(null);
       }
       // Make sure that the run ID is the run ID that they actually want
-      return cb(rows[0].run_id === run_id);
+      return cb(rows[0].run_id);
     });
+}
+
+function get_all_final_runs_helper(rows_iter, rows, res, req, assignments, cb) {
+    if (rows_iter === rows.length) {
+        return cb(rows);
+    } else {
+        var final_run_id = rows[rows_iter].max;
+        pgquery_no_err('SELECT * FROM final_runs WHERE final_run_id=$1',
+                [final_run_id], res, req, function(single_row) {
+            if (single_row.length !== 1) {
+                return redirect_with_err('/overview', res, req,
+                    "Failed collecting final runs, rows_iter=" + rows_iter +
+                    ", final_run_id=" + final_run_id);
+            }
+
+            var assignment_name = null;
+            for (var i = 0; i < assignments.length && assignment_name === null; i++) {
+                if (assignments[i].assignment_id === rows[rows_iter].assignment_id) {
+                    assignment_name = assignments[i].name;
+                }
+            }
+
+            rows[rows_iter].final_run_id = final_run_id;
+            rows[rows_iter].timestamp = single_row[0].timestamp;
+            rows[rows_iter].run_id = single_row[0].run_id;
+            rows[rows_iter].assignment_name = assignment_name;
+            return get_all_final_runs_helper(rows_iter + 1, rows, res, req,
+                assignments, cb);
+        });
+    }
+}
+
+function get_all_final_runs(res, req, assignments, cb) {
+    pgquery_no_err('SELECT max(final_run_id), assignment_id, user_id from ' +
+            'final_runs group by assignment_id, user_id', [], res, req,
+            function(rows) {
+        return get_all_final_runs_helper(0, rows, res, req, assignments, cb);
+    });
+}
+
+function compute_remaining_slip_days_for(user_obj, final_runs, assignments) {
+    var remaining_slip_days = user_obj.allowed_slip_days;
+    var collect_final_runs = [];
+
+    for (var j = 0; j < assignments.length; j++) {
+        var curr_assignment = assignments[j];
+
+        var final_run_timestamp = null;
+        for (var k = 0; k < final_runs.length; k++) {
+            if (final_runs[k].user_id === user_obj.user_id &&
+                    final_runs[k].assignment_id === curr_assignment.assignment_id) {
+                final_run_timestamp = final_runs[k].timestamp;
+                collect_final_runs.push(final_runs[k]);
+                break;
+            }
+        }
+
+        if (final_run_timestamp !== null &&
+                final_run_timestamp > curr_assignment.deadline) {
+            var delta_in_ms = final_run_timestamp - curr_assignment.deadline;
+            var ms_per_second = 1000;
+            var ms_per_minute = 60 * ms_per_second;
+            var ms_per_hour = 60 * ms_per_minute;
+            var ms_per_day = 24 * ms_per_hour;
+            var slip_days_used = Math.ceil(delta_in_ms / ms_per_day);
+            remaining_slip_days = remaining_slip_days - slip_days_used;
+        }
+    }
+
+    return {remaining_slip_days: remaining_slip_days,
+            collected_final_runs: collect_final_runs};
 }
 
 // Render a page showing detailed information on a specific run.
@@ -3033,7 +3190,8 @@ app.get('/run/:run_id', function(req, res, next) {
                       cello_err = cello_msg;
                   }
 
-                  is_final(run_id, user_id, assignment_id, function(marked_final) {
+                  get_final_run_for(user_id, assignment_id, function(final_run_id) {
+                    var marked_final = (final_run_id === run_id);
 
                     var render_vars = {run_id: run_id, log_files: reordered_log_files,
                                        viola_err: viola_err_msg, cello_err: cello_err,
