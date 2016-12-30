@@ -29,6 +29,7 @@
             <tr>
                 <td bgcolor="#AAAAAA"><center><b>Assignment</b></center></td>
                 <td bgcolor="#AAAAAA"><center><b>Run</b></center></td>
+                <td bgcolor="#AAAAAA"><center><b>Slip Days Used</b></center></td>
             </tr>
             <% for (var i = 0; i < final_runs.length; i++) { %>
             <%     var final_run = final_runs[i]; %>
@@ -36,6 +37,7 @@
             <tr>
                 <td><%= final_run.assignment_name %></td>
                 <td><a href=<%= run_url %>>Link</a></td>
+                <td><%= final_run.slip_days_used %></td>
             </tr>
             <% } %>
         </table>

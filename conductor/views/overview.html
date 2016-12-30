@@ -134,16 +134,25 @@
                      curr.finish_time.getMinutes() + ' ' +
                      (is_afternoon ? 'PM' : 'AM') + ' CST'; %>
       <%     } %>
-             <tr><td><center><a href=/run/<%= curr.run_id %>><%= curr.run_id %></a></center></td>
-                 <td><center><%= finish_time_str %></center></td>
-                 <td><center><%= curr.assignment_name %></center></td>
-                 <td><center><font color=<%= status_color %>><%= curr.status %></font></center></td>
-                 <td><center>
-                     <form action="/cancel/<%= curr.run_id %>" method="post" enctype="multipart/form-data">
-                         <button type="submit" class="button btn-primary btn-block" type="button" style="width: 100%">Cancel</button>
-                     </form></center>
-                 </td>
-             </tr>
+                 <tr>
+                     <td>
+                         <center>
+                             <a href=/run/<%= curr.run_id %>><%= curr.run_id %></a>
+                             <br/>
+                             <% if (curr.is_final) { %>
+                             <b>FINAL</b>
+                             <% } %>
+                         </center>
+                     </td>
+                     <td><center><%= finish_time_str %></center></td>
+                     <td><center><%= curr.assignment_name %></center></td>
+                     <td><center><font color=<%= status_color %>><%= curr.status %></font></center></td>
+                     <td><center>
+                         <form action="/cancel/<%= curr.run_id %>" method="post" enctype="multipart/form-data">
+                             <button type="submit" class="button btn-primary btn-block" type="button" style="width: 100%">Cancel</button>
+                         </form></center>
+                     </td>
+                 </tr>
       <% } %>
       </table>
       </div>

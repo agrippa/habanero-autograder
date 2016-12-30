@@ -852,24 +852,41 @@ app.get('/overview/:page?', function(req, res, next) {
                   {err_msg: 'Error gathering assignments', runs: [],
                       assignments: [], page: 0, npages: 1});
           }
-          var npages = Math.max(Math.ceil(runs.length / PAGE_SIZE), 1);
-          // npages will be 0 when there are no runs for this user
-          if (npages > 0 && page >= npages) {
-              return render_page('overview.html', res, req,
-                  {err_msg: 'Invalid URL, ' + page + ' is >= the # of pages, ' + npages,
-                      runs: [], page: 0, npages: 1});
-          }
 
-          // Generate a subset of runs to display based on the overview page
-          // being loaded.
-          var subsetted_runs = [];
-          var limit = (page + 1) * PAGE_SIZE;
-          if (limit > runs.length) limit = runs.length;
-          for (var i = page * PAGE_SIZE; i < limit; i++) {
-              subsetted_runs.push(runs[i]);
-          }
-          return render_page('overview.html', res, req, {runs: subsetted_runs,
-              page: page, npages: npages, assignments: assignments});
+          get_all_final_runs_for_user(req.session.user_id, res, req,
+              assignments, function(final_runs) {
+
+              var npages = Math.max(Math.ceil(runs.length / PAGE_SIZE), 1);
+              // npages will be 0 when there are no runs for this user
+              if (npages > 0 && page >= npages) {
+                  return render_page('overview.html', res, req,
+                      {err_msg: 'Invalid URL, ' + page + ' is >= the # of pages, ' + npages,
+                          runs: [], page: 0, npages: 1});
+              }
+
+              // Generate a subset of runs to display based on the overview page
+              // being loaded.
+              var subsetted_runs = [];
+              var limit = (page + 1) * PAGE_SIZE;
+              if (limit > runs.length) limit = runs.length;
+              for (var i = page * PAGE_SIZE; i < limit; i++) {
+                  var is_final = false;
+                  for (var j = 0; j < final_runs.length; j++) {
+                      if (runs[i].run_id === final_runs[j].run_id) {
+                          is_final = true;
+                          break;
+                      }
+                  }
+                  runs[i].is_final = is_final;
+                  subsetted_runs.push(runs[i]);
+              }
+              return render_page('overview.html', res, req,
+                  {runs: subsetted_runs,
+                   page: page,
+                   npages: npages,
+                   assignments: assignments,
+                   });
+          });
       });
   });
 });
@@ -3002,6 +3019,14 @@ function get_all_final_runs(res, req, assignments, cb) {
     });
 }
 
+function get_all_final_runs_for_user(user_id, res, req, assignments, cb) {
+    pgquery_no_err('SELECT max(final_run_id), assignment_id from ' +
+            'final_runs WHERE user_id=$1 group by assignment_id', [user_id], res, req,
+            function(rows) {
+        return get_all_final_runs_helper(0, rows, res, req, assignments, cb);
+    });
+}
+
 function compute_remaining_slip_days_for(user_obj, final_runs, assignments) {
     var remaining_slip_days = user_obj.allowed_slip_days;
     var collect_final_runs = [];
@@ -3019,15 +3044,19 @@ function compute_remaining_slip_days_for(user_obj, final_runs, assignments) {
             }
         }
 
-        if (final_run_timestamp !== null &&
-                final_run_timestamp > curr_assignment.deadline) {
-            var delta_in_ms = final_run_timestamp - curr_assignment.deadline;
-            var ms_per_second = 1000;
-            var ms_per_minute = 60 * ms_per_second;
-            var ms_per_hour = 60 * ms_per_minute;
-            var ms_per_day = 24 * ms_per_hour;
-            var slip_days_used = Math.ceil(delta_in_ms / ms_per_day);
-            remaining_slip_days = remaining_slip_days - slip_days_used;
+        if (final_run_timestamp !== null) {
+            if (final_run_timestamp > curr_assignment.deadline) {
+                var delta_in_ms = final_run_timestamp - curr_assignment.deadline;
+                var ms_per_second = 1000;
+                var ms_per_minute = 60 * ms_per_second;
+                var ms_per_hour = 60 * ms_per_minute;
+                var ms_per_day = 24 * ms_per_hour;
+                var slip_days_used = Math.ceil(delta_in_ms / ms_per_day);
+                collect_final_runs[collect_final_runs.length - 1].slip_days_used = slip_days_used;
+                remaining_slip_days = remaining_slip_days - slip_days_used;
+            } else {
+                collect_final_runs[collect_final_runs.length - 1].slip_days_used = 0;
+            }
         }
     }
 
