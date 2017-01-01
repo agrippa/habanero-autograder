@@ -2968,6 +2968,18 @@ app.post('/mark_final/:run_id', function(req, res, next) {
     });
 });
 
+app.post('/unmark_final/:assignment_id', function(req, res, next) {
+    var assignment_id = req.params.assignment_id;
+
+    log('unmark_final: assignment_id=' + assignment_id);
+
+    pgquery_no_err('DELETE FROM final_runs WHERE user_id=$1 AND assignment_id=$2', [req.session.user_id, assignment_id], res, req,
+    function(rows) {
+           return redirect_with_success('/overview', res, req,
+               'Unmarked final run');
+    });
+});
+
 function get_final_run_for(user_id, assignment_id, cb, res, req) {
     // Select the latest final run from this user from this assignment
     pgquery_no_err('SELECT * FROM final_runs WHERE user_id=($1) AND ' +
@@ -3233,6 +3245,7 @@ app.get('/run/:run_id', function(req, res, next) {
                                        passed_performance: passed_performance,
                                        run_status: run_status,
                                        assignment_name: assignment_name,
+                                       assignment_id: assignment_id,
                                        run_tag: run_tag,
                                        enable_profiling: enable_profiling,
                                        is_final: marked_final};

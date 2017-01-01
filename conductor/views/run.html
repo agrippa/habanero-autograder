@@ -28,13 +28,15 @@
             <font size=4 style="text-align: center"><%= assignment_name %></font>
           </div>
           <div class="col-md-4 col-md-offset-0">
-            <form id="mark_final" action="/mark_final/<%= run_id %>" method="post" style="float: right">
-                <% if (is_final) { %>
-                  <button class="btn btn-default" type="submit" id="mark_final_btn" style="background-color:green; color:white;">Is Final</button>
-                <% } else { %>
+            <% if (is_final) { %>
+              <form id="unmark_final" action="/unmark_final/<%= assignment_id %>" method="post" style="float: right">
+                <button class="btn btn-default" type="submit" id="mark_final_btn" style="background-color:green; color:white;">Unmark as Final</button>
+              </form>
+            <% } else { %>
+              <form id="mark_final" action="/mark_final/<%= run_id %>" method="post" style="float: right">
                 <button class="btn btn-default" type="submit" id="mark_final_btn">Mark Final</button>
-                <% } %>
-            </form>
+              </form>
+            <% } %>
           </div>
         </div>
       </div>
