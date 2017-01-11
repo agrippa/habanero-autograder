@@ -20,9 +20,14 @@ public class ViolaEnv {
     public final String checkstyle;
     // Root directory of the local autograder installation
     public final String autograderHome;
+    /*
+     * Gorn is required by the data race detector variant of HJlib. It can be
+     * downloaded and built from https://gitlab.com/cogumbreiro/gorn.
+     */
+    public final String gorn;
 
     public ViolaEnv(String conductorHost, int conductorPort, String conductorUser, String junit, String hamcrest,
-            String mavenRepo, String asm, String checkstyle,  String autograderHome) {
+            String mavenRepo, String asm, String checkstyle,  String autograderHome, String gorn) {
         this.conductorHost = conductorHost;
         this.conductorPort = conductorPort;
         this.conductorUser = conductorUser;
@@ -33,5 +38,6 @@ public class ViolaEnv {
         this.asm = asm;
         this.autograderHome = autograderHome;
         this.checkstyle = checkstyle;
+        this.gorn = gorn;
     }
 }

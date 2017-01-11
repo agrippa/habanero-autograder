@@ -72,6 +72,7 @@ public class Viola {
         final String asm = getEnvVarOrFail("ASM_JAR");
         final String autograderHome = getEnvVarOrFail("AUTOGRADER_HOME");
         final String checkstyle = getEnvVarOrFail("CHECKSTYLE_JAR");
+        final String gorn = getEnvVarOrFail("GORN_JAR");
 
         System.out.println("============== Viola ==============");
         System.out.printf("Viola port = %d\n", port);
@@ -82,10 +83,11 @@ public class Viola {
         System.out.printf("asm        = %s\n", asm);
         System.out.printf("autograder = %s\n", autograderHome);
         System.out.printf("checkstyle = %s\n", checkstyle);
+        System.out.printf("gorn       = %s\n", gorn);
         System.out.println("===================================");
 
         env = new ViolaEnv(conductorHost, conductorPort, conductorUser, junit, hamcrest, mavenRepo, asm, checkstyle,
-                autograderHome);
+                autograderHome, gorn);
 
         final ImportFromConductorRunnable importRunner = new ImportFromConductorRunnable(toImport, toNotify, executor);
         final Thread importThread = new Thread(importRunner);

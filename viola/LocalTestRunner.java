@@ -416,9 +416,15 @@ public class LocalTestRunner {
             int endVersion = versionIndex;
             while (endVersion < pomXml.length() && pomXml.charAt(endVersion) != '<') endVersion++;
             final String versionStr = pomXml.substring(versionIndex, endVersion);
-            final File hjJar = new File(env.mavenRepo +
-                "/edu/rice/hjlib-cooperative/" + versionStr +
-                "/hjlib-cooperative-" + versionStr + ".jar");
+            final File hjJar;
+            if (System.getenv("HJ_JAR") != null) {
+                hjJar = new File(System.getenv("HJ_JAR"));
+            } else {
+                hjJar = new File(env.mavenRepo +
+                    "/edu/rice/hjlib-cooperative/" + versionStr +
+                    "/hjlib-cooperative-" + versionStr + ".jar");
+            }
+            System.out.println("Using HJ jar " + hjJar.getAbsolutePath());
 
             /*
              * Compile the full application and testing suite
@@ -473,7 +479,7 @@ public class LocalTestRunner {
 
               final String classpath =
                   ".:target/classes:target/test-classes:" + env.junit + ":" +
-                  env.hamcrest + ":" + hjJar + ":" + env.asm;
+                  env.hamcrest + ":" + hjJar + ":" + env.asm + ":" + env.gorn;
               final String policyPath = env.autograderHome + "/shared/security.policy";
               int junit_cmd_index = 0;
               final String[] junit_cmd;
