@@ -6,7 +6,8 @@ CREATE TABLE IF NOT EXISTS users
  password_hash TEXT NOT NULL,
  is_admin BOOLEAN NOT NULL,
  receive_email_notifications BOOLEAN NOT NULL DEFAULT TRUE,
- allowed_slip_days INT NOT NULL DEFAULT 3
+ allowed_slip_days INT NOT NULL DEFAULT 3,
+ active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 /* Create a default admin user with default password 'supreme-power' */
@@ -30,7 +31,9 @@ CREATE TABLE IF NOT EXISTS assignments
  ncores TEXT NOT NULL DEFAULT '16',
  custom_slurm_flags TEXT NOT NULL DEFAULT '',
  n_nodes TEXT NOT NULL DEFAULT '1',
- deadline TIMESTAMP NOT NULL
+ deadline TIMESTAMP NOT NULL,
+ send_reminder_emails BOOLEAN NOT NULL DEFAULT TRUE,
+ reminder_email_sent BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS runs

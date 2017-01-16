@@ -90,6 +90,30 @@ function send_email(to, subject, body, cb) {
   });
 }
 
+function send_email_to_each_active_user_helper(user_index, users, subject, body, cb) {
+    if (user_index == users.length) {
+        return cb(null);
+    } else {
+        send_email(email_for_user(users[user_index].user_name), subject, body, function(err) {
+            if (err) {
+                return cb(err);
+            } else {
+                return send_email_to_each_active_user_helper(user_index + 1, users, subject, body, cb);
+            }
+        });
+    }
+}
+
+function send_email_to_each_active_user(subject, body, cb) {
+    get_all_active_users(function(rows, err) {
+        if (err) {
+            return cb(null, err);
+        }
+
+        return send_email_to_each_active_user_helper(0, rows, subject, body, cb);
+    });
+}
+
 // Return the maximum value stored in a list.
 function max(l) {
     var m = l[0];
@@ -1484,6 +1508,20 @@ app.post('/set_assignment_correctness_only/:assignment_id', function(req, res, n
       assignment_id, res, req);
 });
 
+// Toggle whether a reminder email should be sent out for the given assignment.
+app.post('/set_send_reminder_emails/:assignment_id', function(req, res, next) {
+  log('set_send_reminder_emails: is_admin=' + req.session.is_admin);
+  if (!req.session.is_admin) {
+      return redirect_with_err('/overview', res, req, permissionDenied);
+  }
+
+  var assignment_id = req.params.assignment_id;
+  var set_send_reminder_emails = req.body.set_send_reminder_emails;
+
+  return update_assignment_field(set_send_reminder_emails,
+      'send_reminder_emails', assignment_id, res, req);
+});
+
 // Toggle whether a given assignment is visible to users.
 app.post('/set_assignment_visible/:assignment_id', function(req, res, next) {
   log('set_assignment_visible: is_admin=' + req.session.is_admin);
@@ -2407,9 +2445,20 @@ function get_all_assignments(cb) {
     });
 }
 
-// Get a list of all assignments. This is used for displaying the admin view.
+// Get a list of all users. This is used for displaying the admin view.
 function get_all_users(cb) {
     pgquery("SELECT * FROM users ORDER BY user_id DESC", [], function(err, rows) {
+        if (err) {
+            cb(null, err);
+        } else {
+            cb(rows, null);
+        }
+    });
+}
+
+// Get a list of all active users. This is used for displaying the admin view.
+function get_all_active_users(cb) {
+    pgquery("SELECT * FROM users WHERE active=TRUE ORDER BY user_id DESC", [], function(err, rows) {
         if (err) {
             cb(null, err);
         } else {
@@ -3615,6 +3664,51 @@ function check_cluster() {
     if (checkClusterActive) {
         log('check_cluster: woke up and a cluster checker was already active?!');
     } else {
+        // Send reminder e-mails three hours beforehand
+        pgquery("SELECT * FROM assignments WHERE " +
+                "send_reminder_emails IS TRUE AND " +
+                "reminder_email_sent IS FALSE AND " +
+                "deadline < now() + INTERVAL '6 HOUR'", [], function(err, rows) {
+            if (err) {
+                log('Error looking up reminder emails: ' + err);
+                return;
+            }
+
+            if (rows.length > 0) {
+                /*
+                 * Have one or more reminders to send. For simplicity we just
+                 * send one at a time, we'll come back around to this in no time.
+                 */
+                log('check_cluster: Found ' + rows.length + ' reminders to send');
+                send_email_to_each_active_user('Final Submission Reminder - COMP 322 ' + rows[0].name,
+                        'This is the final reminder e-mail to mark your final ' +
+                        'submission for ' + rows[0].name + ' in the autograder. ' +
+                        'Failure to mark your submission will either result in a ' +
+                        'zero (if no submission), or the use of slip days (if a ' +
+                        'submission is marked final after the deadline of ' +
+                        rows[0].deadline + '). See the section titled "Viewing ' +
+                        'run information" at http://' + os_package.hostname() +
+                        '/user_guide for how to select a final submission, and ' +
+                        'see your user profile at http://' + os_package.hostname() +
+                        '/profile for a list of your final submissions.', function(err) {
+                    if (err) {
+                        log('Error sending reminder emails: ' + err);
+                        return;
+                    }
+
+                    pgquery('UPDATE assignments SET reminder_email_sent=TRUE ' +
+                        'WHERE assignment_id=$1', [rows[0].assignment_id],
+                        function(err, rows) {
+                            if (err) {
+                                log('Error marking emails sent: ' + err);
+                                return;
+                            }
+                        });
+                });
+
+            }
+        });
+
         checkClusterActive = true;
         pgquery("SELECT * FROM runs WHERE (job_id IS NOT " +
             "NULL) AND ((status='" + TESTING_PERFORMANCE_STATUS + "') OR " +
@@ -3650,9 +3744,8 @@ function launch() {
     connect_to_cluster(function() {
     set_check_cluster_timeout(0);
         var server = app.listen(port, function() {
-            log('Server listening at http://%s:%s', 
-                server.address().address,
-                server.address().port);
+            log('Server listening at http://' + server.address().address + ':' +
+                server.address().port); 
         });
     });
 }

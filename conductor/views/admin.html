@@ -34,6 +34,7 @@
             <td bgcolor="#AAAAAA"><center><b>Visibility</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Deadline</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Correctness Only</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Send Reminder Emails?</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>JVM Args</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>SLURM Flags</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Correctness Tests Timeout (ms)</b></center></td>
@@ -80,6 +81,14 @@
                   <form action="/set_assignment_correctness_only/<%= curr.assignment_id %>" method="post">
                       <input type="hidden" name="set_correctness_only" value="<%= !curr.correctness_only %>">
                       <input class="btn btn-primary" value=<%= curr.correctness_only ? 'Disable' : 'Enable' %> name="submit" type="submit">
+                  </form>
+                  </center>
+              </td>
+              <td>
+                  <center>
+                  <form action="/set_send_reminder_emails/<%= curr.assignment_id %>" method="post">
+                      <input type="hidden" name="set_send_reminder_emails" value="<%= !curr.send_reminder_emails %>">
+                      <input class="btn btn-primary" value=<%= curr.send_reminder_emails ? 'Disable' : 'Enable' %> name="submit" type="submit">
                   </form>
                   </center>
               </td>
