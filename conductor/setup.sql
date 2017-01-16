@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS assignments
  n_nodes TEXT NOT NULL DEFAULT '1',
  deadline TIMESTAMP NOT NULL,
  send_reminder_emails BOOLEAN NOT NULL DEFAULT TRUE,
- reminder_email_sent BOOLEAN NOT NULL DEFAULT FALSE
+ reminder_email_sent BOOLEAN NOT NULL DEFAULT FALSE,
+ required_files TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS runs

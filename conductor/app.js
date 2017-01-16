@@ -1362,6 +1362,25 @@ app.post('/update_custom_slurm_flags/:assignment_id', function(req, res, next) {
   }
 });
 
+// Add some custom assignment-specific files that are required.
+app.post('/update_required_files/:assignment_id', function(req, res, next) {
+    log('update_required_files: is_admin=' + req.session.is_admin +
+        ', new required files = "' + req.body.required_files + '"');
+  if (!req.session.is_admin) {
+    return redirect_with_err('/overview', res, req, permissionDenied);
+  } else {
+    if (req.body.required_files === null) {
+      return redirect_with_err('/admin', res, req,
+          'Malformed request, missing required files field?');
+    }
+    var assignment_id = req.params.assignment_id;
+    var required_files = req.body.required_files;
+
+    return update_assignment_field("'" + required_files + "'", 'required_files',
+        assignment_id, res, req);
+  }
+});
+
 // Update the timeout allowed for the performance tests for a given assignment.
 app.post('/update_performance_timeout/:assignment_id', function(req, res, next) {
   log('update_performance_timeout: is_admin=' + req.session.is_admin +
@@ -1584,13 +1603,13 @@ function get_user_id_for_name(username, cb) {
 
 // Launch the correctness tests for a user submission on the viola component.
 function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
-        assignment_id, jvm_args, correctness_timeout, username) {
+        assignment_id, jvm_args, correctness_timeout, username, required_files) {
     var viola_params = 'done_token=' + done_token + '&user=' + username +
         '&assignment=' + assignment_name + '&run=' + run_id +
         '&assignment_id=' + assignment_id + '&jvm_args=' + jvm_args +
         '&timeout=' + correctness_timeout + '&submission_path=' +
         run_dir_path(username, run_id) + '&assignment_path=' +
-        assignment_path(assignment_id);
+        assignment_path(assignment_id) + '&required_files=' + required_files;
     var viola_options = { host: VIOLA_HOST,
         port: VIOLA_PORT, path: '/run?' + encodeURI(viola_params) };
     log('submit_run: sending viola request for run ' + run_id);
@@ -1658,7 +1677,8 @@ function run_setup_failed(run_id, res, req, err_msg, svn_err) {
 // Given the URL to a student's SVN directory, export that directory into a ZIP
 // file and kick off a viola run using it.
 function kick_off_svn_export(svn_url, temp_dir, run_id, run_dir,
-        assignment_name, done_token, assignment_id, jvm_args, correctness_timeout, username) {
+        assignment_name, done_token, assignment_id, jvm_args,
+        correctness_timeout, username, required_files) {
     svn_cmd(['export', svn_url, temp_dir + '/submission_svn_folder'], function(err, stdout) {
       if (is_actual_svn_err(err)) {
           return viola_trigger_failed(run_id,
@@ -1693,7 +1713,7 @@ function kick_off_svn_export(svn_url, temp_dir, run_id, run_dir,
 
                     return trigger_viola_run(run_dir,
                         assignment_name, run_id, done_token,
-                        assignment_id, jvm_args, correctness_timeout, username);
+                        assignment_id, jvm_args, correctness_timeout, username, required_files);
                   });
                   archive.on('error', function(err){
                       return viola_trigger_failure(run_id,
@@ -1725,6 +1745,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
 
         var assignment_id = rows[0].assignment_id;
         var jvm_args = rows[0].jvm_args;
+        var required_files = rows[0].required_files;
         var correctness_timeout = rows[0].correctness_timeout_ms;
         log('submit_run: found assignment_id=' + assignment_id +
             ' jvm_args="' + jvm_args + '" correctness_timeout=' +
@@ -1764,7 +1785,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                 fs.renameSync(req.file.path, run_dir + '/student.zip');
                 trigger_viola_run(run_dir,
                     assignment_name, run_id, done_token,
-                    assignment_id, jvm_args, correctness_timeout, username);
+                    assignment_id, jvm_args, correctness_timeout, username, required_files);
                 return success_cb(run_id);
               } else {
                 // Create a ZIP file from the user-provided SVN location, and
@@ -1777,7 +1798,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
 
                   kick_off_svn_export(svn_url, temp_dir, run_id, run_dir,
                       assignment_name, done_token, assignment_id, jvm_args,
-                      correctness_timeout, username);
+                      correctness_timeout, username, required_files);
 
                   return success_cb(run_id);
                 });
@@ -2979,6 +3000,8 @@ function get_default_file_lbl(file) {
         return 'Compilation';
     } else if (file === 'correct.txt') {
         return 'Correctness Tests';
+    } else if (file === 'files.txt') {
+        return 'Required Files Report';
     } else if (file === 'findbugs.txt') {
         return 'FindBugs Analysis';
     } else if (string_starts_with(file, 'performance.') && string_ends_with(file, '.txt')) {
@@ -3256,7 +3279,7 @@ app.get('/run/:run_id', function(req, res, next) {
                    * displayed in a more intuitive order for the user
                    */
                   var reordered_log_files = {};
-                  var file_ordering = ['checkstyle.txt', 'compile.txt', 'correct.txt'];
+                  var file_ordering = ['checkstyle.txt', 'files.txt', 'compile.txt', 'correct.txt'];
                   for (var log_filename_index in file_ordering) {
                       var log_filename = file_ordering[log_filename_index];
                       if (log_filename in log_files) {

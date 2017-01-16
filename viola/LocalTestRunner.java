@@ -61,6 +61,8 @@ public class LocalTestRunner {
     private final String submissionPath;
     // Path to the instructor-provided testing files
     private final String assignmentPath;
+    // Files that must be submitted with all submissions
+    private final String[] requiredFiles;
 
     private File createdAssignmentDir = null;
     private File createdSubmissionDir = null;
@@ -86,7 +88,7 @@ public class LocalTestRunner {
     public LocalTestRunner(String done_token, String user,
             String assignment_name, int run_id, int assignment_id,
             String jvm_args, int timeout, ViolaEnv env, LinkedList<LocalTestRunner> toImport, String assignmentPath,
-            String submissionPath) {
+            String submissionPath, String requiredFiles) {
         this.done_token = done_token;
         this.user = user;
         this.assignment_name = assignment_name;
@@ -102,6 +104,12 @@ public class LocalTestRunner {
         this.env = env;
         this.assignmentPath = assignmentPath;
         this.submissionPath = submissionPath;
+
+        if (requiredFiles.length() == 0) {
+            this.requiredFiles = new String[0];
+        } else {
+            this.requiredFiles = requiredFiles.split(",");
+        }
 
         this.toImport = toImport;
     }
@@ -283,6 +291,7 @@ public class LocalTestRunner {
             final String findbugsOutputFile = logDir.getAbsolutePath() + "/findbugs.txt";
             final String compileOutputFile = logDir.getAbsolutePath() + "/compile.txt";
             final String correctnessOutputFile = logDir.getAbsolutePath() + "/correct.txt";
+            final String filesReportOutputFile = logDir.getAbsolutePath() + "/files.txt";
 
             ViolaUtil.log("Target code directory = " + extractCodeDir.getAbsolutePath() + "\n");
             ViolaUtil.log("Target instructor directory = " + extractInstructorDir.getAbsolutePath() + "\n");
@@ -381,6 +390,32 @@ public class LocalTestRunner {
                 unzipped_code_dir, this.timeout, createdProcesses);
             CommonUtils.saveResultsToFile(checkstyleResults, checkstyleOutputFile, false);
             createdFilesToSave.add(checkstyleOutputFile);
+
+            /*
+             * Look for missing but required files.
+             */
+            List<String> missingFiles = new LinkedList<String>();
+            for (String filename : requiredFiles) {
+                final File testFile = new File(unzipped_code_dir, filename);
+                if (!testFile.exists()) {
+                    missingFiles.add(filename);
+                }
+            }
+
+            PrintWriter writer = new PrintWriter(filesReportOutputFile, "UTF-8");
+            if (missingFiles.size() > 0) {
+                writer.println(missingFiles.size() + " missing file(s) were " +
+                        "discovered which were expected to be part of your " +
+                        "submission.\nIgnoring this message may result in " +
+                        "deducted points if this is your final submission:");
+                for (String missing : missingFiles) {
+                    writer.println("- " + missing);
+                }
+            } else {
+                writer.println("All required files were found!");
+            }
+            writer.close();
+            createdFilesToSave.add(filesReportOutputFile);
 
             /*
              * Merge the student-provided test code with the instructor-provided
@@ -518,7 +553,7 @@ public class LocalTestRunner {
               stderr.append(junit_results.stderr);
             }
 
-            final PrintWriter writer = new PrintWriter(correctnessOutputFile, "UTF-8");
+            writer = new PrintWriter(correctnessOutputFile, "UTF-8");
             writer.println("======= STDOUT =======");
             writer.println(stdout.toString());
             writer.println("\n======= STDERR =======");

@@ -37,6 +37,7 @@
             <td bgcolor="#AAAAAA"><center><b>Send Reminder Emails?</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>JVM Args</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>SLURM Flags</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Required Files</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Correctness Tests Timeout (ms)</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Performance Tests Timeout (HH:MM:SS)</b></center></td>
             <td bgcolor="#AAAAAA"><center><b># Cores</b></center></td>
@@ -105,6 +106,14 @@
                           <form action="/update_custom_slurm_flags/<%= curr.assignment_id %>" method="post" enctype="application/x-www-form-urlencoded">
                               <input name="custom_slurm_flags" type="text" value="<%= curr.custom_slurm_flags %>">
                               <input value="Update SLURM" name="submit" type="submit">
+                          </form>
+                      </center>
+                  </td>
+                  <td>
+                      <center>
+                          <form action="/update_required_files/<%= curr.assignment_id %>" method="post" enctype="application/x-www-form-urlencoded">
+                              <input name="required_files" type="text" value="<%= curr.required_files %>">
+                              <input value="Update Required Files" name="submit" type="submit">
                           </form>
                       </center>
                   </td>

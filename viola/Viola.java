@@ -167,6 +167,8 @@ public class Viola {
                 err_msg = "Missing submission path";
             } else if (!parms.containsKey("assignment_path")) {
                 err_msg = "Missing assignment path";
+            } else if (!parms.containsKey("required_files")) {
+                err_msg = "Missing required files";
             }
 
             if (err_msg != null) {
@@ -183,16 +185,18 @@ public class Viola {
                 final int timeout = Integer.parseInt(parms.get("timeout"));
                 final String assignmentPath = parms.get("assignment_path");
                 final String submissionPath = parms.get("submission_path");
+                final String requiredFiles = parms.get("required_files");
 
                 ViolaUtil.log("starting tests for user=%s assignment=%s run=%d " +
                         "assignment_id=%d jvm_args=\"%s\" timeout=%d " +
-                        "submission_path=%s assignment_path=%s\n", user,
+                        "submission_path=%s assignment_path=%s required_files=%s\n", user,
                         assignment_name, run_id, assignment_id, jvm_args,
-                        timeout, submissionPath, assignmentPath);
+                        timeout, submissionPath, assignmentPath, requiredFiles);
 
                 final LocalTestRunner runnable = new LocalTestRunner(done_token,
                         user, assignment_name, run_id, assignment_id, jvm_args,
-                        timeout, env, toExport, assignmentPath, submissionPath);
+                        timeout, env, toExport, assignmentPath, submissionPath,
+                        requiredFiles);
                 synchronized (toImport) {
                     toImport.add(runnable);
                     toImport.notify();
