@@ -39,6 +39,8 @@ public class ImportFromConductorRunnable implements Runnable {
                         toImport.size());
             }
 
+            final int runId = curr.getRunId();
+
             final String lbl = String.format("run=%d", curr.getRunId());
 
             /*
@@ -75,6 +77,9 @@ public class ImportFromConductorRunnable implements Runnable {
                             scpResults[0] = CommonUtils.runInProcess(lbl, assignmentScpCmd, new File("/tmp/"), 30000,
                                 null);
                         } catch (InterruptedException|IOException io) {
+                            ViolaUtil.log("ImportFromConductorRunnable: run_id=%s failed scp-ing assignment " +
+                                "directory\n", runId);
+                            io.printStackTrace();
                             throw new RuntimeException(io);
                         }
                     }, nretries, initialPause, backoff, "copying assignment files to viola");
@@ -88,6 +93,9 @@ public class ImportFromConductorRunnable implements Runnable {
                             try {
                                 CommonUtils.runInProcess(lbl, submissionScpCmd, new File("/tmp/"), 60000, null);
                             } catch (InterruptedException|IOException io) {
+                                ViolaUtil.log("ImportFromConductorRunnable: run_id=%s failed scp-ing submission " +
+                                    "directory\n", runId);
+                                io.printStackTrace();
                                 throw new RuntimeException(io);
                             }
                         }, nretries, initialPause, backoff, "copying submission files to viola");

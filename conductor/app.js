@@ -90,18 +90,18 @@ function send_email(to, subject, body, cb) {
   });
 }
 
-function send_email_to_each_active_user_helper(user_index, users, subject, body, cb) {
-    if (user_index == users.length) {
-        return cb(null);
-    } else {
-        send_email(email_for_user(users[user_index].user_name), subject, body, function(err) {
-            if (err) {
-                return cb(err);
-            } else {
-                return send_email_to_each_active_user_helper(user_index + 1, users, subject, body, cb);
-            }
-        });
-    }
+function send_mass_email(to, subject, body, cb) {
+  log('send_mass_email: to=' + to + ' subject="' + subject + '"');
+
+  var options = {
+    from: 'Habanero AutoGrader <' + GMAIL_USER + '>',
+    bcc: to,
+    subject: subject,
+    text: body
+  };
+  transporter.sendMail(options, function(err, info) {
+    cb(err);
+  });
 }
 
 function send_email_to_each_active_user(subject, body, cb) {
@@ -110,7 +110,18 @@ function send_email_to_each_active_user(subject, body, cb) {
             return cb(null, err);
         }
 
-        return send_email_to_each_active_user_helper(0, rows, subject, body, cb);
+        var active_users = [];
+        for (var i = 0; i < rows.length; i++) {
+            active_users.push(email_for_user(rows[i].user_name));
+        }
+
+        send_mass_email(active_users, subject, body, function(err) {
+            if (err) {
+                return cb(err);
+            } else {
+                return cb(null);
+            }
+        });
     });
 }
 
@@ -2256,13 +2267,17 @@ app.post('/local_run_finished', function(req, res, next) {
                         var subject = 'Habanero AutoGrader Run ' + run_id + ' Finished';
                         var body = 'http://' + os_package.hostname() + '/run/' + run_id;
                         send_email(email_for_user(username), subject, body, function(err) {
-                          if (err) {
-                            return failed_starting_perf_tests(res,
-                              'Failed sending notification e-mail, err=' + err, run_id);
-                          } else {
-                            return res.send(
-                              JSON.stringify({ status: 'Success' }));
-                          }
+                          /*
+                           * Notification emails can fail for a number of
+                           * reasons, none of them related to student code.
+                           * Forcing the whole job to fail as a result is a bit
+                           * too harsh. Here we just log the error and return
+                           * success.
+                           */
+                          log('Failed sending notification e-mail for run ' +
+                              run_id + ', err=' + err);
+                          return res.send(
+                            JSON.stringify({ status: 'Success' }));
                         });
                       } else {
                         return res.send(
@@ -2891,7 +2906,10 @@ function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
                   var performance_test = find_performance_test_with_name_and_cores(
                           performance_testname, curr_cores, rubric);
                   if (performance_test) {
-                      var speedup = seq_time / parallel_time;
+                      var speedup = 0.0;
+                      if (parallel_time > 0.0) {
+                          speedup = seq_time / parallel_time;
+                      }
                       var grading = performance_test.grading;
                       var test_score = performance_test.points_worth;
                       var matched = false;
@@ -3031,7 +3049,9 @@ app.post('/mark_final/:run_id', function(req, res, next) {
         }
 
         // Insert the final submission into the final_runs table
-        pgquery_no_err("INSERT INTO final_runs (run_id, user_id, assignment_id) VALUES ($1, $2, $3)", [run_id, rows[0].user_id, rows[0].assignment_id], res, req,
+        pgquery_no_err("INSERT INTO final_runs (run_id, user_id, " +
+            "assignment_id, timestamp) VALUES ($1, $2, $3, $4)",
+            [run_id, rows[0].user_id, rows[0].assignment_id, rows[0].start_time], res, req,
         function(rows) {
            return redirect_with_success('/run/' + run_id, res, req,
                'Marked run as final');
@@ -3552,7 +3572,10 @@ function finish_perf_tests(run_status, run, perf_runs, current_perf_runs_index) 
                                     if (testname === characteristic_test) {
                                         var seq_time = parseInt(tokens[3]);
                                         var parallel_time = parseInt(tokens[4]);
-                                        var speedup = seq_time / parallel_time;
+                                        var speedup = 0.0;
+                                        if (parallel_time > 0.0) {
+                                            speedup = seq_time / parallel_time;
+                                        }
                                         characteristic_speedup = speedup.toFixed(3);
                                         log('finish_perf_tests: run=' + run.run_id + ', setting characteristic speedup ' + characteristic_speedup);
                                         break;

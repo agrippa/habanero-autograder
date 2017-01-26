@@ -42,6 +42,8 @@ public class CommonUtils {
       }
 
       if (!processIsFinished(p)) {
+        ViolaUtil.log("runInProcess: %s working_dir=%s cmd=%s timed out after %s ms\n", lbl,
+                working_dir.getAbsolutePath(), String.join(" ", cmd), processTimeoutMs);
         p.destroy();
 
         return new ProcessResults("", "ERROR: The correctness tests took longer than " +
@@ -64,6 +66,9 @@ public class CommonUtils {
         }
 
         int exitCode = p.exitValue();
+
+        ViolaUtil.log("runInProcess: %s working_dir=%s cmd=%s completed with exit code = %s\n", lbl,
+                working_dir.getAbsolutePath(), String.join(" ", cmd), exitCode);
 
         return new ProcessResults(stdout.toString(), stderr.toString(), exitCode);
       }
