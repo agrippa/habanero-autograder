@@ -31,10 +31,13 @@ for NETID in $(cat final-runs | awk '{ print $1 }'); do
 done < final-runs
 
 for NETID in $(cat final-runs | awk '{ print $1 }'); do
+    RUN_ID=$(cat final-runs | grep "^$NETID " | awk '{ print $2 }')
     if [[ -d $STAFF_DIR/$NETID ]]; then
         echo "Duplicate netid $NETID"
         exit 1
     fi
+
+    echo Copying $BACKUPS_DIR/$RUN_ID to $STAFF_DIR/$NETID
 
     cp -r $BACKUPS_DIR/$RUN_ID $STAFF_DIR/$NETID
     mv ./$NETID $STAFF_DIR/$NETID/score
