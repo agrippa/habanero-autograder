@@ -35,8 +35,6 @@ var VERBOSE = false;
 
 var LOCAL_JOB_ID = 'LOCAL';
 
-var PERF_TEST_LBL = 'HABANERO-AUTOGRADER-PERF-TEST';
-
 // For pagination
 var PAGE_SIZE = 50;
 
@@ -3000,7 +2998,7 @@ function finish_perf_tests(run_status, run, perf_runs, current_perf_runs_index) 
                             var test_contents = fs.readFileSync(performance_path, 'utf8');
                             var test_lines = test_contents.split('\n');
                             for (var line_index in test_lines) {
-                                if (string_starts_with(test_lines[line_index], PERF_TEST_LBL)) {
+                                if (string_starts_with(test_lines[line_index], score_module.PERF_TEST_LBL)) {
                                     var tokens = test_lines[line_index].split(' ');
                                     var testname = tokens[2];
                                     if (testname === characteristic_test) {
