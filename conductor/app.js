@@ -18,6 +18,7 @@ var archiver = require('archiver');
 var temp = require('temp');
 var os_package = require('os');
 var path_pkg = require('path');
+var score_module = require('./score');
 
 var maintenanceMsg = 'Job submission failed because the autograder is not ' +
     'currently accepting new submissions. This is most likely due to a ' +
@@ -25,9 +26,6 @@ var maintenanceMsg = 'Job submission failed because the autograder is not ' +
 var permissionDenied = 'Permission denied. But you should shoot me an e-mail ' +
     'at jmaxg3@gmail.com. If you like playing around with systems, we have ' +
     'interesting research for you in the Habanero group.';
-var excessiveFileSizeMsg = 'The submission appears to perform excessive ' +
-    'prints, resulting in large log files. Please reduce the prints performed ' +
-    'and resubmit. A truncated version of your output is included below.';
 var cancellationSuccessMsg = 'Successfully cancelled. Please give the job ' +
     'status a few minutes to update.';
 
@@ -125,15 +123,6 @@ function send_email_to_each_active_user(subject, body, cb) {
     });
 }
 
-// Return the maximum value stored in a list.
-function max(l) {
-    var m = l[0];
-    for (var i = 1; i < l.length; i++) {
-        if (l[i] > m) m = l[i];
-    }
-    return m;
-}
-
 // Delete a directory, including all files and directories beneath it.
 function rmdir_recursively(dir) {
     var list = fs.readdirSync(dir);
@@ -150,20 +139,6 @@ function rmdir_recursively(dir) {
     }
     fs.rmdirSync(dir);
 };
-
-// Account credentials to use when connecting to a local Postgres instance used
-// as a persistent store for autograder user accounts, assignment info, and run
-// info.
-var POSTGRES_USERNAME = process.env.PGSQL_USER || 'postgres';
-var POSTGRES_PASSWORD = process.env.PGSQL_PASSWORD || 'foobar';
-var POSTGRES_USER_TOKEN = null;
-if (POSTGRES_PASSWORD.length === 0) {
-  POSTGRES_USER_TOKEN = POSTGRES_USERNAME;
-} else {
-  POSTGRES_USER_TOKEN = POSTGRES_USERNAME + ":" + POSTGRES_PASSWORD;
-}
-
-log('Connecting to local PGSQL instance with user ' + POSTGRES_USERNAME);
 
 // Account credentials to a shared SVN instance that users can upload submission
 // to for the autograder to pull down. Alternatively, users can also choose to
@@ -202,48 +177,13 @@ var CHECK_CLUSTER_PERIOD_MS = 30 * 1000; // 30 seconds
 var CHECK_CLUSTER_FILES_PERIOD_MS = 10 * 60 * 1000; // 10 minutes
 var CLUSTER_FOLDER_RETENTION_TIME_MS = 1 * 60 * 60 * 1000; // 1 hour
 
-// All run statuses
-var TESTING_CORRECTNESS_STATUS = 'TESTING CORRECTNESS';
-var IN_CLUSTER_QUEUE_STATUS = 'IN CLUSTER QUEUE';
-var TESTING_PERFORMANCE_STATUS = 'TESTING PERFORMANCE';
-var FINISHED_STATUS = 'FINISHED';
-var CANCELLED_STATUS = 'CANCELLED';
-var FAILED_STATUS = 'FAILED';
-
 log('Connecting to remote cluster at ' + CLUSTER_HOSTNAME +
   ' of type ' + CLUSTER_TYPE + ' as ' + CLUSTER_USER);
-
-var conString = "postgres://" + POSTGRES_USER_TOKEN + "@localhost/autograder";
-
-// Issue a query to the configured Postgres instance, passing the callback cb
-// the results (either an error or the output of the query).
-function pgquery(query, query_args, cb) {
-  log('pgquery: acquiring PGSQL client...');
-  pg.connect(conString, function(err, client, done) {
-      log("pgquery: finished acquiring PGSQL client, err=" + err);
-      if (err) {
-          log('pgquery: hit an err = ' + err);
-          done();
-          return cb(err, null);
-      } else {
-          var q = client.query(query, query_args);
-          q.on('row', function(row, result) { result.addRow(row); });
-          q.on('error', function(err, result) {
-              done();
-              return cb(err, null);
-          });
-          q.on('end', function(result) {
-              done();
-              return cb(null, result.rows);
-          });
-      }
-  });
-}
 
 // A simpler pgquery that doesn't pass the error back to the user, simply
 // redirects to the main page with a vague internal error message.
 function pgquery_no_err(query, query_args, res, req, cb) {
-    pgquery(query, query_args, function(err, rows) {
+    score_module.pgquery(query, query_args, function(err, rows) {
         if (err) {
             log('pgquery_no_err: hit an err = ' + err);
             return redirect_with_err('/overview', res, req,
@@ -460,17 +400,6 @@ function run_cluster_cmd(lbl, cluster_cmd, cb) {
     }
 }
 
-// Limit the size of files student runs can produce.
-var MAX_FILE_SIZE = 10 * 1024 * 1024;
-// Account for inserted error message and two new lines
-var MAX_DISPLAY_FILE_SIZE = MAX_FILE_SIZE + excessiveFileSizeMsg.length + 2;
-
-// Get the size of the file at path, in bytes.
-function get_file_size(path) {
-    var stats = fs.statSync(path);
-    return stats.size;
-}
-
 // Copy from src_file to dst_file. is_upload specifies the direction of the
 // transfer. If is_upload is true, then the copy is to the cluster. Else, it is
 // from the cluster. On completion, cb is called with a single error argument.
@@ -684,7 +613,7 @@ app.get('/status/:run_id', function(req, res, next) {
 
     // Deliberately don't check permissions, it's okay to leave this endpoint
     // in the open.
-    pgquery("SELECT * FROM runs WHERE run_id=($1)", [run_id], function(err, rows) {
+    score_module.pgquery("SELECT * FROM runs WHERE run_id=($1)", [run_id], function(err, rows) {
         if (err) {
             return res.send('INTERNAL FAILURE');
         }
@@ -698,16 +627,16 @@ app.get('/status/:run_id', function(req, res, next) {
 // Look up the most recently completed run for which all runs with a run ID less
 // than it have also completed.
 app.get('/latest_complete_run', function(req, res, next) {
-    pgquery('SELECT MAX(run_id) FROM runs', [], function(err, rows) {
+    score_module.pgquery('SELECT MAX(run_id) FROM runs', [], function(err, rows) {
         if (err) {
             return res.send('INTERNAL FAILURE');
         }
         var max_run_id = rows[0].max;
 
-        pgquery("SELECT MIN(run_id) FROM runs WHERE status='" +
-                TESTING_CORRECTNESS_STATUS + "' OR status='" +
-                IN_CLUSTER_QUEUE_STATUS + "' OR status='" +
-                TESTING_PERFORMANCE_STATUS + "'", [], function(err, rows) {
+        score_module.pgquery("SELECT MIN(run_id) FROM runs WHERE status='" +
+                score_module.TESTING_CORRECTNESS_STATUS + "' OR status='" +
+                score_module.IN_CLUSTER_QUEUE_STATUS + "' OR status='" +
+                score_module.TESTING_PERFORMANCE_STATUS + "'", [], function(err, rows) {
             if (err) {
                 return res.send('INTERNAL FAILURE');
             }
@@ -1150,7 +1079,7 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
         'Please provide a checkstyle configuration for the assignment');
     }
 
-    var rubric_validated = load_and_validate_rubric(req.files.rubric[0].path);
+    var rubric_validated = score_module.load_and_validate_rubric(req.files.rubric[0].path);
     if (!rubric_validated.success) {
         return redirect_with_err('/admin', res, req,
                 'Error in rubric: ' + rubric_validated.msg);
@@ -1166,7 +1095,7 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
             "RETURNING assignment_id", [assignment_name, assignment_deadline],
             res, req, function(rows) {
                 var assignment_id = rows[0].assignment_id;
-                var assignment_dir = assignment_path(assignment_id);
+                var assignment_dir = score_module.assignment_path(assignment_id);
 
                 // Create the assignment directory on the conductor
                 fs.mkdirSync(assignment_dir);
@@ -1233,7 +1162,7 @@ function handle_reupload(req, res, missing_msg, target_filename) {
                     return redirect_with_err('/admin', res, req,
                         'That assignment doesn\'t seem to exist');
                 }
-                var assignment_dir = assignment_path(assignment_id);
+                var assignment_dir = score_module.assignment_path(assignment_id);
                 fs.renameSync(req.file.path, assignment_dir + '/' + target_filename);
 
                 cluster_copy(assignment_dir + '/' + target_filename,
@@ -1507,7 +1436,7 @@ app.post('/upload_rubric/:assignment_id', upload.single('rubric'),
           return redirect_with_err('/admin', res, req, 'No rubric provided');
       }
 
-      var validated = load_and_validate_rubric(req.file.path);
+      var validated = score_module.load_and_validate_rubric(req.file.path);
       if (!validated.success) {
           return redirect_with_err('/admin', res, req, 'Error in rubric: ' + validated.msg);
       }
@@ -1593,7 +1522,7 @@ app.post('/update_tag/:run_id', function(req, res, next) {
 
 // Fetch the user ID for a given username.
 function get_user_id_for_name(username, cb) {
-    pgquery("SELECT * FROM users WHERE user_name=($1)", [username], function(err, rows) {
+    score_module.pgquery("SELECT * FROM users WHERE user_name=($1)", [username], function(err, rows) {
         if (err) {
            return cb(null, err);
         }
@@ -1620,7 +1549,7 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
         '&assignment_id=' + assignment_id + '&jvm_args=' + jvm_args +
         '&timeout=' + correctness_timeout + '&submission_path=' +
         run_dir_path(username, run_id) + '&assignment_path=' +
-        assignment_path(assignment_id) + '&required_files=' + required_files;
+        score_module.assignment_path(assignment_id) + '&required_files=' + required_files;
     var viola_options = { host: VIOLA_HOST,
         port: VIOLA_PORT, path: '/run?' + encodeURI(viola_params) };
     log('submit_run: sending viola request for run ' + run_id);
@@ -1653,7 +1582,7 @@ function trigger_viola_run(run_dir, assignment_name, run_id, done_token,
 function viola_trigger_failed(run_id, err_msg, svn_err) {
     log('viola_trigger_failed: run_id=' + run_id + ' err_msg="' + err_msg +
             '" err="' + svn_err + '"');
-    pgquery("UPDATE runs SET status='" + FAILED_STATUS + "'," +
+    score_module.pgquery("UPDATE runs SET status='" + score_module.FAILED_STATUS + "'," +
             "finish_time=CURRENT_TIMESTAMP,viola_msg=($2) WHERE run_id=($1)",
             [run_id, err_msg], function(err, rows) {
                 if (err) {
@@ -1671,7 +1600,7 @@ function viola_trigger_failed(run_id, err_msg, svn_err) {
 function run_setup_failed(run_id, res, req, err_msg, svn_err) {
     log('run_setup_failed: run_id=' + run_id + ' err_msg="' + err_msg +
             '" err="' + svn_err + '"');
-    pgquery("UPDATE runs SET status='" + FAILED_STATUS + "'," +
+    score_module.pgquery("UPDATE runs SET status='" + score_module.FAILED_STATUS + "'," +
             "finish_time=CURRENT_TIMESTAMP,viola_msg=($2) WHERE run_id=($1)",
             [run_id, err_msg], function(err, rows) {
                 if (err) {
@@ -1710,7 +1639,7 @@ function kick_off_svn_export(svn_url, temp_dir, run_id, run_dir,
           }
           tag = tag.trim();
 
-          pgquery('UPDATE runs SET tag=($1) WHERE run_id=($2)', [tag, run_id],
+          score_module.pgquery('UPDATE runs SET tag=($1) WHERE run_id=($2)', [tag, run_id],
               function(err, rows) {
                   if (err) {
                       return viola_trigger_failure(run_id,
@@ -1776,7 +1705,7 @@ function submit_run(user_id, username, assignment_name, correctness_only,
             // Add the submission metadata to the runs table.
             pgquery_no_err("INSERT INTO runs (user_id,assignment_id," +
                 "done_token,status,correctness_only,enable_profiling) " +
-                "VALUES ($1,$2,$3,'" + TESTING_CORRECTNESS_STATUS +
+                "VALUES ($1,$2,$3,'" + score_module.TESTING_CORRECTNESS_STATUS +
                 "',$4,$5) RETURNING run_id", [user_id, assignment_id,
                 done_token, correctness_only, enable_profiling], res, req,
                 function(rows) {
@@ -1861,7 +1790,7 @@ app.post('/submit_run_as', function(req, res, next) {
             return submit_run(user_id, username, assignment_name,
                 (correctness_only === 'true'), false, false, svn_url, res, req,
                 function(run_id) {
-                    pgquery("UPDATE runs SET on_behalf_of=($1) WHERE " +
+                    score_module.pgquery("UPDATE runs SET on_behalf_of=($1) WHERE " +
                         "run_id=($2)", [for_user_id, run_id],
                         function(err, rows) {
                             if (err) {
@@ -1933,17 +1862,6 @@ function get_cello_work_dir(home_dir, run_id) {
   return home_dir + "/autograder/" + run_id;
 }
 
-// A simple utility function for parsing a list of integers expressed as a
-// comma-separated string.
-function parse_comma_separated_ints(ncores_str) {
-    var tokens = ncores_str.split(',');
-    var ncores = [];
-    for (var t = 0; t < tokens.length; t++) {
-        ncores.push(parseInt(tokens[t]));
-    }
-    return ncores;
-}
-
 // Emit some code that runs the provided command for each performance test.
 function loop_over_all_perf_tests(cmd) {
   var acc = '';
@@ -1965,8 +1883,8 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
     assignment_name, java_profiler_dir, os, ncores, junit_jar, hamcrest_jar, hj_jar,
     asm_jar, rr_agent_jar, rr_runtime_jar, assignment_jvm_args, timeout_str,
     enable_profiling, custom_slurm_flags, n_nodes, pom_jars) {
-  var max_n_cores = max(ncores);
-  var max_n_nodes = max(n_nodes);
+  var max_n_cores = score_module.max(ncores);
+  var max_n_nodes = score_module.max(n_nodes);
 
   var slurmFileContents =
     "#!/bin/bash\n" +
@@ -2078,10 +1996,10 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
             (hj_jar ? (' -javaagent:' + hj_jar) : ' ') + ' -cp ' + classpath.join(':') + pom_jars + ' ' +
             'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
         slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c)\n';
-        slurmFileContents += 'if [[ "$NBYTES" -gt "' + MAX_FILE_SIZE + '" ]]; then\n';
-        slurmFileContents += '    echo "' + excessiveFileSizeMsg + '" > ' + final_output_file + '\n';
+        slurmFileContents += 'if [[ "$NBYTES" -gt "' + score_module.MAX_FILE_SIZE + '" ]]; then\n';
+        slurmFileContents += '    echo "' + score_module.excessiveFileSizeMsg + '" > ' + final_output_file + '\n';
         slurmFileContents += '    echo "" >> ' + final_output_file + '\n';
-        slurmFileContents += '    truncate --size ' + MAX_FILE_SIZE + ' ' + output_file + '\n';
+        slurmFileContents += '    truncate --size ' + score_module.MAX_FILE_SIZE + ' ' + output_file + '\n';
         slurmFileContents += 'fi\n';
         slurmFileContents += 'cat ' + output_file + ' >> ' + final_output_file + '\n';
         slurmFileContents += 'rm -f ' + output_file + '\n';
@@ -2132,8 +2050,8 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
 // Called when launching the performance tests on the cluster fails, marks the
 // current submission as failed.
 function failed_starting_perf_tests(res, failure_msg, run_id) {
-  pgquery(
-      "UPDATE runs SET status='" + FAILED_STATUS + "',finish_time=CURRENT_TIMESTAMP," +
+  score_module.pgquery(
+      "UPDATE runs SET status='" + score_module.FAILED_STATUS + "',finish_time=CURRENT_TIMESTAMP," +
       "cello_msg='An internal error occurred initiating the performance " +
       "tests, please contact the teaching staff' WHERE run_id=($1)",
       [run_id], function(err, rows) {
@@ -2179,7 +2097,7 @@ app.post('/local_run_finished', function(req, res, next) {
         res, req, function(rows) {
       if (rows.length != 1) {
           return failed_starting_perf_tests(res, 'Unexpected # of rows', -1);
-      } else if (rows[0].status !== TESTING_CORRECTNESS_STATUS) {
+      } else if (rows[0].status !== score_module.TESTING_CORRECTNESS_STATUS) {
           log('local_run_finished: received duplicate local run ' +
               'completion notifications from viola for run ' +
               rows[0].run_id);
@@ -2218,18 +2136,18 @@ app.post('/local_run_finished', function(req, res, next) {
             var correctness_tests_passed = false;
              
             if (fs.existsSync(checkstyle_txt) &&
-                  get_file_size(checkstyle_txt) < MAX_DISPLAY_FILE_SIZE) {
+                  score_module.get_file_size(checkstyle_txt) < score_module.MAX_DISPLAY_FILE_SIZE) {
                 // Checkstyle passed?
                 var checkstyle_contents = fs.readFileSync(checkstyle_txt, 'utf8');
                 var checkstyle_new_lines = count_new_lines(checkstyle_contents);
                 checkstyle_passed = (checkstyle_new_lines === 0);
                 if (checkstyle_passed && fs.existsSync(compile_txt) &&
-                    get_file_size(compile_txt) < MAX_DISPLAY_FILE_SIZE) {
+                    score_module.get_file_size(compile_txt) < score_module.MAX_DISPLAY_FILE_SIZE) {
                   // Successfully compiled?
                   var compile_contents = fs.readFileSync(compile_txt, 'utf8');
                   compile_passed = (compile_contents.indexOf('BUILD SUCCESS') != -1);
                   if (compile_passed && fs.existsSync(correct_txt) &&
-                          get_file_size(correct_txt) < MAX_DISPLAY_FILE_SIZE) {
+                          score_module.get_file_size(correct_txt) < score_module.MAX_DISPLAY_FILE_SIZE) {
                     // Correctness tests passed?
                     var correct_contents = fs.readFileSync(correct_txt, 'utf8');
                     var lines = correct_contents.split('\n');
@@ -2242,7 +2160,7 @@ app.post('/local_run_finished', function(req, res, next) {
                         any_failures = true;
                       }
                     }
-                    var any_nonempty_stderr_lines = check_for_empty_stderr(lines);
+                    var any_nonempty_stderr_lines = score_module.check_for_empty_stderr(lines);
                     correctness_tests_passed = !any_failures && !any_nonempty_stderr_lines;
                   }
                 }
@@ -2252,12 +2170,12 @@ app.post('/local_run_finished', function(req, res, next) {
                 'compiled=($2),passed_all_correctness=($3) WHERE run_id=($4)',
                 [checkstyle_passed, compile_passed, correctness_tests_passed,
                 run_id], res, req, function(rows) {
-              var run_status = FINISHED_STATUS;
+              var run_status = score_module.FINISHED_STATUS;
               if (viola_err_msg === 'Cancelled by user') {
-                  run_status = CANCELLED_STATUS;
+                  run_status = score_module.CANCELLED_STATUS;
               }
 
-              if (correctness_only || run_status === CANCELLED_STATUS) {
+              if (correctness_only || run_status === score_module.CANCELLED_STATUS) {
                   // If only the correctness tests should be run, send an
                   // immediate e-mail notification.
                   pgquery_no_err("UPDATE runs SET status='" + run_status +
@@ -2293,9 +2211,9 @@ app.post('/local_run_finished', function(req, res, next) {
                     var assignment_jvm_args = rows[0].jvm_args;
                     var timeout_str = rows[0].performance_timeout_str;
                     var ncores_str = rows[0].ncores;
-                    var ncores = parse_comma_separated_ints(ncores_str);
+                    var ncores = score_module.parse_comma_separated_ints(ncores_str);
                     var n_nodes_str = rows[0].n_nodes;
-                    var n_nodes = parse_comma_separated_ints(n_nodes_str);
+                    var n_nodes = score_module.parse_comma_separated_ints(n_nodes_str);
                     var custom_slurm_flags_str = rows[0].custom_slurm_flags;
                     var custom_slurm_flags_list =
                       custom_slurm_flags_str.split(',');
@@ -2424,7 +2342,7 @@ app.post('/local_run_finished', function(req, res, next) {
                                                       var tokens = stdout.trim().split(' ');
                                                       var job_id = tokens[tokens.length - 1];
                                                       pgquery_no_err("UPDATE runs SET job_id=($1),status='" +
-                                                          IN_CLUSTER_QUEUE_STATUS + "',viola_msg=$2," +
+                                                          score_module.IN_CLUSTER_QUEUE_STATUS + "',viola_msg=$2," +
                                                           "ncores=$3 WHERE run_id=($4)",
                                                           [job_id, viola_err_msg, ncores_str, run_id],
                                                           res, req, function(rows) {
@@ -2472,7 +2390,7 @@ app.post('/local_run_finished', function(req, res, next) {
 
 // Get a list of all assignments. This is used for displaying the admin view.
 function get_all_assignments(cb) {
-    pgquery("SELECT * FROM assignments ORDER BY assignment_id ASC", [], function(err, rows) {
+    score_module.pgquery("SELECT * FROM assignments ORDER BY assignment_id ASC", [], function(err, rows) {
         if (err) {
             cb(null, err);
         } else {
@@ -2483,7 +2401,7 @@ function get_all_assignments(cb) {
 
 // Get a list of all users. This is used for displaying the admin view.
 function get_all_users(cb) {
-    pgquery("SELECT * FROM users ORDER BY user_id DESC", [], function(err, rows) {
+    score_module.pgquery("SELECT * FROM users ORDER BY user_id DESC", [], function(err, rows) {
         if (err) {
             cb(null, err);
         } else {
@@ -2494,7 +2412,7 @@ function get_all_users(cb) {
 
 // Get a list of all active users. This is used for displaying the admin view.
 function get_all_active_users(cb) {
-    pgquery("SELECT * FROM users WHERE active=TRUE ORDER BY user_id DESC", [], function(err, rows) {
+    score_module.pgquery("SELECT * FROM users WHERE active=TRUE ORDER BY user_id DESC", [], function(err, rows) {
         if (err) {
             cb(null, err);
         } else {
@@ -2505,7 +2423,7 @@ function get_all_active_users(cb) {
 
 // Get a list of all assignments visible to users.
 function get_visible_assignments(cb) {
-    pgquery("SELECT * FROM assignments WHERE visible=true", [], function(err, rows) {
+    score_module.pgquery("SELECT * FROM assignments WHERE visible=true", [], function(err, rows) {
         if (err) {
             cb(null, err);
         } else {
@@ -2517,17 +2435,17 @@ function get_visible_assignments(cb) {
 // Get a list of runs for a given username. The metadata returned for each run
 // includes its run ID, assignment name, status, and completion time.
 function get_runs_for_username(username, cb) {
-    pgquery("SELECT * FROM users WHERE user_name=($1)", [username], function(err, rows) {
+    score_module.pgquery("SELECT * FROM users WHERE user_name=($1)", [username], function(err, rows) {
         if (err) return cb(null, err);
         var user_id = rows[0].user_id;
 
-        pgquery("SELECT * FROM runs WHERE user_id=($1) ORDER BY run_id DESC",
+        score_module.pgquery("SELECT * FROM runs WHERE user_id=($1) ORDER BY run_id DESC",
               [user_id], function(err, rows) {
                   if (err) return cb(null, err);
 
                   var runs = rows;
 
-                  pgquery("SELECT * FROM assignments", [], function(err, rows) {
+                  score_module.pgquery("SELECT * FROM assignments", [], function(err, rows) {
                       if (err) return cb(null, err);
 
                       var assignment_mapping = {};
@@ -2546,18 +2464,6 @@ function get_runs_for_username(username, cb) {
                   });
               });
     });
-}
-
-var dont_display = ['profiler.txt'];
-
-// Check if the provided array contains a specified value.
-function arr_contains(target, arr) {
-  for (var i = 0; i < arr.length; i++) {
-    if (target === arr[i]) {
-      return true;
-    }
-  }
-  return false;
 }
 
 // Indicate that some validation of instructor-uploaded files has failed.
@@ -2591,443 +2497,9 @@ function validate_instructor_pom(pom_file) {
   return { success: true, version: version_str };
 }
 
-// Load the instructor-provided grading rubric and verify that it contains all
-// of the fields it is expected to contain.
-function load_and_validate_rubric(rubric_file) {
-  var rubric = null;
-  try {
-    rubric = JSON.parse(fs.readFileSync(rubric_file));
-  } catch (err) {
-    return failed_validation('Failed to parse rubric JSON: ' + err.message);
-  }
-
-  if (!rubric.hasOwnProperty('correctness')) {
-    return failed_validation('Rubric is missing correctness section');
-  }
-  if (!rubric.hasOwnProperty('performance')) {
-    return failed_validation('Rubric is missing performance section');
-  }
-  if (!rubric.hasOwnProperty('style')) {
-    return failed_validation('Rubric is missing style section');
-  }
-
-  if (!rubric.performance.hasOwnProperty('tests')) {
-    return failed_validation('Rubric is missing tests field of performance ' +
-            'section');
-  }
-
-  if (rubric.performance.tests.length > 0 &&
-          !rubric.performance.hasOwnProperty('characteristic_test')) {
-    return failed_validation('Rubric is missing characteristic_test field of ' +
-            'performance section');
-  }
-
-  for (var c = 0; c < rubric.correctness.length; c++) {
-    if (!rubric.correctness[c].hasOwnProperty('testname')) {
-      return failed_validation('Correctness test is missing name');
-    }
-    if (!rubric.correctness[c].hasOwnProperty('points_worth') ||
-        rubric.correctness[c].points_worth < 0.0) {
-      return failed_validation('Correctness test is missing valid points_worth');
-    }
-  }
-
-  for (var p = 0; p < rubric.performance.tests.length; p++) {
-    if (!rubric.performance.tests[p].hasOwnProperty('testname')) {
-      return failed_validation('Performance test is missing name');
-    }
-    if (!rubric.performance.tests[p].hasOwnProperty('points_worth')) {
-      return failed_validation('Performance test is missing points_worth');
-    }
-    if (!rubric.performance.tests[p].hasOwnProperty('ncores')) {
-        return failed_validation('Performance test is missing ncores');
-    }
-    if (!rubric.performance.tests[p].hasOwnProperty('grading')) {
-      return failed_validation('Performance test is missing speedup grading');
-    }
-    var points_worth = rubric.performance.tests[p].points_worth;
-
-    for (var g = 0; g < rubric.performance.tests[p].grading.length; g++) {
-      if (!rubric.performance.tests[p].grading[g].hasOwnProperty('bottom_inclusive')) {
-        return failed_validation('Performance test grading is missing bottom_inclusive');
-      }
-      if (!rubric.performance.tests[p].grading[g].hasOwnProperty('top_exclusive')) {
-        return failed_validation('Performance test grading is missing top_exclusive');
-      }
-      if (!rubric.performance.tests[p].grading[g].hasOwnProperty('points_off')) {
-        return failed_validation('Performance test grading is missing points_off');
-      }
-      if (rubric.performance.tests[p].grading[g].points_off > points_worth) {
-        return failed_validation('Performance test grading is more than points_worth');
-      }
-    }
-  }
-
-  if (!rubric.style.hasOwnProperty('points_per_error')) {
-    return failed_validation('Style section is missing points_per_error');
-  }
-  if (!rubric.style.hasOwnProperty('max_points_off')) {
-    return failed_validation('Style section is missing max_points_off');
-  }
-
-  return { success: true, rubric: rubric };
-}
-
-// Find the metadata for a correctness test given its name.
-function find_correctness_test_with_name(name, rubric) {
-  for (var c = 0; c < rubric.correctness.length; c++) {
-    if (rubric.correctness[c].testname === name) {
-      return rubric.correctness[c];
-    }
-  }
-  return null;
-}
-
-// Find the metadata for a performance test given its name.
-function find_performance_test_with_name_and_cores(name, cores, rubric) {
-  for (var p = 0; p < rubric.performance.tests.length; p++) {
-    if (rubric.performance.tests[p].testname === name &&
-            rubric.performance.tests[p].ncores === cores) {
-      return rubric.performance.tests[p];
-    }
-  }
-  return null;
-}
-
-// Parse the output of a performance test for a non-empty STDERR. Non-empty
-// STDERR may indicate a failed test, so we conservatively mark it so.
-function check_for_empty_stderr(lines) {
-  var i = lines.length - 1;
-  while (i >= 0 && lines[i] !== '======= STDERR =======') {
-    i--;
-  }
-  i++;
-  var any_nonempty_lines = false;
-  for (; i < lines.length; i++) {
-    if (lines[i].trim().length > 0) {
-      any_nonempty_lines = true;
-      break;
-    }
-  }
-  return any_nonempty_lines;
-}
-
-// Check if a run has finished successfully, i.e. has not failed and was not
-// cancelled.
-function run_completed(run_status) {
-  return run_status !== FAILED_STATUS && run_status !== CANCELLED_STATUS;
-}
-
-// Conductor-local assignment directory path
-function assignment_path(assignment_id) {
-    return __dirname + '/instructor-tests/' + assignment_id;
-}
-
-// Path to the local rubric file on the conductor.
-function rubric_file_path(assignment_id) {
-    return assignment_path(assignment_id) + '/rubric.json';
-}
-
 // Local run directory
 function run_dir_path(username, run_id) {
     return __dirname + '/submissions/' + username + '/' + run_id;
-}
-
-// Calculate the score for a given run based on correctness results, performance
-// results, and checkstyle results. Include detailed feedback on where points
-// were lost.
-function calculate_score(assignment_id, log_files, ncores, run_status, run_id) {
-  var rubric_file = rubric_file_path(assignment_id);
-  var max_n_cores = max(ncores);
-
-  var correctness_comments = [];
-  var performance_comments = [];
-  var style_comments = [];
-
-  var validated = load_and_validate_rubric(rubric_file);
-  if (!validated.success) {
-    log('calculate_score: failed loading rubric, ' + validated.msg);
-    return null;
-  }
-  var rubric = validated.rubric;
-
-  var total_possible = 0.0;
-  var total_correctness_possible = 0.0;
-  for (var c = 0; c < rubric.correctness.length; c++) {
-    var correctness_item = rubric.correctness[c];
-    total_possible += correctness_item.points_worth;
-    total_correctness_possible += correctness_item.points_worth;
-  }
-  var total_performance_possible = 0.0;
-  for (var p = 0; p < rubric.performance.tests.length; p++) {
-    var performance_item = rubric.performance.tests[p];
-    total_possible += performance_item.points_worth;
-    total_performance_possible += performance_item.points_worth;
-  }
-  total_possible += rubric.style.max_points_off;
-
-  // Compute correctness score based on test failures
-  var correctness = total_correctness_possible;
-  if (!run_completed(run_status)) {
-      correctness_comments.push('No correctness points due to run status "' +
-              run_status + '"');
-      correctness = 0.0;
-  } else if (!('correct.txt' in log_files)) {
-      correctness_comments.push('No correctness points due to missing ' +
-              'correctness test output');
-      correctness = 0.0;
-  } else {
-    var correctness_content = log_files['correct.txt'].contents.toString('utf8');
-    var correctness_lines = correctness_content.split('\n');
-
-    /*
-     * First check if anything was printed to STDERR. This may indicate anything
-     * (from harmless prints by the student, to OutOfMemoryException) so we
-     * conservatively give zero points if STDERR is non-empty.
-     */
-    var any_nonempty_stderr_lines = check_for_empty_stderr(correctness_lines);
-
-    if (any_nonempty_stderr_lines) {
-      log('calculate_score: setting correctness score to 0 for run ' +
-              run_id + ' due to non-empty stderr');
-      correctness_comments.push('No correctness points due to non-empty ' +
-              'stderr during correctness tests');
-      correctness = 0.0;
-    } else {
-      var failure_counts = [];
-      var failures_message_found = false;
-      var line = null;
-      for (var i = 0; i < correctness_lines.length; i++) {
-        line = correctness_lines[i];
-        if (string_starts_with(line, 'There were ') && string_ends_with(line, ' failures:')) {
-          failure_counts.push(parseInt(line.split(' ')[2]));
-          failures_message_found = true;
-        } else if (string_starts_with(line, 'There was ') && string_ends_with(line, ' failure:')) {
-          failure_counts.push(1);
-          failures_message_found = true;
-        } else if (string_starts_with(line, "OK (") && (string_ends_with(line, " tests)") ||
-                string_ends_with(line, " test)"))) {
-          failures_message_found = true;
-        }
-      }
-
-      if (!failures_message_found) {
-        /*
-         * Something went really wrong during parsing as there is no JUnit report.
-         * The most likely cause is a timeout during the student tests, so assign
-         * a score of 0 for correctness.
-         */
-        log('calculate_score: setting correctness score to 0 for run ' +
-                run_id + ' because failure report not found');
-        correctness_comments.push('No correctness points, the correctness ' +
-                'test output appears to be incomplete. The most likely cause ' +
-                'is a timeout.');
-        correctness = 0.0;
-      } else {
-        var line_index = 0;
-        for (var f = 0; f < failure_counts.length; f++) {
-          var current_failure_count = failure_counts[f];
-          for (var failure = 1; failure <= current_failure_count; failure++) {
-            while (line_index < correctness_lines.length && !string_starts_with(correctness_lines[line_index], failure + ') ')) {
-              line_index++;
-            }
-
-            if (line_index < correctness_lines.length && string_starts_with(correctness_lines[line_index], failure + ') ')) {
-              var junit_testname = correctness_lines[line_index].split(' ')[1];
-              var test_tokens = junit_testname.split('(');
-              var correctness_testname = test_tokens[0];
-              var classname = test_tokens[1].substring(0, test_tokens[1].length - 1);
-              var fullname = classname + '.' + correctness_testname;
-
-              var correctness_test = find_correctness_test_with_name(fullname, rubric);
-              if (correctness_test) {
-                log('calculate_score: taking off ' + correctness_test.points_worth +
-                    ' points for test ' + correctness_test.testname + ' on run ' + run_id);
-                correctness_comments.push('Deducted ' +
-                        correctness_test.points_worth +
-                        ' point(s) due to failure of test ' + fullname);
-                correctness -= correctness_test.points_worth;
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  var have_all_performance_files = true;
-  for (var i = 0; i < ncores.length; i++) {
-      if (!('performance.' + ncores[i] + '.txt' in log_files)) {
-          have_all_performance_files = false;
-          break;
-      }
-  }
-
-  // Compute performance score based on performance of each test
-  var performance = 0.0;
-  if (!have_all_performance_files) {
-      log('calculate_score: forcing performance to 0 for run ' +
-              run_id + ', run_status=' + run_status + ', have performance ' +
-              'log files? ' + have_all_performance_files);
-      performance_comments.push('No performance points due to missing ' +
-              'performance test output');
-  } else if (!run_completed(run_status)) {
-      log('calculate_score: forcing performance to 0 for run ' +
-              run_id + ', run_status=' + run_status + ', have performance ' +
-              'log files? ' + have_all_performance_files);
-      performance_comments.push('No performance points due to run status "' +
-              run_status + '"');
-  } else {
-      var graded_tests = [];
-      for (var i = 0; i < rubric.performance.tests.length; i++) {
-          graded_tests.push({testname: rubric.performance.tests[i].testname,
-              cores: rubric.performance.tests[i].ncores,
-              points: rubric.performance.tests[i].points_worth});
-      }
-
-      for (var c = 0; c < ncores.length; c++) {
-          var curr_cores = ncores[c];
-
-          var multi_thread_content = log_files['performance.' + curr_cores + '.txt'].contents.toString('utf8');
-          var multi_thread_lines = multi_thread_content.split('\n');
-
-          for (var multi_thread_line in multi_thread_lines) {
-              if (string_starts_with(multi_thread_lines[multi_thread_line], PERF_TEST_LBL)) {
-                  var tokens = multi_thread_lines[multi_thread_line].split(' ');
-
-                  var performance_testname = tokens[2];
-                  var seq_time = parseInt(tokens[3]);
-                  var parallel_time = parseInt(tokens[4]);
-
-                  log('calculate_score: found multi thread perf for test=' +
-                          performance_testname + ', seq_time=' + seq_time + ', parallel_time=' +
-                          parallel_time + ' for run ' + run_id + ' and ncores=' + curr_cores);
-
-                  var performance_test = find_performance_test_with_name_and_cores(
-                          performance_testname, curr_cores, rubric);
-                  if (performance_test) {
-                      var speedup = 0.0;
-                      if (parallel_time > 0.0) {
-                          speedup = seq_time / parallel_time;
-                      }
-                      var grading = performance_test.grading;
-                      var test_score = performance_test.points_worth;
-                      var matched = false;
-                      for (var g = 0; g < grading.length && !matched; g++) {
-                          var bottom_inclusive = grading[g].bottom_inclusive;
-                          var top_exclusive = grading[g].top_exclusive;
-                          if (bottom_inclusive <= speedup &&
-                                  (top_exclusive < 0.0 || top_exclusive > speedup)) {
-                              matched = true;
-                              test_score -= grading[g].points_off;
-
-                              var range_msg;
-                              if (top_exclusive < 0) {
-                                  range_msg = '>= ' + bottom_inclusive;
-                              } else {
-                                  range_msg = 'in range [' + bottom_inclusive +
-                                      ', ' + top_exclusive + ')';
-                              }
-
-                              performance_comments.push('Deducted ' +
-                                      grading[g].points_off +
-                                      ' point(s) on test ' +
-                                      performance_testname + ' with ' +
-                                      curr_cores + ' core(s)' +
-                                      ' for speedup of ' + speedup + ', ' + range_msg);
-                              log('calculate_score: deducting ' +
-                                      grading[g].points_off + ' points on test ' + performance_testname +
-                                      ' for speedup of ' + speedup + ', in range ' +
-                                      bottom_inclusive + '->' + top_exclusive + ' for run ' +
-                                      run_id);
-                          }
-                      }
-                      log('calculate_score: giving test ' + performance_testname + ' ' +
-                              test_score + ' points for run ' + run_id + ' with speedup ' + speedup);
-                      performance += test_score;
-                      for (var f = 0; f < graded_tests.length; f++) {
-                          if (graded_tests[f].testname == performance_testname &&
-                                  graded_tests[f].cores == curr_cores) {
-                              graded_tests.splice(f, 1);
-                              break;
-                          }
-                      }
-                  }
-              }
-          }
-      }
-
-      for (var f = 0; f < graded_tests.length; f++) {
-          performance_comments.push('No successful run of test ' +
-                  graded_tests[f].testname + ' on ' + graded_tests[f].cores +
-                  ' cores(s) found, resulted in loss of ' +
-                  graded_tests[f].points + ' point(s)');
-      }
-  }
-
-  // Compute style score based on number of style violations
-  var style = rubric.style.max_points_off;
-  if ('checkstyle.txt' in log_files) {
-    var checkstyle_content = log_files['checkstyle.txt'].contents.toString('utf8');
-    var checkstyle_lines = checkstyle_content.split('\n');
-
-    var iter = 0;
-    while (iter < checkstyle_lines.length && !string_starts_with(checkstyle_lines[iter], 'Starting audit')) {
-        iter++;
-    }
-    iter++;
-    var errorCount = 0;
-    while (iter < checkstyle_lines.length && !string_starts_with(checkstyle_lines[iter], 'Audit done')) {
-        errorCount++;
-        iter++;
-    }
-
-    var pointsOff = errorCount * rubric.style.points_per_error;
-    if (pointsOff > style) pointsOff = style;
-    style_comments.push('Deducted ' + pointsOff + ' point(s) because of ' +
-            errorCount + ' checkstyle error(s)');
-    style -= pointsOff;
-  } else {
-    style_comments.push('No style points due to missing checkstyle output');
-    style = 0.0;
-  }
-
-  return { total: correctness + performance + style,
-           total_possible: total_possible,
-           breakdown: [
-                       { name: 'Correctness', points: correctness,
-                         total: total_correctness_possible,
-                         comments: correctness_comments },
-                       { name: 'Performance', points: performance,
-                         total: total_performance_possible,
-                         comments: performance_comments },
-                       { name: 'Style', points: style,
-                         total: rubric.style.max_points_off,
-                         comments: style_comments }
-                      ]};
-}
-
-// Get a human-readable label for each test output file to display alongside
-// that file's contents in the autograder.
-function get_default_file_lbl(file) {
-    if (file === 'cluster-stderr.txt') {
-        return 'Cluster STDERR';
-    } else if (file === 'cluster-stdout.txt') {
-        return 'Cluster STDOUT';
-    } else if (file === 'compile.txt') {
-        return 'Compilation';
-    } else if (file === 'correct.txt') {
-        return 'Correctness Tests';
-    } else if (file === 'files.txt') {
-        return 'Required Files Report';
-    } else if (file === 'findbugs.txt') {
-        return 'FindBugs Analysis';
-    } else if (string_starts_with(file, 'performance.') && string_ends_with(file, '.txt')) {
-        var tokens = file.split('.');
-        return 'Performance Tests (' + tokens[1] + ' cores)';
-    } else {
-        return file.charAt(0).toUpperCase() + file.substring(1, file.length - 4);
-    }
 }
 
 // Update the submission to be marked as final
@@ -3182,7 +2654,7 @@ app.get('/run/:run_id', function(req, res, next) {
         var assignment_id = rows[0].assignment_id;
         var viola_err_msg = rows[0].viola_msg;
         var cello_msg = rows[0].cello_msg;
-        var ncores = parse_comma_separated_ints(rows[0].ncores);
+        var ncores = score_module.parse_comma_separated_ints(rows[0].ncores);
         var passed_checkstyle = rows[0].passed_checkstyle;
         var compiled = rows[0].compiled;
         var passed_all_correctness = rows[0].passed_all_correctness;
@@ -3248,50 +2720,12 @@ app.get('/run/:run_id', function(req, res, next) {
                 if (!fs.existsSync(run_dir)) {
                   return render_page('missing_run.html', res, req, { run_id: run_id });
                 } else {
-                  var cello_err = null;
-                  var log_files = {};
-                  fs.readdirSync(run_dir).forEach(function(file) {
-                    if (file.indexOf('.txt', file.length - '.txt'.length) !== -1 &&
-                          !arr_contains(file, dont_display)) {
-                        var path = run_dir + '/' + file;
-                        var file_size = get_file_size(path);
-                        log('run: run_id=' + run_id + ' reading file ' + path +
-                            ' of size ' + file_size + ' bytes');
-                        if (file_size <= MAX_DISPLAY_FILE_SIZE) {
-                          var contents = fs.readFileSync(path, 'utf8');
-                          log_files[file] = { contents: contents,
-                              lbl: get_default_file_lbl(file) };
-
-                          if (cello_err === null) {
-                              if (file === 'cluster-stdout.txt') {
-                                  var lines = contents.split('\n');
-                                  for (var i = 0; i < lines.length; i++) {
-                                      if (string_starts_with(lines[i], 'AUTOGRADER-ERROR')) {
-                                          cello_err = lines[i].substring(17);
-                                          break;
-                                      } else if (string_starts_with(lines[i], '[ERROR]')) {
-                                          cello_err = 'Your submission ' +
-                                            'appears to have failed to ' +
-                                            'compile on the cluster, please ' +
-                                            'check the Cluster STDOUT view ' +
-                                            'for lines starting with "[ERROR]"';
-                                          break;
-                                      }
-                                  }
-                              } else if (file === 'cluster-stderr.txt' && file_size > 0) {
-                                  cello_err = contents;
-                              }
-                          }
-                        } else {
-                            log_files[file] = {
-                                contents: 'Unusually large file, unable to display.',
-                                lbl: get_default_file_lbl(file) };
-                        }
-                    }
-                  });
-
+                  var loaded = score_module.load_log_files(run_dir);
+                  var cello_err = loaded.cello_err;
+                  var log_files = loaded.log_files;
+        
                   // Calculate score before reordering files
-                  var score = calculate_score(assignment_id, log_files, ncores,
+                  var score = score_module.calculate_score(assignment_id, log_files, ncores,
                           run_status, run_id);
 
                   /*
@@ -3379,8 +2813,8 @@ app.post('/cancel/:run_id', function(req, res, next) {
         var run_status = rows[0].status;
 
         // Quit early if the provided run has already completed.
-        if (run_status === FINISHED_STATUS ||
-            run_status === CANCELLED_STATUS || run_status === FAILED_STATUS) {
+        if (run_status === score_module.FINISHED_STATUS ||
+            run_status === score_module.CANCELLED_STATUS || run_status === score_module.FAILED_STATUS) {
             return redirect_with_success('/overview', res, req,
                 'That run has already completed');
         }
@@ -3470,7 +2904,7 @@ function abort_and_reset_perf_tests(err, lbl) {
 // When a performance test is detected as complete on the cluster,
 // finish_perf_tests transfers its output back to the conductor.
 function finish_perf_tests(run_status, run, perf_runs, current_perf_runs_index) {
-    pgquery('SELECT * FROM users WHERE user_id=($1)', [run.user_id], function(err, rows) {
+    score_module.pgquery('SELECT * FROM users WHERE user_id=($1)', [run.user_id], function(err, rows) {
         if (err) {
             set_check_cluster_timeout(CHECK_CLUSTER_PERIOD_MS);
             return;
@@ -3515,8 +2949,8 @@ function finish_perf_tests(run_status, run, perf_runs, current_perf_runs_index) 
             //   copies.push({ src: REMOTE_DATARACE, dst: LOCAL_DATARACE });
             // }
 
-            var tests = parse_comma_separated_ints(run.ncores);
-            var max_n_cores = max(tests);
+            var tests = score_module.parse_comma_separated_ints(run.ncores);
+            var max_n_cores = score_module.max(tests);
             for (var i = 0; i < tests.length; i++) {
                 var curr_cores = tests[i];
                 var local = LOCAL_FOLDER + '/performance.' + curr_cores + '.txt';
@@ -3555,14 +2989,14 @@ function finish_perf_tests(run_status, run, perf_runs, current_perf_runs_index) 
 
                 var characteristic_speedup = "";
                 if (!any_missing_files) {
-                    var rubric_file = rubric_file_path(run.assignment_id);
-                    var validated = load_and_validate_rubric(rubric_file);
+                    var rubric_file = score_module.rubric_file_path(run.assignment_id);
+                    var validated = score_module.load_and_validate_rubric(rubric_file);
                     if (validated.success) {
                         var rubric = validated.rubric;
                         var characteristic_test = rubric.performance.characteristic_test;
                         var performance_path = LOCAL_FOLDER + '/performance.' +
                             max_n_cores + '.txt';
-                        if (get_file_size(performance_path) < MAX_DISPLAY_FILE_SIZE) {
+                        if (score_module.get_file_size(performance_path) < score_module.MAX_DISPLAY_FILE_SIZE) {
                             var test_contents = fs.readFileSync(performance_path, 'utf8');
                             var test_lines = test_contents.split('\n');
                             for (var line_index in test_lines) {
@@ -3584,12 +3018,12 @@ function finish_perf_tests(run_status, run, perf_runs, current_perf_runs_index) 
                             }
                         } else {
                             log('finish_perf_tests: ' + performance_path +
-                                    ' is >= ' + MAX_DISPLAY_FILE_SIZE + ' bytes');
+                                    ' is >= ' + score_module.MAX_DISPLAY_FILE_SIZE + ' bytes');
                         }
                     }
                 }
 
-                pgquery("UPDATE runs SET status='" + run_status + "'," +
+                score_module.pgquery("UPDATE runs SET status='" + run_status + "'," +
                         "finish_time=CURRENT_TIMESTAMP," +
                         "passed_performance=($1)," +
                         "characteristic_speedup=($2) WHERE run_id=($3)",
@@ -3655,30 +3089,30 @@ function check_cluster_helper(perf_runs, i) {
 
                 var finished = false;
                 var run_status = null;
-                if (stdout === FAILED_STATUS || stdout === 'TIMEOUT') {
-                    log('check_cluster_helper: marking ' + run.run_id + ' ' + FAILED_STATUS);
-                    run_status = FAILED_STATUS;
+                if (stdout === score_module.FAILED_STATUS || stdout === 'TIMEOUT') {
+                    log('check_cluster_helper: marking ' + run.run_id + ' ' + score_module.FAILED_STATUS);
+                    run_status = score_module.FAILED_STATUS;
                     finished = true;
-                } else if (string_starts_with(stdout, CANCELLED_STATUS)) {
-                    log('check_cluster_helper: marking ' + run.run_id + ' ' + CANCELLED_STATUS);
-                    run_status = CANCELLED_STATUS;
+                } else if (string_starts_with(stdout, score_module.CANCELLED_STATUS)) {
+                    log('check_cluster_helper: marking ' + run.run_id + ' ' + score_module.CANCELLED_STATUS);
+                    run_status = score_module.CANCELLED_STATUS;
                     finished = true;
                 } else if (stdout === 'COMPLETED') {
-                    log('check_cluster_helper: marking ' + run.run_id + ' ' + FINISHED_STATUS);
-                    run_status = FINISHED_STATUS;
+                    log('check_cluster_helper: marking ' + run.run_id + ' ' + score_module.FINISHED_STATUS);
+                    run_status = score_module.FINISHED_STATUS;
                     finished = true;
                 } else if (stdout === 'RUNNING') {
                     log('check_cluster_helper: marking ' + run.run_id + ' as ' +
-                            TESTING_PERFORMANCE_STATUS);
-                    run_status = TESTING_PERFORMANCE_STATUS;
+                            score_module.TESTING_PERFORMANCE_STATUS);
+                    run_status = score_module.TESTING_PERFORMANCE_STATUS;
                 }
 
                 if (run_status) {
                     if (finished) {
                         finish_perf_tests(run_status, run, perf_runs, i);
                     } else {
-                        pgquery("UPDATE runs SET status='" +
-                                TESTING_PERFORMANCE_STATUS +
+                        score_module.pgquery("UPDATE runs SET status='" +
+                                score_module.TESTING_PERFORMANCE_STATUS +
                                 "' WHERE run_id=($1)", [run.run_id], function(err, rows) {
                                     if (err) {
                                         log('Error updating running perf tests: ' + err);
@@ -3698,8 +3132,8 @@ function check_cluster_helper(perf_runs, i) {
                 check_cluster_helper(perf_runs, i + 1);
             } else {
                 log('check_cluster_helper: marking ' + run.run_id + ' ' +
-                        FINISHED_STATUS);
-                finish_perf_tests(FINISHED_STATUS, run, perf_runs, i);
+                        score_module.FINISHED_STATUS);
+                finish_perf_tests(score_module.FINISHED_STATUS, run, perf_runs, i);
             }
         }
     }
@@ -3711,7 +3145,7 @@ function check_cluster() {
         log('check_cluster: woke up and a cluster checker was already active?!');
     } else {
         // Send reminder e-mails three hours beforehand
-        pgquery("SELECT * FROM assignments WHERE " +
+        score_module.pgquery("SELECT * FROM assignments WHERE " +
                 "send_reminder_emails IS TRUE AND " +
                 "reminder_email_sent IS FALSE AND " +
                 "deadline < now() + INTERVAL '6 HOUR'", [], function(err, rows) {
@@ -3742,7 +3176,7 @@ function check_cluster() {
                         return;
                     }
 
-                    pgquery('UPDATE assignments SET reminder_email_sent=TRUE ' +
+                    score_module.pgquery('UPDATE assignments SET reminder_email_sent=TRUE ' +
                         'WHERE assignment_id=$1', [rows[0].assignment_id],
                         function(err, rows) {
                             if (err) {
@@ -3756,9 +3190,9 @@ function check_cluster() {
         });
 
         checkClusterActive = true;
-        pgquery("SELECT * FROM runs WHERE (job_id IS NOT " +
-            "NULL) AND ((status='" + TESTING_PERFORMANCE_STATUS + "') OR " +
-            "(status='" + IN_CLUSTER_QUEUE_STATUS + "') OR (job_id='" +
+        score_module.pgquery("SELECT * FROM runs WHERE (job_id IS NOT " +
+            "NULL) AND ((status='" + score_module.TESTING_PERFORMANCE_STATUS + "') OR " +
+            "(status='" + score_module.IN_CLUSTER_QUEUE_STATUS + "') OR (job_id='" +
             LOCAL_JOB_ID + "'))", [], function(err, rows) {
                 if (err) {
                     log('Error looking up running perf tests: ' + err);
@@ -3808,10 +3242,10 @@ if (process.argv.length > 2 && process.argv[2] === 'kill-running-jobs') {
     /*
      * Mark any in-progress tests as failed on reboot.
      */
-    pgquery("UPDATE runs SET status='" + FAILED_STATUS + "'," +
+    score_module.pgquery("UPDATE runs SET status='" + score_module.FAILED_STATUS + "'," +
         "finish_time=CURRENT_TIMESTAMP WHERE status='" +
-        TESTING_CORRECTNESS_STATUS + "' OR status='" +
-        TESTING_PERFORMANCE_STATUS + "' OR status='" + IN_CLUSTER_QUEUE_STATUS +
+        score_module.TESTING_CORRECTNESS_STATUS + "' OR status='" +
+        score_module.TESTING_PERFORMANCE_STATUS + "' OR status='" + score_module.IN_CLUSTER_QUEUE_STATUS +
         "'", [], function(err, rows) {
             if (err) {
                 log('Error on initial cleanup, err=' + err);
