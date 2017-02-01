@@ -287,6 +287,7 @@ public class LocalTestRunner {
             extractInstructorDir.mkdir();
             logDir.mkdir();
 
+            final String treeOutputFile = logDir.getAbsolutePath() + "/tree.txt";
             final String checkstyleOutputFile = logDir.getAbsolutePath() + "/checkstyle.txt";
             final String findbugsOutputFile = logDir.getAbsolutePath() + "/findbugs.txt";
             final String compileOutputFile = logDir.getAbsolutePath() + "/compile.txt";
@@ -390,6 +391,16 @@ public class LocalTestRunner {
                 unzipped_code_dir, this.timeout, createdProcesses);
             CommonUtils.saveResultsToFile(checkstyleResults, checkstyleOutputFile, false);
             createdFilesToSave.add(checkstyleOutputFile);
+
+            /*
+             * List out the submitted files for the student.
+             */
+            String[] treeCmd = new String[1];
+            treeCmd[0] = "tree";
+            CommonUtils.ProcessResults treeResults = CommonUtils.runInProcess(lbl, treeCmd,
+                unzipped_code_dir, this.timeout, createdProcesses);
+            CommonUtils.saveResultsToFile(treeResults, treeOutputFile, false);
+            createdFilesToSave.add(treeOutputFile);
 
             /*
              * Look for missing but required files.

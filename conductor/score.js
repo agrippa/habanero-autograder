@@ -96,6 +96,8 @@ function get_default_file_lbl(file) {
         return 'Correctness Tests';
     } else if (file === 'files.txt') {
         return 'Required Files Report';
+    } else if (file === 'tree.txt') {
+        return 'Submitted Files Report';
     } else if (file === 'findbugs.txt') {
         return 'FindBugs Analysis';
     } else if (string_starts_with(file, 'performance.') && string_ends_with(file, '.txt')) {

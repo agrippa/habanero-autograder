@@ -2518,6 +2518,18 @@ app.post('/mark_final/:run_id', function(req, res, next) {
             return res.sendStatus(401);
         }
 
+        var username = req.session.username;
+        var run_dir = run_dir_path(username, run_id);
+        var loaded = score_module.load_log_files(run_dir);
+        var log_files = loaded.log_files;
+        var files_contents = log_files['files.txt'].contents;
+
+        if (files_contents.trim() !== 'All required files were found!') {
+            return redirect_with_err('/run/' + run_id, res, req,
+                'Cannot mark final, there are missing required files. ' +
+                'See the Required Files Report on this run page.');
+        }
+
         // Insert the final submission into the final_runs table
         pgquery_no_err("INSERT INTO final_runs (run_id, user_id, " +
             "assignment_id, timestamp) VALUES ($1, $2, $3, $4)",
@@ -2731,7 +2743,7 @@ app.get('/run/:run_id', function(req, res, next) {
                    * displayed in a more intuitive order for the user
                    */
                   var reordered_log_files = {};
-                  var file_ordering = ['checkstyle.txt', 'files.txt', 'compile.txt', 'correct.txt'];
+                  var file_ordering = ['checkstyle.txt', 'files.txt', 'compile.txt', 'correct.txt', 'tree.txt'];
                   for (var log_filename_index in file_ordering) {
                       var log_filename = file_ordering[log_filename_index];
                       if (log_filename in log_files) {

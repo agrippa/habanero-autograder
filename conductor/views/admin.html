@@ -81,7 +81,7 @@
                   <center>
                   <form action="/set_assignment_correctness_only/<%= curr.assignment_id %>" method="post">
                       <input type="hidden" name="set_correctness_only" value="<%= !curr.correctness_only %>">
-                      <input class="btn btn-primary" value=<%= curr.correctness_only ? 'Disable' : 'Enable' %> name="submit" type="submit">
+                      <input class="btn btn-primary" value=<%= curr.correctness_only ? 'Disable Correctness Only' : 'Enable Correctness Only' %> name="submit" type="submit">
                   </form>
                   </center>
               </td>
@@ -89,7 +89,7 @@
                   <center>
                   <form action="/set_send_reminder_emails/<%= curr.assignment_id %>" method="post">
                       <input type="hidden" name="set_send_reminder_emails" value="<%= !curr.send_reminder_emails %>">
-                      <input class="btn btn-primary" value=<%= curr.send_reminder_emails ? 'Disable' : 'Enable' %> name="submit" type="submit">
+                      <input class="btn btn-primary" value=<%= curr.send_reminder_emails ? 'Disable Reminder E-Mails' : 'Enable Reminder E-Mails' %> name="submit" type="submit">
                   </form>
                   </center>
               </td>
