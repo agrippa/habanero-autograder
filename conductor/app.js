@@ -2522,6 +2522,13 @@ app.post('/mark_final/:run_id', function(req, res, next) {
         var run_dir = run_dir_path(username, run_id);
         var loaded = score_module.load_log_files(run_dir);
         var log_files = loaded.log_files;
+
+        if (!('files.txt' in log_files)) {
+            return redirect_with_err('/run/' + run_id, res, req,
+                'Cannot mark run final before it has completed correctness ' +
+                'tests.');
+        }
+
         var files_contents = log_files['files.txt'].contents;
 
         if (files_contents.trim() !== 'All required files were found!') {

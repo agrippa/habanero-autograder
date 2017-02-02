@@ -33,7 +33,7 @@ public class ImportFromConductorRunnable implements Runnable {
                         toImport.wait();
                     } catch (InterruptedException ie) { }
                 }
-                curr = toImport.poll();
+                curr = toImport.pollLast();
 
                 ViolaUtil.log("received import job for run %d, %d import jobs pending\n", curr.getRunId(),
                         toImport.size());

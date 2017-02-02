@@ -31,7 +31,7 @@ public class ExportToConductorRunnable implements Runnable {
                         toImport.wait();
                     } catch (InterruptedException ie) { }
                 }
-                curr = toImport.poll();
+                curr = toImport.pollLast();
             }
 
             ViolaUtil.log("received export job for run %d from %s to conductor\n", curr.getRunId(),

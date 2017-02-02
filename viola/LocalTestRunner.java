@@ -271,6 +271,8 @@ public class LocalTestRunner {
                 "jvm_args length=%d\n", user, assignment_name, run_id,
                 jvm_args.length);
 
+        final String lbl = String.format("run_id=%d", run_id);
+
         File extractCodeDir = null;
         File extractInstructorDir = null;
         try {
@@ -281,7 +283,6 @@ public class LocalTestRunner {
             logDir = CommonUtils.getTempDirectoryName();
             createdDirectories.add(logDir.getAbsolutePath());
 
-            final String lbl = String.format("run_id=%d", run_id);
 
             extractCodeDir.mkdir();
             extractInstructorDir.mkdir();
@@ -294,8 +295,8 @@ public class LocalTestRunner {
             final String correctnessOutputFile = logDir.getAbsolutePath() + "/correct.txt";
             final String filesReportOutputFile = logDir.getAbsolutePath() + "/files.txt";
 
-            ViolaUtil.log("Target code directory = " + extractCodeDir.getAbsolutePath() + "\n");
-            ViolaUtil.log("Target instructor directory = " + extractInstructorDir.getAbsolutePath() + "\n");
+            ViolaUtil.log(lbl + " Target code directory = " + extractCodeDir.getAbsolutePath() + "\n");
+            ViolaUtil.log(lbl + " Target instructor directory = " + extractInstructorDir.getAbsolutePath() + "\n");
 
             String[] unzip_code = new String[]{"unzip", createdSubmissionDir.getAbsolutePath() + "/student.zip", "-d",
               extractCodeDir.getAbsolutePath()};
@@ -358,7 +359,7 @@ public class LocalTestRunner {
              * Run checkstyle
              */
             final File checkstyle_config = new File(createdAssignmentDir.getAbsolutePath() + "/checkstyle.xml");
-            ViolaUtil.log("Checkstyle config file = " + checkstyle_config.getAbsolutePath() + "\n");
+            ViolaUtil.log(lbl + " Checkstyle config file = " + checkstyle_config.getAbsolutePath() + "\n");
 
             final File mainSrcFolder = new File(unzipped_code_dir, "src");
             if (!mainSrcFolder.exists()) {
@@ -373,7 +374,7 @@ public class LocalTestRunner {
                 mainTestFolder.mkdir();
             }
 
-            ViolaUtil.log("mainCodeFolder = " + mainCodeFolder.getAbsolutePath() + "\n");
+            ViolaUtil.log(lbl + " mainCodeFolder = " + mainCodeFolder.getAbsolutePath() + "\n");
             List<String> studentJavaFiles = findAllJavaFiles(mainCodeFolder, false);
 
             String[] checkstyle_cmd = new String[5 + studentJavaFiles.size()];
@@ -572,19 +573,26 @@ public class LocalTestRunner {
             writer.close();
             createdFilesToSave.add(correctnessOutputFile);
 
-            ViolaUtil.log("Filled correctness log file\n");
+            ViolaUtil.log(lbl + " Filled correctness log file\n");
         } catch (TestRunnerException tr) {
+            ViolaUtil.log(lbl + " got TestRunnerException");
             errMsg = tr.getMessage();
             tr.printStackTrace();
         } catch (Throwable t) {
+            ViolaUtil.log(lbl + " got throwable " + t.getClass().getName());
             errMsg = "An internal error occurred running the correctness tests.";
             t.printStackTrace();
         } finally {
+            ViolaUtil.log(lbl + " Entering finally of LocalTestRunner, " +
+                    "beingCancelled = " + beingCancelled + "\n");
+
             if (beingCancelled) {
                 errMsg = "Cancelled by user";
             }
 
             synchronized(toImport) {
+                ViolaUtil.log(lbl + " Notifying exporter of complete job\n");
+
                 toImport.push(this);
                 toImport.notifyAll();
             }

@@ -22,7 +22,7 @@ public class NotifyConductorRunnable implements Runnable {
                         toNotify.wait();
                     } catch (InterruptedException ie) { }
                 }
-                curr = toNotify.poll();
+                curr = toNotify.pollLast();
 
                 ViolaUtil.log("received notify job for run %d, %d notify jobs in queue\n", curr.getRunId(),
                         toNotify.size());
