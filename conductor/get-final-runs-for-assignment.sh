@@ -7,7 +7,9 @@ if [[ $# -ne 1 ]]; then
     exit 1
 fi
 
-psql --quiet --dbname=autograder --user=postgres --command="SELECT assignment_id FROM assignments WHERE name='COMP322-S17-HW1'" -t > tmp
+ASSIGNMENT=$1
+
+psql --quiet --dbname=autograder --user=postgres --command="SELECT assignment_id FROM assignments WHERE name='$ASSIGNMENT'" -t > tmp
 if [[ $(cat tmp | wc -l) -ne 2 ]]; then
     echo Invalid output when selecting assignment id
     exit 1

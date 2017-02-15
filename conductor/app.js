@@ -2464,11 +2464,6 @@ function get_runs_for_username(username, cb) {
     });
 }
 
-// Indicate that some validation of instructor-uploaded files has failed.
-function failed_validation(err_msg) {
-    log('failed_validation: ' + err_msg);
-    return {success: false, msg: err_msg};
-}
 
 // Check that the provided POM file has certain required properties set.
 function validate_instructor_pom(pom_file) {
@@ -2476,7 +2471,7 @@ function validate_instructor_pom(pom_file) {
   var hjlib_version_tag = '<hjlib.version>';
   var found = xml.search(hjlib_version_tag);
   if (found === -1) {
-    return failed_validation('The provided instructor POM does not seem to ' +
+    return score_module.failed_validation('The provided instructor POM does not seem to ' +
             'contain a hjlib.version property');
   }
   var version_index = found + hjlib_version_tag.length;
@@ -2487,7 +2482,7 @@ function validate_instructor_pom(pom_file) {
   var version_str = xml.substring(version_index, end_version);
   var split = version_str.split('.');
   if (split.length != 3 || isNaN(split[0]) || isNaN(split[1])) {
-    return failed_validation('The provided instructor POM does not seem to ' +
+    return score_module.failed_validation('The provided instructor POM does not seem to ' +
         'contain a valid hjlib.version property, expected a version number ' +
         'separated with two periods');
   }

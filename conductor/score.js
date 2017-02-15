@@ -180,6 +180,12 @@ function run_completed(run_status) {
   return run_status !== FAILED_STATUS && run_status !== CANCELLED_STATUS;
 }
 
+// Indicate that some validation of instructor-uploaded files has failed.
+function failed_validation_internal(err_msg) {
+    log('failed_validation: ' + err_msg);
+    return {success: false, msg: err_msg};
+}
+
 // Load the instructor-provided grading rubric and verify that it contains all
 // of the fields it is expected to contain.
 function load_and_validate_rubric_internal(rubric_file) {
@@ -187,76 +193,76 @@ function load_and_validate_rubric_internal(rubric_file) {
   try {
     rubric = JSON.parse(fs.readFileSync(rubric_file));
   } catch (err) {
-    return failed_validation('Failed to parse rubric JSON: ' + err.message);
+    return failed_validation_internal('Failed to parse rubric JSON: ' + err.message);
   }
 
   if (!rubric.hasOwnProperty('correctness')) {
-    return failed_validation('Rubric is missing correctness section');
+    return failed_validation_internal('Rubric is missing correctness section');
   }
   if (!rubric.hasOwnProperty('performance')) {
-    return failed_validation('Rubric is missing performance section');
+    return failed_validation_internal('Rubric is missing performance section');
   }
   if (!rubric.hasOwnProperty('style')) {
-    return failed_validation('Rubric is missing style section');
+    return failed_validation_internal('Rubric is missing style section');
   }
 
   if (!rubric.performance.hasOwnProperty('tests')) {
-    return failed_validation('Rubric is missing tests field of performance ' +
+    return failed_validation_internal('Rubric is missing tests field of performance ' +
             'section');
   }
 
   if (rubric.performance.tests.length > 0 &&
           !rubric.performance.hasOwnProperty('characteristic_test')) {
-    return failed_validation('Rubric is missing characteristic_test field of ' +
+    return failed_validation_internal('Rubric is missing characteristic_test field of ' +
             'performance section');
   }
 
   for (var c = 0; c < rubric.correctness.length; c++) {
     if (!rubric.correctness[c].hasOwnProperty('testname')) {
-      return failed_validation('Correctness test is missing name');
+      return failed_validation_internal('Correctness test is missing name');
     }
     if (!rubric.correctness[c].hasOwnProperty('points_worth') ||
         rubric.correctness[c].points_worth < 0.0) {
-      return failed_validation('Correctness test is missing valid points_worth');
+      return failed_validation_internal('Correctness test is missing valid points_worth');
     }
   }
 
   for (var p = 0; p < rubric.performance.tests.length; p++) {
     if (!rubric.performance.tests[p].hasOwnProperty('testname')) {
-      return failed_validation('Performance test is missing name');
+      return failed_validation_internal('Performance test is missing name');
     }
     if (!rubric.performance.tests[p].hasOwnProperty('points_worth')) {
-      return failed_validation('Performance test is missing points_worth');
+      return failed_validation_internal('Performance test is missing points_worth');
     }
     if (!rubric.performance.tests[p].hasOwnProperty('ncores')) {
-        return failed_validation('Performance test is missing ncores');
+        return failed_validation_internal('Performance test is missing ncores');
     }
     if (!rubric.performance.tests[p].hasOwnProperty('grading')) {
-      return failed_validation('Performance test is missing speedup grading');
+      return failed_validation_internal('Performance test is missing speedup grading');
     }
     var points_worth = rubric.performance.tests[p].points_worth;
 
     for (var g = 0; g < rubric.performance.tests[p].grading.length; g++) {
       if (!rubric.performance.tests[p].grading[g].hasOwnProperty('bottom_inclusive')) {
-        return failed_validation('Performance test grading is missing bottom_inclusive');
+        return failed_validation_internal('Performance test grading is missing bottom_inclusive');
       }
       if (!rubric.performance.tests[p].grading[g].hasOwnProperty('top_exclusive')) {
-        return failed_validation('Performance test grading is missing top_exclusive');
+        return failed_validation_internal('Performance test grading is missing top_exclusive');
       }
       if (!rubric.performance.tests[p].grading[g].hasOwnProperty('points_off')) {
-        return failed_validation('Performance test grading is missing points_off');
+        return failed_validation_internal('Performance test grading is missing points_off');
       }
       if (rubric.performance.tests[p].grading[g].points_off > points_worth) {
-        return failed_validation('Performance test grading is more than points_worth');
+        return failed_validation_internal('Performance test grading is more than points_worth');
       }
     }
   }
 
   if (!rubric.style.hasOwnProperty('points_per_error')) {
-    return failed_validation('Style section is missing points_per_error');
+    return failed_validation_internal('Style section is missing points_per_error');
   }
   if (!rubric.style.hasOwnProperty('max_points_off')) {
-    return failed_validation('Style section is missing max_points_off');
+    return failed_validation_internal('Style section is missing max_points_off');
   }
 
   return { success: true, rubric: rubric };
@@ -622,6 +628,9 @@ module.exports = {
     },
     pgquery: function(query, query_args, cb) {
         return pgquery_internal(query, query_args, cb);
+    },
+    failed_validation: function(err_msg) {
+        return failed_validation_internal(err_msg);
     },
     get_score: function(run_id, cb) {
         pgquery_internal("SELECT * FROM runs WHERE run_id=($1)", [run_id], function(err, rows) {
