@@ -1944,18 +1944,18 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   slurmFileContents += 'fi\n';
   slurmFileContents += 'INSTRUCTOR_DIR=$(ls $CELLO_WORK_DIR/assignment/instructor/)\n';
 
-  slurmFileContents += 'mkdir -p $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/src/test\n';
-  slurmFileContents += 'cp -r $CELLO_WORK_DIR/assignment/instructor/$INSTRUCTOR_DIR/src/test/* $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/src/test/\n';
+  slurmFileContents += 'mkdir -p "$CELLO_WORK_DIR/submission/student/$STUDENT_DIR/src/test"\n';
+  slurmFileContents += 'cp -r $CELLO_WORK_DIR/assignment/instructor/$INSTRUCTOR_DIR/src/test/* "$CELLO_WORK_DIR/submission/student/$STUDENT_DIR/src/test/"\n';
   slurmFileContents += 'cp ~/autograder-assignments/' + assignment_id +
-    '/instructor_pom.xml $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml\n';
-  slurmFileContents += 'rm -r $CELLO_WORK_DIR/assignment\n';
+    '/instructor_pom.xml "$CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml"\n';
+  slurmFileContents += 'rm -r "$CELLO_WORK_DIR/assignment"\n';
 
-  slurmFileContents += 'for F in $(find $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/ -name "*CorrectnessTest.java"); do\n';
-  slurmFileContents += '    rm $F\n';
+  slurmFileContents += 'find "$CELLO_WORK_DIR/submission/student/$STUDENT_DIR/" -name "*CorrectnessTest.java" | while read F; do\n';
+  slurmFileContents += '    rm "$F"\n';
   slurmFileContents += 'done\n';
   slurmFileContents += '\n';
-  slurmFileContents += 'mvn -Dcheckstyle.skip=true -f $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml clean compile test-compile\n';
-  slurmFileContents += 'cd $CELLO_WORK_DIR/submission/student/$STUDENT_DIR\n';
+  slurmFileContents += 'mvn -Dcheckstyle.skip=true -f "$CELLO_WORK_DIR/submission/student/$STUDENT_DIR/pom.xml" clean compile test-compile\n';
+  slurmFileContents += 'cd "$CELLO_WORK_DIR/submission/student/$STUDENT_DIR"\n';
 
   var remotePolicyPath = '$CELLO_WORK_DIR/security.policy';
   var securityFlags = '-Djava.security.manager -Djava.security.policy==' + remotePolicyPath;
@@ -2000,7 +2000,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
         slurmFileContents += '    truncate --size ' + score_module.MAX_FILE_SIZE + ' ' + output_file + '\n';
         slurmFileContents += 'fi\n';
         slurmFileContents += 'cat ' + output_file + ' >> ' + final_output_file + '\n';
-        slurmFileContents += 'rm -f ' + output_file + '\n';
+        slurmFileContents += 'rm -f "' + output_file + '"\n';
       }
     }
     slurmFileContents += '\n';
@@ -2013,7 +2013,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
         (hj_jar ? ('-javaagent:' + hj_jar) : '') + ' -cp ' + classpath.join(':') + pom_jars + ' ' +
         'org.junit.runner.JUnitCore $CLASSNAME >> ' + profiler_output + ' 2>&1 ; ' +
         'echo ===== Profiling test $CLASSNAME ===== >> $CELLO_WORK_DIR/traces.txt; ' +
-        'cat $CELLO_WORK_DIR/submission/student/$STUDENT_DIR/traces.txt >> ' +
+        'cat "$CELLO_WORK_DIR/submission/student/$STUDENT_DIR/traces.txt" >> ' +
         '$CELLO_WORK_DIR/traces.txt');
       slurmFileContents += 'awk \'BEGIN { doPrint = 1; } /Profiling/ { ' +
         'doPrint = 0; print $0; } /Total trace count/ { doPrint = 1; } /Failures:/ { doPrint = 0; } { ' +
