@@ -660,6 +660,19 @@ module.exports = {
             });
         });
     },
+    calc_slip_days_for: function(run_timestamp, assignment_deadline) {
+        if (run_timestamp > assignment_deadline) {
+            var delta_in_ms = run_timestamp - assignment_deadline;
+            var ms_per_second = 1000;
+            var ms_per_minute = 60 * ms_per_second;
+            var ms_per_hour = 60 * ms_per_minute;
+            var ms_per_day = 24 * ms_per_hour;
+            var slip_days_used = Math.ceil(delta_in_ms / ms_per_day);
+            return slip_days_used;
+        } else {
+            return 0;
+        }
+    },
     MAX_DISPLAY_FILE_SIZE: MAX_DISPLAY_FILE_SIZE,
     MAX_FILE_SIZE: MAX_FILE_SIZE,
     excessiveFileSizeMsg: excessiveFileSizeMsg,

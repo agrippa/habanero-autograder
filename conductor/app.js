@@ -2633,18 +2633,11 @@ function compute_remaining_slip_days_for(user_obj, final_runs, assignments) {
         }
 
         if (final_run_timestamp !== null) {
-            if (final_run_timestamp > curr_assignment.deadline) {
-                var delta_in_ms = final_run_timestamp - curr_assignment.deadline;
-                var ms_per_second = 1000;
-                var ms_per_minute = 60 * ms_per_second;
-                var ms_per_hour = 60 * ms_per_minute;
-                var ms_per_day = 24 * ms_per_hour;
-                var slip_days_used = Math.ceil(delta_in_ms / ms_per_day);
-                collect_final_runs[collect_final_runs.length - 1].slip_days_used = slip_days_used;
-                remaining_slip_days = remaining_slip_days - slip_days_used;
-            } else {
-                collect_final_runs[collect_final_runs.length - 1].slip_days_used = 0;
-            }
+            var slip_days_used = score_module.calc_slip_days_for(
+                    final_run_timestamp, curr_assignment.deadline);
+            collect_final_runs[collect_final_runs.length - 1].slip_days_used =
+                slip_days_used;
+            remaining_slip_days = remaining_slip_days - slip_days_used;
         }
     }
 
