@@ -519,7 +519,8 @@ function calculate_score_internal(assignment_id, log_files, ncores, run_status, 
 
                                         performance_comments.push('Deducted ' +
                                                 grading[g].points_off +
-                                                ' point(s) on test ' +
+                                                ' point(s) out of a maximum of ' +
+                                                performance_test.points_worth + ' point(s) on test ' +
                                                 performance_testname + ' with ' +
                                                 curr_cores + ' core(s)' +
                                                 ' for speedup of ' + speedup + ', ' + range_msg);
@@ -572,7 +573,8 @@ function calculate_score_internal(assignment_id, log_files, ncores, run_status, 
 
         var pointsOff = errorCount * rubric.style.points_per_error;
         if (pointsOff > style) pointsOff = style;
-        style_comments.push('Deducted ' + pointsOff + ' point(s) because of ' +
+        style_comments.push('Deducted ' + pointsOff + ' point(s) out of a ' +
+                'maximum of ' + rubric.style.max_points_off + ' point(s) because of ' +
                 errorCount + ' checkstyle error(s)');
         style -= pointsOff;
     } else {
