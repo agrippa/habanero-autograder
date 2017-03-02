@@ -34,7 +34,9 @@ CREATE TABLE IF NOT EXISTS assignments
  deadline TIMESTAMP NOT NULL,
  send_reminder_emails BOOLEAN NOT NULL DEFAULT TRUE,
  reminder_email_sent BOOLEAN NOT NULL DEFAULT FALSE,
- required_files TEXT NOT NULL DEFAULT ''
+ required_files TEXT NOT NULL DEFAULT '',
+ hj_jar TEXT DEFAULT NULL,
+ pom_jars TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS runs

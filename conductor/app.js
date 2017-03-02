@@ -57,6 +57,14 @@ var AUTOGRADER_HOME = check_env('AUTOGRADER_HOME');
 
 var HOME = check_env('HOME');
 
+var CLUSTER_HOME = null;
+var CLUSTER_LIGHTWEIGHT_JAVA_PROFILER_HOME = null;
+var CLUSTER_JUNIT_JAR = null;
+var CLUSTER_HAMCREST_JAR = null;
+var CLUSTER_ASM_JAR = null;
+var CLUSTER_RR_AGENT_JAR = null;
+var CLUSTER_RR_RUNTIME_JAR = null;
+
 // A gmail account that can be used to send messages from the autograder to users.
 var GMAIL_USER = check_env('GMAIL_USER');
 var GMAIL_PASS = check_env('GMAIL_PASS');
@@ -1133,7 +1141,16 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
                                     'Unable to upload to cluster');
                             }
                         }
-                        return redirect_with_success('/admin', res, req, 'Uploaded assignment');
+
+                        return update_assignment_jars(assignment_id, function(err, hj_jar, pom_jars) {
+                            if (err) {
+                                return redirect_with_err('/admin', res, req,
+                                    'Error updating assignment JARs: ' + err);
+                            } else {
+                                return redirect_with_success('/admin', res, req,
+                                    'Uploaded assignment');
+                            }
+                        });
                     });
                 });
 
@@ -1144,7 +1161,7 @@ app.post('/assignment', upload.fields(assignment_file_fields), function(req, res
 // Handle a re-upload of one of the files that make up an assignment
 // configuration. This includes both updating the file locally and remotely on
 // the cluster.
-function handle_reupload(req, res, missing_msg, target_filename) {
+function handle_reupload(req, res, missing_msg, target_filename, success_cb) {
   if (!req.session.is_admin) {
     return redirect_with_err('/overview', res, req, permissionDenied);
   } else {
@@ -1170,9 +1187,22 @@ function handle_reupload(req, res, missing_msg, target_filename) {
                         return redirect_with_err('/admin', res, req,
                             'Unable to upload to cluster');
                     }
-                    return redirect_with_success('/admin', res, req,
-                        'Updated ' + target_filename + ' for assignment ' +
-                        rows[0].name);
+
+                    if (success_cb !== null) {
+                        return success_cb(function(err) {
+                            if (err) {
+                                return redirect_with_err('/admin', res, req, err);
+                            } else {
+                                return redirect_with_success('/admin', res, req,
+                                    'Updated ' + target_filename + ' for assignment ' +
+                                    rows[0].name);
+                            }
+                        });
+                    } else {
+                        return redirect_with_success('/admin', res, req,
+                            'Updated ' + target_filename + ' for assignment ' +
+                            rows[0].name);
+                    }
                 });
             });
   }
@@ -1404,8 +1434,55 @@ app.post('/update_n_nodes/:assignment_id', function(req, res, next) {
 app.post('/upload_zip/:assignment_id', upload.single('zip'),
     function(req, res, next) {
       log('upload_zip: is_admin=' + req.session.is_admin);
-      return handle_reupload(req, res, 'Please provide a ZIP', 'instructor.zip');
+      return handle_reupload(req, res, 'Please provide a ZIP', 'instructor.zip',
+          null);
     });
+
+function update_assignment_jars(assignment_id, cb) {
+    var dependency_list_cmd = 'mvn -f ' +
+      '~/autograder-assignments/' + assignment_id +
+      '/instructor_pom.xml -DoutputAbsoluteArtifactFilename=true ' +
+      'dependency:list';
+
+    run_cluster_cmd('get dependencies', dependency_list_cmd,
+      function(err, stdout, stderr) {
+        if (err) {
+          return cb(err, null, null);
+        }
+
+        var dependency_lines = stdout.split('\n');
+        var dependency_lines_index = 0;
+        while (dependency_lines_index < dependency_lines.length &&
+            dependency_lines[dependency_lines_index] !== '[INFO] The following files have been resolved:') {
+          dependency_lines_index += 1;
+        }
+        var pom_jars = '';
+        var hj = '';
+        while (dependency_lines_index < dependency_lines.length &&
+            dependency_lines[dependency_lines_index] !== '[INFO] ') {
+          var curr = dependency_lines[dependency_lines_index];
+          var components = curr.split(':');
+          var path = components[5];
+
+          pom_jars += ':' + path;
+
+          if (components[1] == 'hjlib-cooperative') {
+            hj = path;
+          }
+          dependency_lines_index += 1;
+        }
+
+        score_module.pgquery("UPDATE assignments SET hj_jar='" + hj +
+                "',pom_jars='" + pom_jars + "' WHERE assignment_id=" +
+                assignment_id, [], function(err, rows) {
+                    if (err) {
+                        return cb(err, null, null);
+                    }
+
+                    cb(null, hj, pom_jars);
+        });
+      });
+}
 
 // Re-upload the instructor POM file for a given assignment.
 app.post('/upload_instructor_pom/:assignment_id', upload.single('pom'),
@@ -1421,8 +1498,18 @@ app.post('/upload_instructor_pom/:assignment_id', upload.single('pom'),
           return redirect_with_err('/admin', res, req, 'Error in POM: ' + validated.msg);
       }
 
-      return handle_reupload(req, res, 'Please provide an instructor pom.xml',
-        'instructor_pom.xml');
+      if (!req.session.is_admin) {
+        return redirect_with_err('/overview', res, req, permissionDenied);
+      } else {
+          var assignment_id = req.params.assignment_id;
+
+          return handle_reupload(req, res, 'Please provide an instructor pom.xml',
+            'instructor_pom.xml', function(cb) {
+                return update_assignment_jars(assignment_id, function(err, hj_jar, pom_jars) {
+                    return cb(err);
+                });
+            });
+      }
     });
 
 // Re-upload the grading rubric for a given assignment.
@@ -1439,7 +1526,8 @@ app.post('/upload_rubric/:assignment_id', upload.single('rubric'),
           return redirect_with_err('/admin', res, req, 'Error in rubric: ' + validated.msg);
       }
 
-      return handle_reupload(req, res, 'Please provide a rubric', 'rubric.json');
+      return handle_reupload(req, res, 'Please provide a rubric', 'rubric.json',
+          null);
     });
 
 // Update the checkstyle file used for a given assignment.
@@ -1447,7 +1535,8 @@ app.post('/upload_checkstyle/:assignment_id', upload.single('checkstyle_config')
     function(req, res, next) {
       log('upload_checkstyle: is_admin=' + req.session.is_admin);
 
-      return handle_reupload(req, res, 'Please provide a checkstyle file', 'checkstyle.xml');
+      return handle_reupload(req, res, 'Please provide a checkstyle file',
+          'checkstyle.xml', null);
     });
 
 // Toggle whether an assignment's tests should only ever run correctness tests.
@@ -1878,7 +1967,7 @@ function loop_over_all_perf_tests(cmd) {
 // some performance profiling tests, if enabled). ncores should be an array of
 // integers specifying the scalability tests we would like to run.
 function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
-    assignment_name, java_profiler_dir, os, ncores, junit_jar, hamcrest_jar, hj_jar,
+    assignment_name, java_profiler_dir, ncores, junit_jar, hamcrest_jar, hj_jar,
     asm_jar, rr_agent_jar, rr_runtime_jar, assignment_jvm_args, timeout_str,
     enable_profiling, custom_slurm_flags, n_nodes, pom_jars) {
   var max_n_cores = score_module.max(ncores);
@@ -1961,7 +2050,9 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
   var securityFlags = '-Djava.security.manager -Djava.security.policy==' + remotePolicyPath;
   var classpath = ['.', 'target/classes', 'target/test-classes', junit_jar,
                    hamcrest_jar, asm_jar];
-  if (hj_jar) classpath.push(hj_jar);
+  if (hj_jar.length > 0) {
+      classpath.push(hj_jar);
+  }
 
   if (!enable_profiling) {
     // Loop over scalability tests
@@ -1991,7 +2082,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
             securityFlags + ' -Dautograder.nranks=' +
             curr_n_nodes + ' -Dautograder.ncores=' +
             curr_cores + ' -Dhj.numWorkers=' + curr_cores +
-            (hj_jar ? (' -javaagent:' + hj_jar) : ' ') + ' -cp ' + classpath.join(':') + pom_jars + ' ' +
+            ((hj_jar.length > 0) ? (' -javaagent:' + hj_jar) : ' ') + ' -cp ' + classpath.join(':') + pom_jars + ' ' +
             'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
         slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c)\n';
         slurmFileContents += 'if [[ "$NBYTES" -gt "' + score_module.MAX_FILE_SIZE + '" ]]; then\n';
@@ -2010,7 +2101,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
       slurmFileContents += loop_over_all_perf_tests(
         'java ' + securityFlags + ' -Dhj.numWorkers=' + max_n_cores +
         ' -agentpath:' + java_profiler_dir + '/liblagent.so ' +
-        (hj_jar ? ('-javaagent:' + hj_jar) : '') + ' -cp ' + classpath.join(':') + pom_jars + ' ' +
+        ((hj_jar.length > 0) ? ('-javaagent:' + hj_jar) : '') + ' -cp ' + classpath.join(':') + pom_jars + ' ' +
         'org.junit.runner.JUnitCore $CLASSNAME >> ' + profiler_output + ' 2>&1 ; ' +
         'echo ===== Profiling test $CLASSNAME ===== >> $CELLO_WORK_DIR/traces.txt; ' +
         'cat "$CELLO_WORK_DIR/submission/student/$STUDENT_DIR/traces.txt" >> ' +
@@ -2030,17 +2121,6 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
    *
    * [1] http://bugs.java.com/bugdatabase/view_bug.do?bug_id=8022291
    */
-  // if (os !== 'Darwin') {
-  //   var rr_output = '$CELLO_WORK_DIR/datarace.txt';
-  //   slurmFileContents += loop_over_all_perf_tests('java ' +
-  //     assignment_jvm_args + ' ' + securityFlags + ' -cp ' +
-  //     classpath.join(':') + pom_jars + ' -Dhj.numWorkers=' + ncores + ' -javaagent:' +
-  //     hj_jar + ' -javaagent:' + rr_agent_jar + ' -Xbootclasspath/p:' +
-  //     rr_runtime_jar + ' rr.RRMain -toolpath= -maxTid=80 -tool=FT_CHECKER ' +
-  //     '-noWarn=+edu.rice.hj.runtime.* -classpath=' + classpath.join(':') +
-  //     ' -maxWarn=20 -quiet org.junit.runner.JUnitCore $CLASSNAME >> ' +
-  //     rr_output + ' 2>&1');
-  // }
 
   return slurmFileContents;
 }
@@ -2078,6 +2158,100 @@ function count_new_lines(content) {
     if (content.charAt(i) == 10) count++;
   }
   return count;
+}
+
+function launch_on_cluster(run_id, username, assignment_id, assignment_name,
+        ncores, hj, assignment_jvm_args, timeout_str, enable_profiling,
+        custom_slurm_flags_list, n_nodes, pom_jars, viola_err_msg, ncores_str, res, req) {
+    var run_dir = run_dir_path(username, run_id);
+    var localPolicyPath = AUTOGRADER_HOME + '/shared/security.policy';
+
+    // Generate a SLURM file for executing the performance tests.
+    fs.appendFileSync(run_dir + '/cello.slurm',
+      get_slurm_file_contents(run_id, CLUSTER_HOME,
+        username, assignment_id, assignment_name,
+        CLUSTER_LIGHTWEIGHT_JAVA_PROFILER_HOME,
+        ncores, CLUSTER_JUNIT_JAR,
+        CLUSTER_HAMCREST_JAR, hj,
+        CLUSTER_ASM_JAR, CLUSTER_RR_AGENT_JAR,
+        CLUSTER_RR_RUNTIME_JAR,
+        assignment_jvm_args, timeout_str, enable_profiling,
+        custom_slurm_flags_list, n_nodes, pom_jars));
+
+    log('local_run_finished: Generated SLURM ' +
+            'file for run ' + run_id);
+
+    var copies = [{src: run_dir + '/cello.slurm',
+                   dst: 'autograder/' + run_id + '/cello.slurm'},
+                  {src: localPolicyPath,
+                   dst: 'autograder/' + run_id + '/security.policy'}];
+    batched_cluster_copy(copies, true, function(stat) {
+        for (var i = 0; i < stat.length; i++) {
+          if (!stat[i].success) {
+            log('err copying to ' + stat[i].dst + ' from ' + stat[i].src + ', ' + stat[i].err);
+            return failed_starting_perf_tests(res,
+              'Failed copying cello.slurm+security.policy', run_id);
+          }
+        }
+
+        log('local_run_finished: Transferred ' +
+            'SLURM and policy files to ' +
+            'cluster for run ' + run_id);
+
+        if (CLUSTER_TYPE === 'slurm') {
+            // Submit the performance tests to the cluster
+            run_cluster_cmd('sbatch',
+                'sbatch ~/autograder/' + run_id + '/cello.slurm',
+                function(err, stdout, stderr) {
+                    if (err) {
+                      return failed_starting_perf_tests(res,
+                        'Failed submitting job', run_id);
+                    }
+
+                    log('local_run_finished: Launched run ' + run_id + ' on the cluster');
+
+                    // stdout == Submitted batch job 474297
+                    if (stdout.search('Submitted batch job ') !== 0) {
+                        return failed_starting_perf_tests(res,
+                                'Failed submitting batch job', run_id);
+                    }
+
+                    var tokens = stdout.trim().split(' ');
+                    var job_id = tokens[tokens.length - 1];
+                    pgquery_no_err("UPDATE runs SET job_id=($1),status='" +
+                        score_module.IN_CLUSTER_QUEUE_STATUS + "',viola_msg=$2," +
+                        "ncores=$3 WHERE run_id=($4)",
+                        [job_id, viola_err_msg, ncores_str, run_id],
+                        res, req, function(rows) {
+                            return res.send(
+                                JSON.stringify({ status: 'Success' }));
+                        });
+                });
+        } else {
+          // local cluster
+          var cello_script = process.env.HOME + '/autograder/' + run_id + '/cello.slurm';
+          log('local_run_finished: starting local run from ' + cello_script);
+          var run_cmd = '/bin/bash ' + cello_script;
+
+          run_cluster_cmd('local perf run', run_cmd,
+              function(err, stdout, stderr) {
+
+                fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stdout.txt', stdout);
+                fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stderr.txt', stderr);
+
+                if (err) {
+                  return failed_starting_perf_tests(res,
+                    'Failed running on local cluster', run_id);
+                }
+
+                pgquery_no_err('UPDATE runs SET job_id=($1) WHERE run_id=($2)',
+                    [LOCAL_JOB_ID, run_id], res, req, function(rows) {
+                        return res.send(
+                            JSON.stringify({ status: 'Success' }));
+                    });
+              });
+        }
+    });
 }
 
 // This endpoint is hit by the viola component when the correctness tests for a
@@ -2219,164 +2393,65 @@ app.post('/local_run_finished', function(req, res, next) {
                     log('local_run_finished: Connecting to ' +
                         CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
 
-                    var vars = ['HOME',
-                                'LIGHTWEIGHT_JAVA_PROFILER_HOME',
-                                'JUNIT_JAR', 'HAMCREST_JAR',
-                                'ASM_JAR', 'RR_AGENT_JAR', 'RR_RUNTIME_JAR'];
-                    batched_get_cluster_env_var(vars, function(err, vals) {
-                      if (err) {
-                        return failed_starting_perf_tests(res,
-                          'Error getting cluster env variables, err=' + err, run_id);
-                      }
+                     var cello_work_dir = get_cello_work_dir(CLUSTER_HOME, run_id);
+                     var dependency_list_cmd = 'mvn -f ' +
+                       '~/autograder-assignments/' + assignment_id +
+                       '/instructor_pom.xml -DoutputAbsoluteArtifactFilename=true ' +
+                       'dependency:list';
 
-                      var home_dir = vals.HOME;
-                      var java_profiler_dir = vals.LIGHTWEIGHT_JAVA_PROFILER_HOME;
-                      var rr_agent_jar = vals.RR_AGENT_JAR;
-                      var rr_runtime_jar = vals.RR_RUNTIME_JAR;
+                     // Create a working directory for these performance tests
+                     create_cluster_dir('autograder/' + run_id + '/submission',
+                         function(err, stdout, stderr) {
+                           if (err) {
+                             return failed_starting_perf_tests(res,
+                               'Failed creating autograder dir', run_id);
+                           }
 
-                      var cello_work_dir = get_cello_work_dir(home_dir, run_id);
-                      var dependency_list_cmd = 'mvn -f ' +
-                        '~/autograder-assignments/' + assignment_id +
-                        '/instructor_pom.xml -DoutputAbsoluteArtifactFilename=true ' +
-                        'dependency:list';
-                      var localPolicyPath = AUTOGRADER_HOME + '/shared/security.policy';
+                           log('local_run_finished: Created cluster directory for run ' + run_id);
 
-                      var junit = vals.JUNIT_JAR;
-                      var hamcrest = vals.HAMCREST_JAR;
-                      var asm = vals.ASM_JAR;
+                           cluster_copy(run_dir_path(username, run_id) +
+                               '/student.zip', 'autograder/' + run_id +
+                               '/submission/student.zip', true, function(err) {
+                               if (err) {
+                                 return failed_starting_perf_tests(res,
+                                      'Failed checking out student code', run_id);
+                               }
 
-                      get_cluster_os(function(err, os) {
-                        if (err) {
-                          return failed_starting_perf_tests(res,
-                            'Failed getting cluster OS', run_id);
-                        }
+                               log('local_run_finished: Transferred student ' +
+                                   'submission to cluster for run ' + run_id);
 
-                        // Create a working directory for these performance tests
-                        create_cluster_dir('autograder/' + run_id + '/submission',
-                            function(err, stdout, stderr) {
-                              if (err) {
-                                return failed_starting_perf_tests(res,
-                                  'Failed creating autograder dir', run_id);
-                              }
+                               var hj = rows[0].hj_jar;
+                               var pom_jars = rows[0].pom_jars;
 
-                              cluster_copy(run_dir_path(username, run_id) +
-                                  '/student.zip', 'autograder/' + run_id +
-                                  '/submission/student.zip', true, function(err) {
-                                  if (err) {
-                                    return failed_starting_perf_tests(res,
-                                         'Failed checking out student code', run_id);
-                                  }
-
-                                  run_cluster_cmd('get dependencies', dependency_list_cmd,
-                                    function(err, stdout, stderr) {
-                                      if (err) {
-                                        return failed_starting_perf_tests(
-                                            res, 'Failed getting dependencies', run_id);
-                                      }
-                                      var dependency_lines = stdout.split('\n');
-                                      var dependency_lines_index = 0;
-                                      while (dependency_lines_index < dependency_lines.length &&
-                                          dependency_lines[dependency_lines_index] !== '[INFO] The following files have been resolved:') {
-                                        dependency_lines_index += 1;
-                                      }
-                                      var pom_jars = '';
-                                      var hj = null;
-                                      while (dependency_lines_index < dependency_lines.length &&
-                                          dependency_lines[dependency_lines_index] !== '[INFO] ') {
-                                        var curr = dependency_lines[dependency_lines_index];
-                                        var components = curr.split(':');
-                                        var path = components[5];
-
-                                        pom_jars += ':' + path;
-
-                                        if (components[1] == 'hjlib-cooperative') {
-                                          hj = path;
-                                        }
-                                        dependency_lines_index += 1;
-                                      }
-
-                                      if (hj === null) {
-                                          log('local_run_finished: warning, unable to find HJ JAR in uploaded POM');
-                                      }
-
-                                      // Generate a SLURM file for executing the
-                                      // performance tests.
-                                      fs.appendFileSync(run_dir + '/cello.slurm',
-                                        get_slurm_file_contents(run_id, home_dir,
-                                          username, assignment_id, assignment_name,
-                                          java_profiler_dir, os, ncores, junit,
-                                          hamcrest, hj, asm, rr_agent_jar, rr_runtime_jar,
-                                          assignment_jvm_args, timeout_str, enable_profiling,
-                                          custom_slurm_flags_list, n_nodes, pom_jars));
-
-                                      var copies = [{src: run_dir + '/cello.slurm',
-                                                     dst: 'autograder/' + run_id + '/cello.slurm'},
-                                                    {src: localPolicyPath,
-                                                     dst: 'autograder/' + run_id + '/security.policy'}];
-                                      batched_cluster_copy(copies, true, function(stat) {
-                                          for (var i = 0; i < stat.length; i++) {
-                                            if (!stat[i].success) {
-                                              log('err copying to ' + stat[i].dst + ' from ' + stat[i].src + ', ' + stat[i].err);
-                                              return failed_starting_perf_tests(res,
-                                                'Failed copying cello.slurm+security.policy', run_id);
-                                            }
-                                          }
-
-                                          if (CLUSTER_TYPE === 'slurm') {
-                                              // Submit the performance tests to the cluster
-                                              run_cluster_cmd('sbatch',
-                                                  'sbatch ~/autograder/' + run_id + '/cello.slurm',
-                                                  function(err, stdout, stderr) {
-                                                      if (err) {
-                                                        return failed_starting_perf_tests(res,
-                                                          'Failed submitting job', run_id);
-                                                      }
-                                                      // stdout == Submitted batch job 474297
-                                                      if (stdout.search('Submitted batch job ') !== 0) {
-                                                          return failed_starting_perf_tests(res,
-                                                                  'Failed submitting batch job', run_id);
-                                                      }
-
-                                                      var tokens = stdout.trim().split(' ');
-                                                      var job_id = tokens[tokens.length - 1];
-                                                      pgquery_no_err("UPDATE runs SET job_id=($1),status='" +
-                                                          score_module.IN_CLUSTER_QUEUE_STATUS + "',viola_msg=$2," +
-                                                          "ncores=$3 WHERE run_id=($4)",
-                                                          [job_id, viola_err_msg, ncores_str, run_id],
-                                                          res, req, function(rows) {
-                                                              return res.send(
-                                                                  JSON.stringify({ status: 'Success' }));
-                                                          });
-                                                  });
-                                          } else {
-                                            // local cluster
-                                            var cello_script = process.env.HOME + '/autograder/' + run_id + '/cello.slurm';
-                                            log('local_run_finished: starting local run from ' + cello_script);
-                                            var run_cmd = '/bin/bash ' + cello_script;
-
-                                            run_cluster_cmd('local perf run', run_cmd,
-                                                function(err, stdout, stderr) {
-
-                                                  fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stdout.txt', stdout);
-                                                  fs.appendFileSync(process.env.HOME + '/autograder/' + run_id + '/stderr.txt', stderr);
-
-                                                  if (err) {
-                                                    return failed_starting_perf_tests(res,
-                                                      'Failed running on local cluster', run_id);
-                                                  }
-
-                                                  pgquery_no_err('UPDATE runs SET job_id=($1) WHERE run_id=($2)', [LOCAL_JOB_ID, run_id], res, req, function(rows) {
-                                                          return res.send(
-                                                              JSON.stringify({ status: 'Success' }));
-                                                      });
-                                                });
-                                          }
-                                      });
-                                    });
-                                });
-                            });
-                      });
-                      });
+                               if (hj === null) {
+                                   /*
+                                    * The JARs for this assignment haven't been
+                                    * filled in yet, must have been uploaded
+                                    * prior to caching them for each assignment.
+                                    */
+                                   return update_assignment_jars(assignment_id,
+                                       function(err, hj, pom_jars) {
+                                           return launch_on_cluster(run_id,
+                                               username, assignment_id,
+                                               assignment_name, ncores, hj,
+                                               assignment_jvm_args, timeout_str,
+                                               enable_profiling,
+                                               custom_slurm_flags_list, n_nodes,
+                                               pom_jars, viola_err_msg,
+                                               ncores_str, res, req);
+                                   });
+                               } else {
+                                   return launch_on_cluster(run_id,
+                                           username, assignment_id,
+                                           assignment_name, ncores, hj,
+                                           assignment_jvm_args, timeout_str,
+                                           enable_profiling,
+                                           custom_slurm_flags_list, n_nodes,
+                                           pom_jars, viola_err_msg,
+                                           ncores_str, res, req);
+                               }
+                             });
+                         });
                   });
               }
             });
@@ -3220,17 +3295,37 @@ function check_cluster() {
 
 // Setup for this web server, kicking off the cluster polling mechanism.
 function launch() {
-
     var port = process.env.PORT || 8000;
 
     var oneDay = 86400000;
     app.use(express.static(__dirname + '/views', { maxAge: oneDay }));
 
     connect_to_cluster(function() {
-    set_check_cluster_timeout(0);
-        var server = app.listen(port, function() {
-            log('Server listening at http://' + server.address().address + ':' +
-                server.address().port); 
+        set_check_cluster_timeout(0);
+
+        var vars = ['HOME',
+                    'LIGHTWEIGHT_JAVA_PROFILER_HOME',
+                    'JUNIT_JAR', 'HAMCREST_JAR',
+                    'ASM_JAR', 'RR_AGENT_JAR', 'RR_RUNTIME_JAR'];
+        batched_get_cluster_env_var(vars, function(err, vals) {
+          if (err) {
+            return failed_starting_perf_tests(res,
+              'Error getting cluster env variables, err=' + err, run_id);
+          }
+
+          CLUSTER_HOME = vals.HOME;
+          CLUSTER_LIGHTWEIGHT_JAVA_PROFILER_HOME = vals.LIGHTWEIGHT_JAVA_PROFILER_HOME;
+          CLUSTER_JUNIT_JAR = vals.JUNIT_JAR;
+          CLUSTER_HAMCREST_JAR = vals.HAMCREST_JAR;
+          CLUSTER_ASM_JAR = vals.ASM_JAR;
+          CLUSTER_RR_AGENT_JAR = vals.RR_AGENT_JAR;
+          CLUSTER_RR_RUNTIME_JAR = vals.RR_RUNTIME_JAR;
+
+          var server = app.listen(port, function() {
+              log('Server listening at http://' + server.address().address + ':' +
+                  server.address().port); 
+          });
+
         });
     });
 }
