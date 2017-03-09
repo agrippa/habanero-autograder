@@ -60,12 +60,19 @@ public class ImportFromConductorRunnable implements Runnable {
                 curr.setCreatedAssignmentDir(assignmentDir);
                 curr.setCreatedSubmissionDir(submissionDir);
 
+                final String copyCmd;
+                if (curr.getEnv().conductorHost.equals("localhost")) {
+                    copyCmd = "cp";
+                } else {
+                    copyCmd = "scp";
+                }
+
                 final String[] assignmentScpCmd = new String[] {
-                    "scp", "-r",
+                    copyCmd, "-r",
                     curr.getEnv().conductorUser + "@" + curr.getEnv().conductorHost + ":" + curr.getAssignmentPath(),
                     assignmentDir.getAbsolutePath() };
                 final String[] submissionScpCmd = new String[] {
-                    "scp", "-r",
+                    copyCmd, "-r",
                     curr.getEnv().conductorUser + "@" + curr.getEnv().conductorHost + ":" + curr.getSubmissionPath(),
                     submissionDir.getAbsolutePath() };
 

@@ -43,8 +43,15 @@ public class ExportToConductorRunnable implements Runnable {
 
             // Transfer the output files for this run back to the conductor.
             for (String path : curr.getFilesToSave()) {
+                final String copyCmd;
+                if (curr.getEnv().conductorHost.equals("localhost")) {
+                    copyCmd = "cp";
+                } else {
+                    copyCmd = "scp";
+                }
+
                 final CommonUtils.ProcessResults[] scpResults = new CommonUtils.ProcessResults[1];
-                final String[] scpCmd = new String[] {"scp", path, curr.getEnv().conductorUser + "@" +
+                final String[] scpCmd = new String[] {copyCmd, path, curr.getEnv().conductorUser + "@" +
                     curr.getEnv().conductorHost + ":" + curr.getSubmissionPath() + "/" };
 
                 final Throwable err = CommonUtils.retryUntilSuccess(() -> {
