@@ -1714,7 +1714,7 @@ function kick_off_svn_export(svn_url, temp_dir, run_id, run_dir,
 
       svn_cmd(['log', svn_url, '-l', '1'], function(err, stdout) {
           if (is_actual_svn_err(err)) {
-              return viola_trigger_failure(run_id,
+              return viola_trigger_failed(run_id,
                   'An error occurred getting the log messages from SVN', err);
           }
 
@@ -1729,7 +1729,7 @@ function kick_off_svn_export(svn_url, temp_dir, run_id, run_dir,
           score_module.pgquery('UPDATE runs SET tag=($1) WHERE run_id=($2)', [tag, run_id],
               function(err, rows) {
                   if (err) {
-                      return viola_trigger_failure(run_id,
+                      return viola_trigger_failed(run_id,
                           'An error occurred setting the run tag', err);
                   }
 
@@ -1743,7 +1743,7 @@ function kick_off_svn_export(svn_url, temp_dir, run_id, run_dir,
                         assignment_id, jvm_args, correctness_timeout, username, required_files);
                   });
                   archive.on('error', function(err){
-                      return viola_trigger_failure(run_id,
+                      return viola_trigger_failed(run_id,
                           'An error occurred zipping your submission.', err);
                   });
                   archive.pipe(output);
