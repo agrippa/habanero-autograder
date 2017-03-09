@@ -1,5 +1,7 @@
 import java.util.LinkedList;
 
+import org.apache.commons.io.FileUtils;
+
 import java.io.File;
 import java.io.IOException;
 
@@ -60,56 +62,78 @@ public class ImportFromConductorRunnable implements Runnable {
                 curr.setCreatedAssignmentDir(assignmentDir);
                 curr.setCreatedSubmissionDir(submissionDir);
 
-                final String copyCmd;
+                final String copyCmd, srcAssignmentPath, srcSubmissionPath;
                 if (curr.getEnv().conductorHost.equals("localhost")) {
-                    copyCmd = "cp";
+                    final File srcAssignmentFolder = new File(curr.getAssignmentPath());
+                    final File dstAssignmentFolder = new File(assignmentDir.getAbsolutePath());
+                    final File srcSubmissionFolder = new File(curr.getSubmissionPath());
+                    final File dstSubmissionFolder = new File(submissionDir.getAbsolutePath());
+
+                    try {
+                        ViolaUtil.log("ImportFromConductorRunnable: run_id=%s " +
+                                "copying %s to %s\n", runId,
+                                srcAssignmentFolder.getAbsolutePath(),
+                                dstAssignmentFolder.getAbsolutePath());
+                        FileUtils.copyDirectory(srcAssignmentFolder, dstAssignmentFolder);
+                        ViolaUtil.log("ImportFromConductorRunnable: run_id=%s " +
+                                "copying %s to %s\n", runId,
+                                srcSubmissionFolder.getAbsolutePath(),
+                                dstSubmissionFolder.getAbsolutePath());
+                        FileUtils.copyDirectory(srcSubmissionFolder, dstSubmissionFolder);
+                        ViolaUtil.log("ImportFromConductorRunnable: run_id=%s " +
+                                "done importing files\n", runId);
+                    } catch (IOException io) {
+                        curr.setErrMsg(io.getMessage());
+                    }
                 } else {
                     copyCmd = "scp";
-                }
+                    srcAssignmentPath = curr.getEnv().conductorUser + "@" +
+                        curr.getEnv().conductorHost + ":" + curr.getAssignmentPath();
+                    srcSubmissionPath = curr.getEnv().conductorUser + "@" +
+                        curr.getEnv().conductorHost + ":" + curr.getSubmissionPath();
 
-                final String[] assignmentScpCmd = new String[] {
-                    copyCmd, "-r",
-                    curr.getEnv().conductorUser + "@" + curr.getEnv().conductorHost + ":" + curr.getAssignmentPath(),
-                    assignmentDir.getAbsolutePath() };
-                final String[] submissionScpCmd = new String[] {
-                    copyCmd, "-r",
-                    curr.getEnv().conductorUser + "@" + curr.getEnv().conductorHost + ":" + curr.getSubmissionPath(),
-                    submissionDir.getAbsolutePath() };
+                    final String[] assignmentScpCmd = new String[] {
+                        copyCmd, "-r", srcAssignmentPath,
+                        assignmentDir.getAbsolutePath() };
+                    final String[] submissionScpCmd = new String[] {
+                        copyCmd, "-r", srcSubmissionPath,
+                        submissionDir.getAbsolutePath() };
 
-                final CommonUtils.ProcessResults[] scpResults = new CommonUtils.ProcessResults[1];
+                    final CommonUtils.ProcessResults[] scpResults = new CommonUtils.ProcessResults[1];
 
-                // SCP the assignment files from the conductor
-                final Throwable assignmentThrowable = CommonUtils.retryUntilSuccess(() -> {
-                        try {
-                            scpResults[0] = CommonUtils.runInProcess(lbl, assignmentScpCmd, new File("/tmp/"), 30000,
-                                null);
-                        } catch (InterruptedException|IOException io) {
-                            ViolaUtil.log("ImportFromConductorRunnable: run_id=%s failed scp-ing assignment " +
-                                "directory\n", runId);
-                            io.printStackTrace();
-                            throw new RuntimeException(io);
-                        }
-                    }, nretries, initialPause, backoff, "copying assignment files to viola");
-                if (assignmentThrowable != null) {
-                    curr.setErrMsg("Unable to transfer assignment files: " + assignmentThrowable.getMessage());
-                } else if (scpResults[0].code != 0) {
-                    curr.setErrMsg(scpResults[0].stderr);
-                } else {
-                    // SCP the submission files from the conductor
-                    final Throwable submissionThrowable = CommonUtils.retryUntilSuccess(() -> {
+                    // SCP the assignment files from the conductor
+                    final Throwable assignmentThrowable = CommonUtils.retryUntilSuccess(() -> {
                             try {
-                                CommonUtils.runInProcess(lbl, submissionScpCmd, new File("/tmp/"), 60000, null);
+                                scpResults[0] = CommonUtils.runInProcess(lbl, assignmentScpCmd, new File("/tmp/"), 30000,
+                                    null);
                             } catch (InterruptedException|IOException io) {
-                                ViolaUtil.log("ImportFromConductorRunnable: run_id=%s failed scp-ing submission " +
+                                ViolaUtil.log("ImportFromConductorRunnable: run_id=%s failed scp-ing assignment " +
                                     "directory\n", runId);
                                 io.printStackTrace();
                                 throw new RuntimeException(io);
                             }
-                        }, nretries, initialPause, backoff, "copying submission files to viola");
-                    if (submissionThrowable != null) {
-                        curr.setErrMsg("Unable to transfer submission files: " + submissionThrowable.getMessage());
+                        }, nretries, initialPause, backoff, "copying assignment files to viola");
+                    if (assignmentThrowable != null) {
+                        curr.setErrMsg("Unable to transfer assignment files: " + assignmentThrowable.getMessage());
                     } else if (scpResults[0].code != 0) {
                         curr.setErrMsg(scpResults[0].stderr);
+                    } else {
+                        // SCP the submission files from the conductor
+                        final Throwable submissionThrowable = CommonUtils.retryUntilSuccess(() -> {
+                                try {
+                                    CommonUtils.runInProcess(lbl, submissionScpCmd, new File("/tmp/"), 60000, null);
+                                } catch (InterruptedException|IOException io) {
+                                    ViolaUtil.log("ImportFromConductorRunnable: run_id=%s failed scp-ing submission " +
+                                        "directory\n", runId);
+                                    io.printStackTrace();
+                                    throw new RuntimeException(io);
+                                }
+                            }, nretries, initialPause, backoff, "copying submission files to viola");
+                        if (submissionThrowable != null) {
+                            curr.setErrMsg("Unable to transfer submission files: " + submissionThrowable.getMessage());
+                        } else if (scpResults[0].code != 0) {
+                            curr.setErrMsg(scpResults[0].stderr);
+                        }
                     }
                 }
             }

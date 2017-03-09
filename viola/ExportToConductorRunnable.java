@@ -1,5 +1,7 @@
 import java.util.LinkedList;
 
+import org.apache.commons.io.FileUtils;
+
 import java.io.File;
 import java.io.IOException;
 
@@ -43,29 +45,39 @@ public class ExportToConductorRunnable implements Runnable {
 
             // Transfer the output files for this run back to the conductor.
             for (String path : curr.getFilesToSave()) {
-                final String copyCmd;
                 if (curr.getEnv().conductorHost.equals("localhost")) {
-                    copyCmd = "cp";
-                } else {
-                    copyCmd = "scp";
-                }
-
-                final CommonUtils.ProcessResults[] scpResults = new CommonUtils.ProcessResults[1];
-                final String[] scpCmd = new String[] {copyCmd, path, curr.getEnv().conductorUser + "@" +
-                    curr.getEnv().conductorHost + ":" + curr.getSubmissionPath() + "/" };
-
-                final Throwable err = CommonUtils.retryUntilSuccess(() -> {
+                    final File srcFile = new File(path);
+                    final File dstFile = new File(curr.getSubmissionPath() + "/" + srcFile.getName());
                     try {
-                        scpResults[0] = CommonUtils.runInProcess("", scpCmd, new File("/tmp"), 30000, null);
-                    } catch (IOException|InterruptedException io) {
-                        throw new RuntimeException(io);
+                        ViolaUtil.log("ExportToConductorRunnable: runId=%s copying %s to %s\n", curr.getRunId(),
+                                srcFile.getAbsolutePath(), dstFile.getAbsolutePath());
+                        FileUtils.copyFile(srcFile, dstFile);
+                        ViolaUtil.log("ExportToConductorRunnable: runId=%s done exporting %s\n", curr.getRunId(),
+                                srcFile.getAbsolutePath());
+                    } catch (IOException io) {
+                        curr.setErrMsg("Unable to save log files: " + io.getMessage());
                     }
-                }, 10, 1000, 2, "copying viola results to conductor");
-                
-                if (err != null) {
-                    curr.setErrMsg("Unable to save log files: " + err.getMessage());
-                } else if (scpResults[0].code != 0) {
-                    curr.setErrMsg("Unable to save log files: " + scpResults[0].stderr);
+                } else {
+                    final String dstPath = curr.getEnv().conductorUser + "@" +
+                        curr.getEnv().conductorHost + ":" +
+                        curr.getSubmissionPath() + "/";
+
+                    final CommonUtils.ProcessResults[] scpResults = new CommonUtils.ProcessResults[1];
+                    final String[] scpCmd = new String[] {"scp", path, dstPath};
+
+                    final Throwable err = CommonUtils.retryUntilSuccess(() -> {
+                        try {
+                            scpResults[0] = CommonUtils.runInProcess("", scpCmd, new File("/tmp"), 30000, null);
+                        } catch (IOException|InterruptedException io) {
+                            throw new RuntimeException(io);
+                        }
+                    }, 10, 1000, 2, "copying viola results to conductor");
+                    
+                    if (err != null) {
+                        curr.setErrMsg("Unable to save log files: " + err.getMessage());
+                    } else if (scpResults[0].code != 0) {
+                        curr.setErrMsg("Unable to save log files: " + scpResults[0].stderr);
+                    }
                 }
             }
 
