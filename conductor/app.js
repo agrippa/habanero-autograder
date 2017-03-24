@@ -28,6 +28,8 @@ var permissionDenied = 'Permission denied. But you should shoot me an e-mail ' +
     'interesting research for you in the Habanero group.';
 var cancellationSuccessMsg = 'Successfully cancelled. Please give the job ' +
     'status a few minutes to update.';
+var markDisabledRunMsg = "You are not permitted to change a run's final status if " +
+    "the assignment it is associated with is disabled.";
 
 var upload = multer({ dest: 'uploads/' });
 
@@ -2082,6 +2084,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
             securityFlags + ' -Dautograder.nranks=' +
             curr_n_nodes + ' -Dautograder.ncores=' +
             curr_cores + ' -Dhj.numWorkers=' + curr_cores +
+            ' ' + assignment_jvm_args +
             ((hj_jar.length > 0) ? (' -javaagent:' + hj_jar) : ' ') + ' -cp ' + classpath.join(':') + pom_jars + ' ' +
             'org.junit.runner.JUnitCore $CLASSNAME >> ' + output_file + ' 2>&1');
         slurmFileContents += 'NBYTES=$(cat ' + output_file + ' | wc -c)\n';
@@ -2100,6 +2103,7 @@ function get_slurm_file_contents(run_id, home_dir, username, assignment_id,
       slurmFileContents += 'touch ' + profiler_output + '\n';
       slurmFileContents += loop_over_all_perf_tests(
         'java ' + securityFlags + ' -Dhj.numWorkers=' + max_n_cores +
+        ' ' + assignment_jvm_args +
         ' -agentpath:' + java_profiler_dir + '/liblagent.so ' +
         ((hj_jar.length > 0) ? ('-javaagent:' + hj_jar) : '') + ' -cp ' + classpath.join(':') + pom_jars + ' ' +
         'org.junit.runner.JUnitCore $CLASSNAME >> ' + profiler_output + ' 2>&1 ; ' +
@@ -2599,23 +2603,34 @@ app.post('/mark_final/:run_id', function(req, res, next) {
                 'tests.');
         }
 
-        var files_contents = log_files['files.txt'].contents;
+        pgquery_no_err('SELECT * FROM assignments WHERE assignment_id=($1)',
+                [rows[0].assignment_id], res, req, function(assignment_rows) {
+           if (assignment_rows.length != 1) {
+               return redirect_with_err('/overview', res, req, 'Invalid assignment');
+           }
 
-        if (files_contents.trim() !== 'All required files were found!') {
-            return redirect_with_err('/run/' + run_id, res, req,
-                'Cannot mark final, there are missing required files. ' +
-                'See the Required Files Report on this run page.');
-        }
+           if (!assignment_rows[0].visible) {
+               return redirect_with_err('/run/' + run_id, res, req,
+                   markDisabledRunMsg);
+           }
 
-        // Insert the final submission into the final_runs table
-        pgquery_no_err("INSERT INTO final_runs (run_id, user_id, " +
-            "assignment_id, timestamp) VALUES ($1, $2, $3, $4)",
-            [run_id, rows[0].user_id, rows[0].assignment_id, rows[0].start_time], res, req,
-        function(rows) {
-           return redirect_with_success('/run/' + run_id, res, req,
-               'Marked run as final');
+           var files_contents = log_files['files.txt'].contents;
+
+           if (files_contents.trim() !== 'All required files were found!') {
+               return redirect_with_err('/run/' + run_id, res, req,
+                   'Cannot mark final, there are missing required files. ' +
+                   'See the Required Files Report on this run page.');
+           }
+
+           // Insert the final submission into the final_runs table
+           pgquery_no_err("INSERT INTO final_runs (run_id, user_id, " +
+               "assignment_id, timestamp) VALUES ($1, $2, $3, $4)",
+               [run_id, rows[0].user_id, rows[0].assignment_id, rows[0].start_time], res, req,
+           function(rows) {
+              return redirect_with_success('/run/' + run_id, res, req,
+                  'Marked run as final');
+          });
        });
-
     });
 });
 
@@ -2624,11 +2639,23 @@ app.post('/unmark_final/:assignment_id', function(req, res, next) {
 
     log('unmark_final: assignment_id=' + assignment_id);
 
-    pgquery_no_err('DELETE FROM final_runs WHERE user_id=$1 AND assignment_id=$2', [req.session.user_id, assignment_id], res, req,
-    function(rows) {
-           return redirect_with_success('/overview', res, req,
-               'Unmarked final run');
-    });
+    pgquery_no_err('SELECT * FROM assignments WHERE assignment_id=($1)',
+            [assignment_id], res, req, function(assignment_rows) {
+       if (assignment_rows.length != 1) {
+           return redirect_with_err('/overview', res, req, 'Invalid assignment');
+       }
+
+       if (!assignment_rows[0].visible) {
+           return redirect_with_err('/overview', res, req,
+               markDisabledRunMsg);
+       }
+
+       pgquery_no_err('DELETE FROM final_runs WHERE user_id=$1 AND assignment_id=$2',
+           [req.session.user_id, assignment_id], res, req, function(rows) {
+              return redirect_with_success('/overview', res, req,
+                  'Unmarked final run');
+       });
+   });
 });
 
 function get_final_run_for(user_id, assignment_id, cb, res, req) {

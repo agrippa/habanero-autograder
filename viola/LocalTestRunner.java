@@ -537,7 +537,8 @@ public class LocalTestRunner {
                   junit_cmd = new String[12 + jvm_args.length];
                   junit_cmd[junit_cmd_index++] = "taskset";
                   junit_cmd[junit_cmd_index++] = "--cpu-list";
-                  junit_cmd[junit_cmd_index++] = Integer.toString(tid);
+                  junit_cmd[junit_cmd_index++] = Integer.toString(tid %
+                          Runtime.getRuntime().availableProcessors());
               }
 
               junit_cmd[junit_cmd_index++] = "java";

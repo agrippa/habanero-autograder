@@ -35,7 +35,7 @@ import java.io.PrintWriter;
  */
 public class Viola {
     // Executor for running the local tests
-    private final static int poolSize = 4;
+    private final static int poolSize = 8;
     private static final FairViolaTaskExecutor executor = new FairViolaTaskExecutor(poolSize);
     // Thread pool for accepting HTTP requests
     private static final ThreadPoolExecutor serverExecutor =
