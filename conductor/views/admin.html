@@ -33,7 +33,8 @@
             <td bgcolor="#AAAAAA"><center><b>Name</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Visibility</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Deadline</b></center></td>
-            <td bgcolor="#AAAAAA"><center><b>Correctness Only</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Costs Slip Days?</b></center></td>
+            <td bgcolor="#AAAAAA"><center><b>Correctness Only?</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>Send Reminder Emails?</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>JVM Args</b></center></td>
             <td bgcolor="#AAAAAA"><center><b>SLURM Flags</b></center></td>
@@ -75,6 +76,14 @@
                           <input name="deadline" type="text" value="<%= deadline_str %>">
                           <input value="Update Deadline" name="submit" type="submit">
                       </form>
+                  </center>
+              </td>
+              <td>
+                  <center>
+                  <form action="/set_assignment_costs_slip_days/<%= curr.assignment_id %>" method="post">
+                      <input type="hidden" name="set_costs_slip_days" value="<%= !curr.costs_slip_days %>">
+                      <input class="btn btn-primary" value=<%= curr.costs_slip_days ? 'Dont' : 'Do' %> name="submit" type="submit">
+                  </form>
                   </center>
               </td>
               <td>

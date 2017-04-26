@@ -1556,6 +1556,20 @@ app.post('/set_assignment_correctness_only/:assignment_id', function(req, res, n
       assignment_id, res, req);
 });
 
+// Toggle whether an assignment should cost a student slip days.
+app.post('/set_assignment_costs_slip_days/:assignment_id', function(req, res, next) {
+  log('set_assignment_costs_slip_days: is_admin=' + req.session.is_admin);
+  if (!req.session.is_admin) {
+      return redirect_with_err('/overview', res, req, permissionDenied);
+  }
+
+  var assignment_id = req.params.assignment_id;
+  var set_costs_slip_days = req.body.set_costs_slip_days;
+
+  return update_assignment_field(set_costs_slip_days, 'costs_slip_days',
+      assignment_id, res, req);
+});
+
 // Toggle whether a reminder email should be sent out for the given assignment.
 app.post('/set_send_reminder_emails/:assignment_id', function(req, res, next) {
   log('set_send_reminder_emails: is_admin=' + req.session.is_admin);
@@ -2736,7 +2750,7 @@ function compute_remaining_slip_days_for(user_obj, final_runs, assignments) {
 
         if (final_run_timestamp !== null) {
             var slip_days_used = score_module.calc_slip_days_for(
-                    final_run_timestamp, curr_assignment.deadline);
+                    final_run_timestamp, curr_assignment);
             collect_final_runs[collect_final_runs.length - 1].slip_days_used =
                 slip_days_used;
             remaining_slip_days = remaining_slip_days - slip_days_used;

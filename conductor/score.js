@@ -662,8 +662,10 @@ module.exports = {
             });
         });
     },
-    calc_slip_days_for: function(run_timestamp, assignment_deadline) {
-        if (run_timestamp > assignment_deadline) {
+    calc_slip_days_for: function(run_timestamp, assignment) {
+        var assignment_deadline = assignment.deadline;
+
+        if (assignment.costs_slip_days && run_timestamp > assignment_deadline) {
             var delta_in_ms = run_timestamp - assignment_deadline;
             var ms_per_second = 1000;
             var ms_per_minute = 60 * ms_per_second;

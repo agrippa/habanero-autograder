@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS assignments
  reminder_email_sent BOOLEAN NOT NULL DEFAULT FALSE,
  required_files TEXT NOT NULL DEFAULT '',
  hj_jar TEXT DEFAULT NULL,
- pom_jars TEXT DEFAULT NULL
+ pom_jars TEXT DEFAULT NULL,
+ costs_slip_days BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 CREATE TABLE IF NOT EXISTS runs
