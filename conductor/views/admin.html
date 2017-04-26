@@ -220,7 +220,11 @@
                       </form>
                   </center>
               </td>
-              <td><center><%= curr.remaining_slip_days %></center></td>
+              <% if (curr.remaining_slip_days < 0) { %>
+                  <td bgcolor="#FF0000"><center><%= curr.remaining_slip_days %></center></td>
+              <% } else { %>
+                  <td><center><%= curr.remaining_slip_days %></center></td>
+              <% } %>
           </tr>
           <% } %>
         </table>
