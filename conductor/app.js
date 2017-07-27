@@ -371,7 +371,9 @@ function run_cluster_cmd(lbl, cluster_cmd, cb) {
             } catch (err) {
                 log('run_cluster_cmd: caught error from existing connection (' +
                         err + ') during execution of "' + cluster_cmd + '"');
-                cluster_connection.end();
+                if (cluster_connection !== null) {
+                    cluster_connection.end();
+                }
                 cluster_connection = null;
                 cluster_sftp = null;
                 delete in_flight_cmds[token];
@@ -2406,7 +2408,7 @@ app.post('/local_run_finished', function(req, res, next) {
                     var n_nodes = score_module.parse_comma_separated_ints(n_nodes_str);
                     var custom_slurm_flags_str = rows[0].custom_slurm_flags;
                     var custom_slurm_flags_list =
-                      custom_slurm_flags_str.split(',');
+                      custom_slurm_flags_str.split('|');
 
                     log('local_run_finished: Connecting to ' +
                         CLUSTER_USER + '@' + CLUSTER_HOSTNAME);
