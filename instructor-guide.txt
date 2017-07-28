@@ -1,0 +1,227 @@
+===== Instructor Usage Guide =====
+
+This document offers an overview of the deployment and management of the
+Habanero Autograder for instructors using it in their courses.
+
+===== Configuration and Deployment =====
+
+At deployment, the autograder consists primarily of two server processes which
+may or may not be running on the same physical machine. In today's deployment,
+these two processes share a virtual machine hosted by the Rice University CS
+department at ananke.cs.rice.edu. This VM is only accessible via SSH with the
+appropriate private key from inside of the Rice intranet. However, it is
+accessible to HTTP/HTTPS requests from anywhere.
+
+The main process, referred to as the conductor, is a NodeJS server which serves
+up the frontend that users interact with and coordinates the execution of JUnit
+tests and reporting of their results.
+
+The secondary process, referred to as the viola, is a Java HTTP Server that
+responds to requests from the conductor for correctness testing, performs the
+correctness testing on the submission provided by the conductor, and then
+returns the results to the conductor.
+
+The autograder also consists of a Postgres database running on the same host as
+the conductor process.
+
+Both of these processes are configured using a combination of command line
+arguments and environment variables.
+
+Before launching either of these processes, the following environment variables
+must be set to the following values on the conductor host:
+
+1. SVN_USER: Username for the SVN repo from which students can export their
+submissions when running autograder runs.
+2. SVN_PASSWORD: Password for $SVN_USER.
+3. VIOLA_HOST: Host on which the viola component will run, e.g. 'localhost'
+4. VIOLA_PORT: Port on which the viola component will listen for HTTP messages
+   from the conductor. This is configured using command line arguments to viola.
+5. CLUSTER_HOSTNAME: URL for the SLURM cluster we will use to run performance
+   tests, e.g. 'nots.ric.edu'.
+6. CLUSTER_USER: Username on the cluster at $CLUSTER_HOSTNAME
+7. CLUSTER_PRIVATE_KEY_PASSPHRASE: Passphrase for the keys for $CLUSTER_USER to
+   access $CLUSTER_HOSTNAME.
+8. CLUSTER_TYPE: For now, must be 'slurm'. Theoretically, cluster type 'local'
+   is also possible for local testing on a laptop, but this cluster type is not
+   well-tested and so may not work.
+9. HOME: The current user's home directory, as set on most Unix systems.
+10. PORT: The port to host the conductor web server at.
+11. AUTOGRADER_HOME: Root directory that this repo is checked out to.
+12. GMAIL_USER: Gmail username to be used by the conductor to send run
+    notification e-mails, e.g. 'habanero.autograder@gmail.com'.
+13. GMAIL_PASS: Password for $GMAIL_USER
+14. PGSQL_USER: Username with access to the Postgres database.
+15. PGSQL_PASSWORD: Password for $PGSQL_USER.
+
+Additionally, the following environment variables must be set on the viola host
+(which may be the same as the conductor host):
+
+1. JUNIT_JAR: Absolute path to a locally installed JUnit JAR.
+2. HAMCREST_JAR: Absolute path to a locally installed hamcrest-core JAR.
+3. HOME: The current user's home directory, as set on most Unix systems.
+4. ASM_JAR: Absolute path to a locally installed asm-all JAR.
+5. AUTOGRADER_HOME: Root directory that this repo is checked out to.
+6. CHECKSTYLE_JAR: Absolute path to a locally installed checkstyle-all JAR.
+7. GORN_JAR: Absolute path to a locally installed gorn JAR, or empty string if
+   there is none.
+
+The Postgres database should be set up on the same host as the conductor with a
+database named 'autograder' created. You can then run the provided
+conductor/setup.sql script to pre-configure the necessary tables and columns.
+
+With those environment variables set, launching the Autograder is relatively
+straightforward. First, launching the viola on a given machine requires the
+following:
+
+$ cd $AUTOGRADER_HOME/viola
+$ make
+$ ./deploy.sh <conductor-hostname> <conductor-port> <conductor-user>
+
+where conductor-hostname is the hostname of the machine on which the conductor
+is deployed, conductor-port is the port at which the NodeJS conductor will be
+listening (set with the environment variable PORT), and conductor-user is a user
+with SSH access on the conductor that the viola component can use.
+
+Running the conductor simply requires the following:
+
+$ cd $AUTOGRADER_HOME/conductor
+$ ./deploy.sh
+
+In the current deployment of the autograder, both of these commands are run
+inside of separate screens to keep them persistent in their own sessions.
+
+===== Adding Users =====
+
+In the Autograder, there are two classes of users: admin or non-admin.
+
+Non-admin users are the vast majority, and generally consist of the students
+(and many of the TAs) for a given course. They have privileges such as
+submitting jobs, viewing the leaderboard, and viewing their own past runs. They
+cannot view the runs of any other users or perform any administrative actions.
+
+Admin users have all the privileges of normal users, but can also do things like:
+
+1. View any run
+2. Create new assignments
+3. Change the number of slip days for a given student
+4. Update and modify existing assignments
+
+Creating a new, normal user today is currently done with a script on the command
+line from the conductor host. This script is hard-coded to support Rice NetIDs
+at the moment:
+
+$ cd $AUTOGRADER_HOME/conductor
+$ ./add-student.sh <netid>
+
+This creates a new student with the username <netid> and a randomly generated
+password. New passwords are stored in a plain text file called 'passwords' in
+that directory. The Autograder is not intended to be a secure appliance by any
+means, which is why we explicitly don't ask students to create their own
+passwords so that we don't have to worry about securing them (e.g. if they
+re-used their bank account password with the Autograder). The add-students.sh
+script also sends an e-mail to <netid>@rice.edu with their username and password.
+
+Making an existing user an admin is currently a manual process because there are
+very few admin users, and so automation is not a high priority. Below is an
+example command, though it will likely need to be changed depending on your set
+up and which user you want to make an admin. By default, the Autograder is
+pre-configured by setup.sql with a single admin user called 'admin'.
+
+$ psql --dbname=autograder --user=postgres --command="UPDATE users SET is_admin=true WHERE user_name='admin'"
+
+Once you've made that change, a new page called 'Admin' should be accessible
+from the top menu bar in the Autograder when logged in as that user.
+
+===== Adding Assignments =====
+
+Note: only admin users can add assignments, and only from the Admin page.
+
+An Autograder assignment consists of six components:
+
+1. Name: a human-readable name for the assignment, e.g. 'COMP322-S17-HW3-Checkpoint2'
+2. Deadline: a date and time after which to start counting slip days, e.g. '04/13/1990 23:59:59'
+3. Instructor Tests: a zip file containing a full Maven project with reference copies of
+   the correctness and performance JUnit tests. If you have access to the
+   COMP322 repo at Rice U, you can find examples of the folders that would be
+   zipped and uploaded under COMP322/2017/projects (for example).
+4. Instructor POM: A Maven pom.xml file to use when compiling and running the
+   tests (to protect against weird student modifications).
+5. Assignment Rubric: An instructor-provided grading rubric that assigns points
+   to each instructor-provided tests. Examples of rubrics and the format they
+   follow can be found in the COMP 322 SVN repo under each project directory
+   beneath COMP322/2017/projects.
+6. Checkstyle File: An instructor-provided checkstyle file to be used by the
+   autograder for computing style grades.
+
+A new assignment can be uploaded from the Admin page at the very top, where
+there are corresponding fields for each of the components listed above.
+
+By default, when you create a new assignment it will be disabled (meaning that
+it will not be visible to regular users for new job submission). To enable an
+existing assignment and make it eligible for job submissions, find the column in
+the Existing Assignments listing titled 'Visibility' and click the 'Enable'
+button next to the assignment you have created. You can disable assignments from
+the same column by clicking 'Disable'.
+
+===== Editing Assignments =====
+
+Uploading an assignment is not a static operation. Once an assignment has been
+created, there are many configurable knobs for that assignment. These knobs are
+accessible through the Existing Assignments table in the Admin page. Each row
+corresponds to an existing assignment, and each column corresponds to a
+configurable knob for each assignment. Below are the names and descriptions of
+each knob:
+
+1. Name: name of the assignment, this is the only uneditable field.
+2. Visibility: controls whether regular users can see and submit to this
+   assignment. The text on the button in this column for a given assignment
+   indicates the state that assignment is in. That is, if an Enable button is
+   visible in this column for a given assignment, that assignment is disabled.
+3. Deadline: The set deadline for this assignment, used only for computing slip
+   day usage.
+4. Costs Slip Days?: Toggle whether late submissions to this assignment cost
+   slip days. In COMP 322, we generally say 'Dont' cost slip days for labs, but
+   keep it enabled for homeworks.
+5. Correctness Only?: Toggle whether this assignment has correctness tests only
+   (run on the viola) or both performance and correctness tests (run on viola
+   and the SLURM cluster). If this field isn't changed it won't affect
+   correctness, but for assignments without performance tests setting
+   'Correctness Only?' can improve turnaround time.
+6. Send Reminder Emails?: The Autograder has the capability to send reminder
+   e-mails immediately prior to a submission deadline. This makes sense for some
+   assignments (homeworks) but not for others (labs). This field allows you to
+   toggle the behavior for different assignments.
+7. JVM Args: Add command line arguments to the JVM while running correctness and
+   performance tests. The string entered in this field is simply copied on to
+   the command line unchanged.
+8. SLURM Flags: Flags to add to the SLURM job launched for performance testing
+   of this assignment. You may specify multiple flags, but they must be
+   separated by the pipe character '|'. '|' was chosen simply because it is
+   unlikely to appear in any SLURM flags you use.
+9. Required Files: You may list files here which must be included in any
+   submission marked final. For example, in COMP 322 we use this functionality
+   to check for written and report PDFs when a student selects a final run for a
+   given assignment.
+10. Correctness Tests Timeout (ms): An integer indicating how long to let the
+    correctness tests to run in the viola before killing them, measured in
+    milliseconds.
+11. Performance Tests Timeout (HH:MM:SS): Timeout for SLURM jobs running
+    performance tests, measured in hours, minutes, and seconds.
+12. # Cores: A comma-separated list of the number of cores to run performance
+    tests on. For example, for scaling experiments you might want to run a given
+    test on 1, 2, 4, and 8 cores.
+13. # Nodes: Similar to # Cores, but for the number of nodes to use on the SLURM
+    cluster.
+14. Reupload Zip: Allows re-uploading of instructor tests.
+15. Reupload Instructor POM: Allows re-uploading of the instructor-provided
+    pom.xml.
+16. Reupload Rubric: Allows re-uploading the instructor-provided grading rubric.
+17. Reupload Checkstyle: Allows re-uploading the instructor-provided checkstyle
+    configuration.
+
+===== Debugging =====
+
+Debugging Autograder crashes is usually straightforward. Log files for STDOUT
+and STDERR from the Autograder are kept beneath
+$AUTOGRADER_HOME/conductor/conductor-logs/, and the Autograder is fairly verbose
+in its logging to STDOUT.
