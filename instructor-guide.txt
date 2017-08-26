@@ -225,3 +225,22 @@ Debugging Autograder crashes is usually straightforward. Log files for STDOUT
 and STDERR from the Autograder are kept beneath
 $AUTOGRADER_HOME/conductor/conductor-logs/, and the Autograder is fairly verbose
 in its logging to STDOUT.
+
+===== What to do if the autograder crashes =====
+
+If the autograder crashes (i.e. is no longer responding to HTTP requests), the
+first step is to simply restart the NodeJS server. Assuming you are following
+the same deployment config as above, that simply implies logging into the
+autograder server (e.g. ananke.cs.rice.edu), using screen -r to resume the
+screen that was running the audotgrader's NodeJS server, and then re-running the
+same command as you originally used to start the autograder.
+
+Of course, the second step is to then try and figure out what went wrong. See
+the "Debugging" section above on where to find the autograder logs. Note that
+every time the autograder restarts it begins writing to a new set of log files
+to prevent overwriting old files. Autograder log file names are formatted as
+conductor.XX.out and conductor.XX.err, where XX is some number that is
+incremented by one everytime you restart the autograder. Hence, if you just
+restarted the autograder and the newest log files in the conductor log directory
+are named conductor.30.out and conductor.30.err (for example), you should look
+in conductor.29.out and conductor.29.err to investigate why it crashed.
