@@ -153,10 +153,6 @@ function rmdir_recursively(dir) {
 // simply upload ZIP files of their submission.
 var SVN_USERNAME = process.env.SVN_USER || 'jmg3';
 var SVN_PASSWORD = process.env.SVN_PASSWORD || '';
-var SVN_REPO = process.env.SVN_REPO ||
-    'https://svn.rice.edu/r/parsoft/projects/AutoGrader/student-runs';
-
-log('Using SVN repo ' + SVN_REPO + ' as user ' + SVN_USERNAME);
 
 // The location of the viola component, to be used to do lightweight correctness
 // testing.
@@ -1819,7 +1815,6 @@ function submit_run(user_id, username, assignment_name, correctness_only,
                   ' for user_id=' + user_id + ' on assignment_id=' +
                   assignment_id);
               var run_dir = run_dir_path(username, run_id);
-              var svn_dir = SVN_REPO + '/' + username + '/' + run_id;
 
               // Create run directory to store information on this run
               var mkdir_msg = '"mkdir ' + username + ' ' + assignment_name + ' ' + run_id + '"';
