@@ -99,6 +99,14 @@ On Mac OS, using Homebrew:
 
 The conductor host must have key-based SSH access to the configured cluster.
 
+When deploying the conductor using its deploy.sh script, it will automatically
+set itself to listen on port 8081. The following commands work for forwarding
+port 80 to 8081 on ananke.cs.rice.edu:
+
+sudo iptables -A INPUT -i ens3 -p tcp --dport 8081 -j ACCEPT
+sudo iptables -A INPUT -i ens3 -p tcp --dport 80 -j ACCEPT
+sudo iptables -A PREROUTING -t nat -i ens3 -p tcp --dport 80 -j REDIRECT --to-port 8081
+
 ===== AutoGrader Viola installation instructions =====
 
  1. cd habanero-autograder/viola
