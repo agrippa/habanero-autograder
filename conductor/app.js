@@ -1720,6 +1720,13 @@ function run_setup_failed(run_id, res, req, err_msg, svn_err) {
 function kick_off_svn_export(svn_url, temp_dir, run_id, run_dir,
         assignment_name, done_token, assignment_id, jvm_args,
         correctness_timeout, username, required_files) {
+    var expectedUrlPrefix = "https://svn.rice.edu/r/comp322";
+    if (svn_url.indexOf(expectedUrlPrefix) !== 0) {
+        return viola_trigger_failed(run_id,
+                'The passed SVN URL was expected to start with "'  + expectedUrlPrefix + '"')
+    }
+    svn_url = "https://svn.rice.edu/service/comp322" + svn_url.substring(expectedUrlPrefix.length);
+
     svn_cmd(['export', svn_url, temp_dir + '/submission_svn_folder'], function(err, stdout) {
       if (is_actual_svn_err(err)) {
           return viola_trigger_failed(run_id,
