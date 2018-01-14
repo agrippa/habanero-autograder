@@ -87,8 +87,11 @@ Running the conductor simply requires the following:
 $ cd $AUTOGRADER_HOME/conductor
 $ ./deploy.sh
 
-In the current deployment of the autograder, both of these commands are run
-inside of separate screens to keep them persistent in their own sessions.
+In the current deployment of the autograder on ananke, both of these commands are run
+inside of separate screens to keep them persistent in their own sessions. These
+commands will also only run the autograder on port 8081. To host it on port 80,
+you will also need to run the iptables commands listed in the conductor/README
+file.
 
 ===== Adding Users =====
 
@@ -141,17 +144,17 @@ An Autograder assignment consists of six components:
 1. Name: a human-readable name for the assignment, e.g. 'COMP322-S17-HW3-Checkpoint2'
 2. Deadline: a date and time after which to start counting slip days, e.g. '04/13/1990 23:59:59'
 3. Instructor Tests: a zip file containing a full Maven project with reference copies of
-   the correctness and performance JUnit tests. If you have access to the
-   COMP322 repo at Rice U, you can find examples of the folders that would be
-   zipped and uploaded under COMP322/2017/projects (for example).
+the correctness and performance JUnit tests. If you have access to the
+COMP322 repo at Rice U, you can find examples of the folders that would be
+zipped and uploaded under COMP322/2017/projects (for example).
 4. Instructor POM: A Maven pom.xml file to use when compiling and running the
-   tests (to protect against weird student modifications).
+tests (to protect against weird student modifications).
 5. Assignment Rubric: An instructor-provided grading rubric that assigns points
-   to each instructor-provided tests. Examples of rubrics and the format they
-   follow can be found in the COMP 322 SVN repo under each project directory
-   beneath COMP322/2017/projects.
+to each instructor-provided tests. Examples of rubrics and the format they
+follow can be found in the COMP 322 SVN repo under each project directory
+beneath COMP322/2017/projects.
 6. Checkstyle File: An instructor-provided checkstyle file to be used by the
-   autograder for computing style grades.
+autograder for computing style grades.
 
 A new assignment can be uploaded from the Admin page at the very top, where
 there are corresponding fields for each of the components listed above.
@@ -234,6 +237,13 @@ the same deployment config as above, that simply implies logging into the
 autograder server (e.g. ananke.cs.rice.edu), using screen -r to resume the
 screen that was running the audotgrader's NodeJS server, and then re-running the
 same command as you originally used to start the autograder.
+
+If there are no active screens when logging into the autograder after it appears
+down, this indicates someone rebooted the entire machine. In this case, simply
+refer to the Configuration and Deployment section of this guide for how to use
+the Viola and Conductor deploy scripts to launch the autograder infrastructure
+in two screen sessions. Don't forget to run the iptables commands in
+conductor/README to forward port 80 to 8081.
 
 Of course, the second step is to then try and figure out what went wrong. See
 the "Debugging" section above on where to find the autograder logs. Note that
