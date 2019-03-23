@@ -21,9 +21,9 @@ if (process.argv.length != 3) {
                 process.exit(1);
             }
 
-            var assignment_deadline = rows[0].deadline;
-            var slip_days_used = score.calc_slip_days_for(run_timestamp,
-                assignment_deadline);
+            var assignment = rows[0];
+            var slip_days_used = score.calc_slip_days_for(run_timestamp, assignment);
+
             console.log(slip_days_used + " slip day(s) used.");
             process.exit(0);
         });
