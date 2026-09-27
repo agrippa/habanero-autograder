@@ -32,4 +32,4 @@ fetching any newly completed runs from the Conductor.
 The top-level directory for each component includes installation instructions.
 
 If you have any questions, comments, or difficulties using the Habanero
-Autograder please contact the author (Max Grossman) at jmaxg3@gmail.com.
+Autograder please file an issue.
